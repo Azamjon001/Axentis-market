@@ -307,51 +307,95 @@ export default function CheckoutScreen() {
     if (!user || items.length === 0) return;
     setIsPlacing(true);
     try {
-      const groups = {};
+      // 🛒 Корзина может содержать товары РАЗНЫХ компаний. Каждая компания
+      // должна получить ОТДЕЛЬНЫЙ заказ ТОЛЬКО со своими товарами и своей
+      // суммой — иначе заказ и вся сумма ошибочно уходят одной компании,
+      // а остальные продавцы вообще не видят заказ.
+      const groupsMap = {};
       for (const item of items) {
-        const cid = item.product?.companyId || 1;
-        if (!groups[cid]) groups[cid] = [];
-        groups[cid].push(item);
+        const cid = Number(item.product?.companyId || 1);
+        if (!groupsMap[cid]) groupsMap[cid] = [];
+        groupsMap[cid].push(item);
       }
-      const firstCompanyId = Number(Object.keys(groups)[0]);
-      const companyItems = groups[firstCompanyId];
+      const groups = Object.entries(groupsMap); // [ [companyId, items], ... ]
 
-      const order = await createOrder({
-        companyId: firstCompanyId || undefined,
-        customerName: recipientName || user?.name || user?.phone || '',
-        customerPhone: user.phone,
-        items: companyItems.map(i => ({
-          productId: i.productId,
-          productName: i.product?.name || t('productWord'),
-          quantity: i.quantity,
-          price: i.product?.price || 0,
-          price_with_markup: i.product?.sellingPrice || i.product?.price || 0,
-          imageUrl: i.product?.images?.[0] || undefined,
-          color: i.selected_color || undefined,
-          size: i.selected_size || undefined,
-        })),
-        totalAmount: grandTotal,
-        deliveryType: 'delivery',
-        deliveryAddress: address,
-        deliveryCoordinates: deliveryCoords
-          ? `${deliveryCoords.lat},${deliveryCoords.lng}`
-          : undefined,
-        deliveryCost,
-        paymentMethod,
-        cardSubtype: paymentMethod === 'card' && selectedCard ? selectedCard.cardType : undefined,
-        recipientName,
-        comment: comment || undefined,
-      });
-      // ⭐ Списываем баллы, если покупатель выбрал оплату ими.
-      if (pointsToUse > 0) {
-        try { await redeemLoyalty(user.phone, pointsToUse, order.id); } catch { /* не блокируем заказ */ }
+      // Стоимость единицы товара с наценкой (её видит покупатель).
+      const unitSell = (i) => Number(i.product?.sellingPrice || i.product?.price || 0);
+      const lineSubtotal = (arr) => arr.reduce((s, i) => s + unitSell(i) * i.quantity, 0);
+
+      // Скидки (баллы + промокод) распределяем между компаниями
+      // пропорционально их доле в общей сумме товаров.
+      const totalDiscount = pointsToUse + promoDiscount;
+      const grandSubtotal = total; // сумма всех товаров до скидок и доставки
+
+      const created = [];
+      let distributedDiscount = 0;
+
+      for (let g = 0; g < groups.length; g++) {
+        const [companyIdStr, companyItems] = groups[g];
+        const companyId = Number(companyIdStr);
+        const groupSubtotal = lineSubtotal(companyItems);
+
+        // Последней группе отдаём остаток скидки, чтобы избежать ошибок округления.
+        const groupDiscount = g === groups.length - 1
+          ? Math.max(0, totalDiscount - distributedDiscount)
+          : Math.round(totalDiscount * (grandSubtotal > 0 ? groupSubtotal / grandSubtotal : 0));
+        distributedDiscount += groupDiscount;
+
+        // Доставку считаем только для первой компании (companyInfo относится
+        // к первому товару корзины) — не дублируем её на каждый заказ.
+        const groupDelivery = g === 0 ? deliveryCost : 0;
+        const groupTotal = Math.max(0, groupSubtotal - groupDiscount + groupDelivery);
+
+        const order = await createOrder({
+          companyId: companyId || undefined,
+          customerName: recipientName || user?.name || user?.phone || '',
+          customerPhone: user.phone,
+          items: companyItems.map(i => ({
+            productId: i.productId,
+            productName: i.product?.name || t('productWord'),
+            quantity: i.quantity,
+            price: i.product?.price || 0,
+            price_with_markup: i.product?.sellingPrice || i.product?.price || 0,
+            imageUrl: i.product?.images?.[0] || undefined,
+            color: i.selected_color || undefined,
+            size: i.selected_size || undefined,
+          })),
+          totalAmount: groupTotal,
+          deliveryType: 'delivery',
+          deliveryAddress: address,
+          deliveryCoordinates: deliveryCoords
+            ? `${deliveryCoords.lat},${deliveryCoords.lng}`
+            : undefined,
+          deliveryCost: groupDelivery,
+          paymentMethod,
+          cardSubtype: paymentMethod === 'card' && selectedCard ? selectedCard.cardType : undefined,
+          recipientName,
+          comment: comment || undefined,
+        });
+        created.push(order);
       }
-      // 🎟️ Фиксируем использование промокода.
-      if (promo?.promoId) {
-        await redeemPromo({ promoId: promo.promoId, userPhone: user.phone, orderId: order.id, discount: promoDiscount });
+
+      // Баллы и промокод списываем ОДИН раз, относя их к первому заказу.
+      const firstOrder = created[0];
+      if (firstOrder) {
+        // ⭐ Списываем баллы, если покупатель выбрал оплату ими.
+        if (pointsToUse > 0) {
+          try { await redeemLoyalty(user.phone, pointsToUse, firstOrder.id); } catch { /* не блокируем заказ */ }
+        }
+        // 🎟️ Фиксируем использование промокода.
+        if (promo?.promoId) {
+          try { await redeemPromo({ promoId: promo.promoId, userPhone: user.phone, orderId: firstOrder.id, discount: promoDiscount }); } catch { /* не блокируем заказ */ }
+        }
       }
+
       await clearAllItems();
-      navigation.replace('OrderConfirmed', { orderId: order.id, orderCode: order.orderCode });
+      const codes = created.map(o => o.orderCode).filter(Boolean);
+      navigation.replace('OrderConfirmed', {
+        orderId: firstOrder?.id,
+        orderCode: codes.length > 1 ? codes.join(', ') : (codes[0] || ''),
+        orderCount: created.length,
+      });
     } catch (err) {
       Alert.alert(t('error'), err?.response?.data?.error || t('orderFailed'));
     } finally {
