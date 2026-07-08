@@ -5,8 +5,8 @@ import { downloadCSV } from '../utils/csv';
 import CompactPeriodSelector from './CompactPeriodSelector';
 import { getCurrentLanguage, type Language } from '../utils/translations';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  AreaChart, Area, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  AreaChart, Area,
 } from 'recharts';
 
 interface PurchaseAnalyticsProps {
@@ -34,8 +34,6 @@ interface PurchaseStats {
   totalQuantity: number;
   totalCost: number;
 }
-
-const BAR_COLORS = ['#7C5CF0', '#22C55E', '#F59E0B', '#EF4444', '#06B6D4'];
 
 export default function PurchaseAnalytics({ companyId }: PurchaseAnalyticsProps) {
   const [purchases, setPurchases] = useState<Purchase[]>([]);
@@ -238,8 +236,17 @@ export default function PurchaseAnalytics({ companyId }: PurchaseAnalyticsProps)
 
     return Object.values(productMap)
       .sort((a, b) => b.quantity - a.quantity)
-      .slice(0, 5);
+      .slice(0, 8);
   }, [purchases]);
+
+  // Single-point fix: линия рисуется корректно даже при одном товаре
+  const enhancedTopProducts = React.useMemo(() => {
+    if (topProducts.length === 0) return [];
+    if (topProducts.length === 1) {
+      return [{ name: '—', quantity: 0, cost: 0 }, ...topProducts];
+    }
+    return topProducts;
+  }, [topProducts]);
 
   if (loading) {
     return (
@@ -516,7 +523,7 @@ export default function PurchaseAnalytics({ companyId }: PurchaseAnalyticsProps)
               </ResponsiveContainer>
             </div>
 
-            {/* Top Products — BarChart */}
+            {/* Top Products — AreaChart (сплошная линия, только закупки) */}
             <div
               style={{
                 background: 'var(--ax-card)',
@@ -526,16 +533,22 @@ export default function PurchaseAnalytics({ companyId }: PurchaseAnalyticsProps)
               }}
             >
               <h4 style={{ fontSize: 16, fontWeight: 600, color: 'var(--ax-text)', margin: '0 0 4px' }}>
-                {language === 'uz' ? 'Top 5 tovarlar' : 'Топ товаров по закупкам'}
+                {language === 'uz' ? 'Top tovarlar' : 'Топ товаров по закупкам'}
               </h4>
               <p style={{ fontSize: 13, color: '#5A5A78', margin: '0 0 20px' }}>
                 {language === 'uz' ? "Eng ko'p sotib olingan tovarlar" : 'Самые покупаемые товары'}
               </p>
               <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={topProducts}>
+                <AreaChart data={enhancedTopProducts}>
+                  <defs>
+                    <linearGradient id="topProductsGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#22C55E" stopOpacity={0.4} />
+                      <stop offset="95%" stopColor="#22C55E" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                  <XAxis dataKey="name" tick={{ fill: '#5A5A78', fontSize: 12 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fill: '#5A5A78', fontSize: 12 }} axisLine={false} tickLine={false} />
+                  <XAxis dataKey="name" tick={{ fill: '#5A5A78', fontSize: 11 }} axisLine={false} tickLine={false} interval={0} />
+                  <YAxis tick={{ fill: '#5A5A78', fontSize: 12 }} axisLine={false} tickLine={false} allowDecimals={false} />
                   <Tooltip
                     contentStyle={{
                       backgroundColor: '#13132A',
@@ -545,12 +558,17 @@ export default function PurchaseAnalytics({ companyId }: PurchaseAnalyticsProps)
                     }}
                     labelStyle={{ color: '#8B8BAA' }}
                   />
-                  <Bar dataKey="quantity" name={language === 'uz' ? 'Miqdori' : 'Количество'} radius={[6, 6, 0, 0]}>
-                    {topProducts.map((_, index) => (
-                      <Cell key={`cell-${index}`} fill={BAR_COLORS[index % BAR_COLORS.length]} />
-                    ))}
-                  </Bar>
-                </BarChart>
+                  <Area
+                    type="monotone"
+                    dataKey="quantity"
+                    stroke="#22C55E"
+                    strokeWidth={2.5}
+                    fill="url(#topProductsGrad)"
+                    dot={{ r: 3, fill: '#22C55E' }}
+                    activeDot={{ r: 5, fill: '#22C55E', stroke: '#FFFFFF', strokeWidth: 2 }}
+                    name={language === 'uz' ? 'Miqdori' : 'Количество'}
+                  />
+                </AreaChart>
               </ResponsiveContainer>
             </div>
           </div>
