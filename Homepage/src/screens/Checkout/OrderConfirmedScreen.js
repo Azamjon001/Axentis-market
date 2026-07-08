@@ -12,7 +12,8 @@ export default function OrderConfirmedScreen() {
   const { t } = useLanguage();
   const navigation = useNavigation();
   const route = useRoute();
-  const { orderId, orderCode } = route.params;
+  const { orderId, orderCode, orderCount = 1 } = route.params;
+  const isMulti = orderCount > 1;
 
   const scaleAnim = useRef(new Animated.Value(0)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -37,8 +38,14 @@ export default function OrderConfirmedScreen() {
 
         <Animated.View style={[styles.textBlock, { opacity: fadeAnim }]}>
           <Text style={[styles.title, { color: colors.text }]}>{t('orderPlaced')}</Text>
-          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>{t('orderAcceptedThanks')}</Text>
-          <Text style={[styles.orderCode, { color: colors.primary }]}>#{orderCode}</Text>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+            {isMulti
+              ? (t('ordersSplitByCompany') || 'Товары из разных магазинов оформлены отдельными заказами')
+              : t('orderAcceptedThanks')}
+          </Text>
+          <Text style={[styles.orderCode, { color: colors.primary }]}>
+            {isMulti ? '' : '#'}{orderCode}
+          </Text>
         </Animated.View>
       </View>
 

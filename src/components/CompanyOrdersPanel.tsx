@@ -74,6 +74,12 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
   const [companyAddress, setCompanyAddress] = useState<string>('');
   const [mapOrder, setMapOrder] = useState<Order | null>(null);
 
+  // 🔁 Частичная выдача: заказ, для которого открыт диалог завершения, и
+  // сколько единиц КАЖДОЙ позиции покупатель вернул (index позиции → кол-во).
+  // Возвращённые товары не считаются проданными и возвращаются на склад.
+  const [completingOrder, setCompletingOrder] = useState<Order | null>(null);
+  const [returnQty, setReturnQty] = useState<Record<number, number>>({});
+
   const { isMobile } = useResponsive();
   const responsive = useResponsiveClasses();
 
@@ -207,16 +213,45 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
   // Завершение заказа продавцом: деньги учитываются в аналитике только после
   // того, как заказ доставлен/выдан покупателю. Для самовывоза и продавцов без
   // курьера это единственный способ перевести заказ в 'completed'.
-  const handleMarkCompleted = async (orderId: number, e: React.MouseEvent) => {
+  //
+  // Открываем диалог выдачи: продавец отмечает, какие позиции покупатель
+  // забрал, а какие вернул (частичная выдача). По умолчанию возвращено 0 —
+  // т.е. заказ выдан полностью.
+  const openCompleteModal = (order: Order, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm(language === 'uz'
-      ? 'Buyurtma xaridorga topshirildimi? Tasdiqlaganingizdan so\'ng summa hisobotga qo\'shiladi.'
-      : 'Заказ выдан покупателю? После подтверждения сумма попадёт в аналитику.')) return;
+    setReturnQty({});
+    setCompletingOrder(order);
+  };
 
-    setProcessingId(orderId);
+  // Изменение количества возвращаемых единиц позиции (0..заказанное кол-во).
+  const setReturnFor = (idx: number, qty: number, max: number) => {
+    const clamped = Math.max(0, Math.min(qty, max));
+    setReturnQty(prev => ({ ...prev, [idx]: clamped }));
+  };
+
+  const submitComplete = async () => {
+    const order = completingOrder;
+    if (!order) return;
+
+    const returns = Object.entries(returnQty)
+      .map(([idx, q]) => ({ index: Number(idx), quantity: Number(q) }))
+      .filter(r => r.quantity > 0);
+
+    const confirmMsg = returns.length > 0
+      ? (language === 'uz'
+          ? 'Belgilangan tovarlar qaytariladi (sotilmagan) va omborga qaytadi. Davom etasizmi?'
+          : 'Отмеченные товары будут возвращены (не проданы) и вернутся на склад. Продолжить?')
+      : (language === 'uz'
+          ? 'Buyurtma to\'liq topshirildimi? Summa hisobotga qo\'shiladi.'
+          : 'Заказ выдан полностью? Сумма попадёт в аналитику.');
+    if (!confirm(confirmMsg)) return;
+
+    setProcessingId(order.id);
     try {
-      await api.orders.markDelivered(orderId);
+      await api.orders.markDelivered(order.id, returns);
       toast.success(language === 'uz' ? 'Buyurtma yakunlandi' : 'Заказ завершён');
+      setCompletingOrder(null);
+      setReturnQty({});
       loadOrders();
     } catch (error) {
       console.error('Error completing order:', error);
@@ -724,7 +759,7 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
 
                         {order.status === 'shipped' && (
                           <button
-                            onClick={(e) => handleMarkCompleted(order.id, e)}
+                            onClick={(e) => openCompleteModal(order, e)}
                             disabled={processingId === order.id}
                             className={`w-full flex items-center justify-center ${responsive.gap} ${responsive.button} bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium transition-colors shadow-sm disabled:opacity-50`}
                           >
@@ -797,11 +832,152 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
     </div>
   );
 
+  // ── ДИАЛОГ ВЫДАЧИ ЗАКАЗА (частичный возврат) ──────────────────────────────
+  const completeModal = completingOrder && (() => {
+    const order = completingOrder;
+    const unitOf = (it: OrderItem) => (it.quantity > 0 ? it.total / it.quantity : it.price);
+    let keptTotal = 0;
+    let returnedTotal = 0;
+    order.items.forEach((it, i) => {
+      const ret = Math.max(0, Math.min(returnQty[i] || 0, it.quantity));
+      const kept = it.quantity - ret;
+      keptTotal += unitOf(it) * kept;
+      returnedTotal += unitOf(it) * ret;
+    });
+    const hasReturns = returnedTotal > 0;
+
+    return (
+      <div
+        className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-6"
+        style={{ background: 'rgba(0,0,0,0.7)' }}
+        onClick={() => { if (processingId !== order.id) { setCompletingOrder(null); setReturnQty({}); } }}
+      >
+        <div
+          className="relative w-full max-w-lg rounded-2xl overflow-hidden flex flex-col"
+          style={{ background: 'var(--ax-card)', border: '1px solid rgba(255,255,255,0.1)', maxHeight: '90vh' }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+            <div className="flex items-center gap-2">
+              <Check className="w-4 h-4" style={{ color: '#22C55E' }} />
+              <span className="text-sm font-semibold" style={{ color: 'var(--ax-text)' }}>
+                {language === 'uz' ? 'Buyurtmani topshirish' : 'Выдача заказа'} #{order.order_code}
+              </span>
+            </div>
+            <button
+              onClick={() => { setCompletingOrder(null); setReturnQty({}); }}
+              disabled={processingId === order.id}
+              className="w-8 h-8 flex items-center justify-center rounded-lg disabled:opacity-50"
+              style={{ background: 'rgba(255,255,255,0.08)', color: 'var(--ax-text-2)' }}
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="px-4 py-3 overflow-y-auto" style={{ gap: 10, display: 'flex', flexDirection: 'column' }}>
+            <p className="text-xs" style={{ color: 'var(--ax-text-2)' }}>
+              {language === 'uz'
+                ? 'Xaridor qaytargan tovarlar sonini belgilang. Qaytarilgan tovarlar sotilmagan hisoblanadi va omborga qaytariladi.'
+                : 'Укажите, сколько единиц покупатель вернул. Возвращённые товары считаются непроданными и возвращаются на склад.'}
+            </p>
+
+            {order.items.map((it, i) => {
+              const ret = Math.max(0, Math.min(returnQty[i] || 0, it.quantity));
+              const kept = it.quantity - ret;
+              return (
+                <div key={i} className="rounded-lg p-3" style={{ background: 'var(--ax-bg)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium truncate" style={{ color: 'var(--ax-text)' }}>{it.name}</div>
+                      <div className="text-xs" style={{ color: 'var(--ax-text-2)' }}>
+                        {[it.color, it.size].filter(Boolean).join(' / ')}
+                        {(it.color || it.size) ? ' · ' : ''}
+                        {language === 'uz' ? 'Buyurtma' : 'Заказано'}: {it.quantity} {t.pcs}.
+                      </div>
+                    </div>
+                    <div className="text-right text-xs whitespace-nowrap" style={{ color: 'var(--ax-text-2)' }}>
+                      {formatPrice(unitOf(it))}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between mt-2.5">
+                    <span className="text-xs font-medium" style={{ color: hasReturns && ret > 0 ? '#EF4444' : 'var(--ax-text-2)' }}>
+                      {language === 'uz' ? 'Qaytarildi' : 'Возврат'}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setReturnFor(i, ret - 1, it.quantity)}
+                        disabled={ret <= 0 || processingId === order.id}
+                        className="w-8 h-8 flex items-center justify-center rounded-lg font-bold disabled:opacity-40"
+                        style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--ax-text)' }}
+                      >−</button>
+                      <span className="w-8 text-center text-sm font-semibold" style={{ color: 'var(--ax-text)' }}>{ret}</span>
+                      <button
+                        onClick={() => setReturnFor(i, ret + 1, it.quantity)}
+                        disabled={ret >= it.quantity || processingId === order.id}
+                        className="w-8 h-8 flex items-center justify-center rounded-lg font-bold disabled:opacity-40"
+                        style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--ax-text)' }}
+                      >+</button>
+                      <button
+                        onClick={() => setReturnFor(i, it.quantity, it.quantity)}
+                        disabled={ret >= it.quantity || processingId === order.id}
+                        className="ml-1 px-2 h-8 flex items-center rounded-lg text-xs font-medium disabled:opacity-40"
+                        style={{ background: 'rgba(239,68,68,0.12)', color: '#EF4444' }}
+                      >
+                        {language === 'uz' ? 'Hammasi' : 'Все'}
+                      </button>
+                    </div>
+                  </div>
+                  {ret > 0 && (
+                    <div className="text-xs mt-1.5" style={{ color: '#22C55E' }}>
+                      {language === 'uz' ? 'Qabul qilindi' : 'Принято'}: {kept} {t.pcs}.
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="px-4 py-3" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+            <div className="flex items-center justify-between text-sm">
+              <span style={{ color: 'var(--ax-text-2)' }}>{language === 'uz' ? 'Sotildi (hisobotga)' : 'Продано (в аналитику)'}</span>
+              <span className="font-bold" style={{ color: 'var(--ax-primary)' }}>{formatPrice(keptTotal)}</span>
+            </div>
+            {hasReturns && (
+              <div className="flex items-center justify-between text-sm mt-1">
+                <span style={{ color: 'var(--ax-text-2)' }}>{language === 'uz' ? 'Qaytarildi' : 'Возврат'}</span>
+                <span className="font-medium" style={{ color: '#EF4444' }}>−{formatPrice(returnedTotal)}</span>
+              </div>
+            )}
+            <div className="grid grid-cols-2 gap-2 mt-3">
+              <button
+                onClick={() => { setCompletingOrder(null); setReturnQty({}); }}
+                disabled={processingId === order.id}
+                className={`flex items-center justify-center ${responsive.gap} ${responsive.button} bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 font-medium transition-colors disabled:opacity-50`}
+              >
+                {t.cancel}
+              </button>
+              <button
+                onClick={submitComplete}
+                disabled={processingId === order.id}
+                className={`flex items-center justify-center ${responsive.gap} ${responsive.button} bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium transition-colors shadow-sm disabled:opacity-50`}
+              >
+                <Check className={responsive.iconSmall} />
+                {language === 'uz' ? 'Tasdiqlash' : 'Подтвердить'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  })();
+
   // ── ROOT LAYOUT ───────────────────────────────────────────────────────────
   return (
     <div className={responsive.spacing} style={{ background: 'var(--ax-bg)', color: 'var(--ax-text)' }}>
       {orderListPanel}
       {mapModal}
+      {completeModal}
     </div>
   );
 }
