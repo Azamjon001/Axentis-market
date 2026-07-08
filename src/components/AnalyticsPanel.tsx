@@ -53,8 +53,10 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
   const [customExpenses, setCustomExpenses] = useState(0);
   const [inventoryCost, setInventoryCost] = useState(0); // Себестоимость склада из вариантов
 
-  // 🔻 Раскрытие детализации в карточке «Затраты компании»
-  const [expensesExpanded, setExpensesExpanded] = useState(false);
+  // 🔻 Мини-панель (модальное окно) детализации «Затраты компании»
+  const [showExpensesModal, setShowExpensesModal] = useState(false);
+  // 🔻 Раскрытие разовых/процентных расходов внутри мини-панели
+  const [showExtraExpenses, setShowExtraExpenses] = useState(false);
   // 💳 Комиссия платформы (%) за онлайн-продажи — берём из профиля компании
   const [commissionPercent, setCommissionPercent] = useState(3);
 
@@ -386,8 +388,11 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
     }, 0);
   };
 
-  // Детализация операционных расходов за период: [{ name, amount }]
-  const getOperatingExpensesBreakdown = (period: PeriodType = 'day', periodRevenue: number = 0) => {
+  // Детализация операционных расходов по типам (для мини-панели «Затраты компании»)
+  //   monthly    → основной список (показывается всегда)
+  //   percentage → скрыт за кнопкой «Показать ещё»
+  //   one_time   → скрыт за кнопкой «Показать ещё» (только попавшие в период)
+  const getOperatingExpensesDetailed = (period: PeriodType = 'day', periodRevenue: number = 0) => {
     const { start, end } = getPeriodRange(period);
     let multiplier = 1;
     if (period === 'day') multiplier = 1 / 30;
@@ -398,20 +403,28 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
       const days = Math.ceil((financialEndDate.getTime() - financialStartDate.getTime()) / 86400000) + 1;
       multiplier = days / 30;
     }
-    const items: Array<{ name: string; amount: number }> = [];
+
+    const monthly: Array<{ name: string; amount: number }> = [];
+    const percentage: Array<{ name: string; amount: number; rate: number }> = [];
+    const oneTime: Array<{ name: string; amount: number; date?: string }> = [];
+
     operatingExpensesList.forEach((exp) => {
       const type: string = exp.expense_type || 'monthly';
       const name = exp.expense_name || exp.description || (language === 'uz' ? 'Xarajat' : 'Расход');
-      let amount = 0;
-      if (type === 'monthly') amount = (exp.monthly_amount || 0) * multiplier;
-      else if (type === 'percentage') amount = periodRevenue * ((exp.percentage_value || 0) / 100);
-      else if (type === 'one_time') {
+      if (type === 'monthly') {
+        const amount = (exp.monthly_amount || 0) * multiplier;
+        if (amount > 0) monthly.push({ name, amount });
+      } else if (type === 'percentage') {
+        const amount = periodRevenue * ((exp.percentage_value || 0) / 100);
+        percentage.push({ name, amount, rate: exp.percentage_value || 0 });
+      } else if (type === 'one_time') {
         const d = new Date(exp.expense_date || exp.created_at);
-        if (!isNaN(d.getTime()) && d >= start && d <= end) amount = exp.amount || 0;
+        if (!isNaN(d.getTime()) && d >= start && d <= end) {
+          oneTime.push({ name, amount: exp.amount || 0, date: exp.expense_date || exp.created_at });
+        }
       }
-      if (amount > 0) items.push({ name, amount });
     });
-    return items;
+    return { monthly, percentage, oneTime };
   };
 
   // 🆕 НОВОЕ: Получить РЕАЛЬНЫЕ данные для линейной диаграммы (БЕЗ случайности)
@@ -804,11 +817,15 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
             const offlineMarkup = getOfflineMarkup(financialTimePeriod);
             const revenue       = getPeriodRevenue(financialTimePeriod);
             const opEx          = getPeriodOperatingExpenses(financialTimePeriod, revenue);
-            const opBreakdown   = getOperatingExpensesBreakdown(financialTimePeriod, revenue);
-            // Затраты компании = стоимость склада (ещё не продано → минус) + операционные расходы
-            const totalExpenses = inventoryCost + opEx;
-            // Итоговый баланс = наценка − затраты компании (наценка прибавляется к стоимости склада)
-            const balance       = profit - totalExpenses;
+            const detailed      = getOperatingExpensesDetailed(financialTimePeriod, revenue);
+            // 🏬 Стоимость склада — только для наблюдения, В БАЛАНС НЕ ВХОДИТ
+            const warehouseCost = inventoryCost;
+            // 💸 Расходы компании (операционные) — влияют на баланс
+            const companyExpenses = opEx;
+            // «Затраты компании» (карточка) = склад (инфо) + расходы компании
+            const totalExpenses = warehouseCost + companyExpenses;
+            // Итоговый баланс = наценка (онлайн + офлайн) − расходы компании. Склад НЕ вычитается.
+            const balance       = profit - companyExpenses;
             const isPositive    = balance >= 0;
             // Онлайн/офлайн продажи — только для наблюдения, не влияют на баланс
             const onlineSales   = getOnlineSales(financialTimePeriod);
@@ -819,6 +836,7 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
             const balanceColor  = isPositive ? 'var(--ax-primary)' : 'var(--ax-danger)';
 
             return (
+              <>
               <div className="max-w-7xl mx-auto mb-6" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
                 {/* ── ИТОГИ ПЕРИОДА ── */}
@@ -835,8 +853,8 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
                       valueColor={balanceColor}
                       accent={balanceColor}
                       sub={language === 'uz'
-                        ? `Foyda (${formatPrice(profit)}) − Xarajatlar (${formatPrice(totalExpenses)})`
-                        : `Наценка (${formatPrice(profit)}) − Затраты (${formatPrice(totalExpenses)})`}
+                        ? `Foyda (${formatPrice(profit)}) − Xarajatlar (${formatPrice(companyExpenses)})`
+                        : `Наценка (${formatPrice(profit)}) − Расходы (${formatPrice(companyExpenses)})`}
                     />
 
                     {/* 2. ПРИБЫЛЬ (наценка онлайн + офлайн) */}
@@ -863,29 +881,23 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
                       valueColor="var(--ax-danger)"
                       sub={
                         <>
+                          <SubRow
+                            name={language === 'uz' ? 'Ombor (balansga kirmaydi)' : 'Склад (не в балансе)'}
+                            value={`−${formatPrice(warehouseCost)}`}
+                            valueColor="var(--ax-text-2)"
+                          />
+                          <SubRow
+                            name={language === 'uz' ? 'Xarajatlar' : 'Расходы'}
+                            value={`−${formatPrice(companyExpenses)}`}
+                            valueColor="var(--ax-danger)"
+                          />
                           <button
-                            onClick={() => setExpensesExpanded(v => !v)}
-                            style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', color: 'var(--ax-primary)', fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: 0 }}
+                            onClick={() => { setShowExpensesModal(true); setShowExtraExpenses(false); }}
+                            style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6, background: 'var(--ax-primary-pale)', border: '1px solid var(--ax-border)', borderRadius: 8, color: 'var(--ax-primary)', fontSize: 12, fontWeight: 700, cursor: 'pointer', padding: '6px 12px' }}
                           >
-                            {expensesExpanded
-                              ? (language === 'uz' ? 'Yashirish ▲' : 'Свернуть ▲')
-                              : (language === 'uz' ? 'Batafsil ▼' : 'Подробнее ▼')}
+                            <Receipt className="w-3.5 h-3.5" />
+                            {language === 'uz' ? 'Barcha xarajatlar' : 'Все затраты'}
                           </button>
-                          {expensesExpanded && (
-                            <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--ax-border)', lineHeight: 1.8 }}>
-                              <SubRow
-                                name={language === 'uz' ? 'Ombor qiymati' : 'Стоимость склада'}
-                                value={`−${formatPrice(inventoryCost)}`}
-                                valueColor="var(--ax-danger)"
-                              />
-                              {opBreakdown.map((it, i) => (
-                                <SubRow key={i} name={it.name} value={`−${formatPrice(it.amount)}`} valueColor="var(--ax-danger)" />
-                              ))}
-                              {opBreakdown.length === 0 && (
-                                <div style={{ opacity: 0.7 }}>{language === 'uz' ? 'Operatsion xarajatlar yo\'q' : 'Операционных расходов нет'}</div>
-                              )}
-                            </div>
-                          )}
                         </>
                       }
                     />
@@ -945,6 +957,144 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
                   </div>
                 </div>
               </div>
+
+              {/* 🔻 МИНИ-ПАНЕЛЬ: детализация «Затраты компании» */}
+              {showExpensesModal && (
+                <div
+                  onClick={() => setShowExpensesModal(false)}
+                  style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+                >
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    style={{ background: 'var(--ax-card)', border: '1px solid var(--ax-border)', borderRadius: 16, width: '100%', maxWidth: 480, maxHeight: '85vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 60px rgba(0,0,0,0.45)' }}
+                  >
+                    {/* Заголовок */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '18px 20px', borderBottom: '1px solid var(--ax-border)', flexShrink: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 34, height: 34, borderRadius: 10, background: 'rgba(248,113,113,0.12)' }}>
+                          <Package className="w-4 h-4" style={{ color: 'var(--ax-danger)' }} />
+                        </span>
+                        <div>
+                          <div style={{ color: 'var(--ax-text)', fontWeight: 800, fontSize: 16 }}>
+                            {language === 'uz' ? 'Kompaniya xarajatlari' : 'Затраты компании'}
+                          </div>
+                          <div style={{ color: 'var(--ax-text-3)', fontSize: 12 }}>
+                            {language === 'uz' ? 'Tanlangan davr uchun' : 'За выбранный период'}
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setShowExpensesModal(false)}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, borderRadius: 8, background: 'var(--ax-input)', border: '1px solid var(--ax-border)', color: 'var(--ax-text-2)', cursor: 'pointer', flexShrink: 0 }}
+                        aria-label="close"
+                      >
+                        ✕
+                      </button>
+                    </div>
+
+                    {/* Прокручиваемое содержимое */}
+                    <div style={{ overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+                      {/* Стоимость склада — только для наблюдения */}
+                      <div style={{ background: 'var(--ax-input)', border: '1px solid var(--ax-border)', borderRadius: 12, padding: 14 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+                          <span style={{ color: 'var(--ax-text-2)', fontSize: 13, fontWeight: 600 }}>
+                            {language === 'uz' ? 'Ombor qiymati' : 'Стоимость склада'}
+                          </span>
+                          <span style={{ color: 'var(--ax-text)', fontWeight: 700, fontSize: 14 }}>−{formatPrice(warehouseCost)}</span>
+                        </div>
+                        <div style={{ color: 'var(--ax-text-3)', fontSize: 11, marginTop: 4 }}>
+                          {language === 'uz'
+                            ? 'Yakuniy balansga qoʼshilmaydi (faqat maʼlumot uchun)'
+                            : 'Не входит в итоговый баланс (только для наблюдения)'}
+                        </div>
+                      </div>
+
+                      {/* Ежемесячные расходы — основной список */}
+                      <div>
+                        <div style={{ color: 'var(--ax-text-3)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+                          {language === 'uz' ? 'Oylik xarajatlar' : 'Ежемесячные расходы'}
+                        </div>
+                        {detailed.monthly.length > 0 ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {detailed.monthly.map((it, i) => (
+                              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '10px 12px', background: 'var(--ax-input)', borderRadius: 10 }}>
+                                <span style={{ color: 'var(--ax-text)', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.name}</span>
+                                <span style={{ color: 'var(--ax-danger)', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>−{formatPrice(it.amount)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div style={{ color: 'var(--ax-text-3)', fontSize: 13, padding: '10px 12px', background: 'var(--ax-input)', borderRadius: 10 }}>
+                            {language === 'uz' ? 'Oylik xarajatlar yoʼq' : 'Ежемесячных расходов нет'}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Кнопка: показать разовые и процентные */}
+                      {(detailed.oneTime.length > 0 || detailed.percentage.length > 0) && !showExtraExpenses && (
+                        <button
+                          onClick={() => setShowExtraExpenses(true)}
+                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 14px', background: 'var(--ax-primary-pale)', border: '1px solid var(--ax-border)', borderRadius: 10, color: 'var(--ax-primary)', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+                        >
+                          {language === 'uz'
+                            ? `Bir martalik va foizli xarajatlar (${detailed.oneTime.length + detailed.percentage.length}) ▼`
+                            : `Разовые и процентные расходы (${detailed.oneTime.length + detailed.percentage.length}) ▼`}
+                        </button>
+                      )}
+
+                      {/* Разовые и процентные — по кнопке */}
+                      {showExtraExpenses && (
+                        <>
+                          {detailed.oneTime.length > 0 && (
+                            <div>
+                              <div style={{ color: 'var(--ax-text-3)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+                                {language === 'uz' ? 'Bir martalik xarajatlar' : 'Разовые расходы'}
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                {detailed.oneTime.map((it, i) => (
+                                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '10px 12px', background: 'var(--ax-input)', borderRadius: 10 }}>
+                                    <span style={{ color: 'var(--ax-text)', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.name}</span>
+                                    <span style={{ color: 'var(--ax-danger)', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>−{formatPrice(it.amount)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {detailed.percentage.length > 0 && (
+                            <div>
+                              <div style={{ color: 'var(--ax-text-3)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>
+                                {language === 'uz' ? 'Foizli xarajatlar' : 'Процентные расходы'}
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                {detailed.percentage.map((it, i) => (
+                                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, padding: '10px 12px', background: 'var(--ax-input)', borderRadius: 10 }}>
+                                    <span style={{ color: 'var(--ax-text)', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.name} ({it.rate}%)</span>
+                                    <span style={{ color: 'var(--ax-danger)', fontWeight: 700, fontSize: 13, flexShrink: 0 }}>−{formatPrice(it.amount)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {detailed.oneTime.length === 0 && detailed.percentage.length === 0 && (
+                            <div style={{ color: 'var(--ax-text-3)', fontSize: 13 }}>
+                              {language === 'uz' ? 'Qoʼshimcha xarajatlar yoʼq' : 'Дополнительных расходов нет'}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+
+                    {/* Итог по расходам (влияет на баланс) */}
+                    <div style={{ borderTop: '1px solid var(--ax-border)', padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                      <span style={{ color: 'var(--ax-text-2)', fontSize: 13, fontWeight: 600 }}>
+                        {language === 'uz' ? 'Balansga taʼsir (xarajatlar)' : 'Влияет на баланс (расходы)'}
+                      </span>
+                      <span style={{ color: 'var(--ax-danger)', fontWeight: 800, fontSize: 16 }}>−{formatPrice(companyExpenses)}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+              </>
             );
           })()}
 
