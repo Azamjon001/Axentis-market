@@ -97,7 +97,9 @@ export default function ExpensesManager({ companyId, onCustomExpensesUpdate }: E
   const loadExpenses = async () => {
     try {
       setLoadingCustom(true);
-      const res = await fetch(`/api/custom-expenses?companyId=${companyId}`);
+      // GET требует авторизацию компании (RequireCompany + RequireCompanyScope),
+      // иначе сервер отвечает 401 и расходы не подгружаются в аналитику.
+      const res = await fetch(`/api/custom-expenses?companyId=${companyId}`, { headers: authHeaders() });
       if (res.ok) {
         const data = await res.json();
         setExpenses(data || []);

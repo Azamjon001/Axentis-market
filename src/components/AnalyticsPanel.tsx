@@ -822,8 +822,6 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
             const warehouseCost = inventoryCost;
             // 💸 Расходы компании (операционные) — влияют на баланс
             const companyExpenses = opEx;
-            // «Затраты компании» (карточка) = склад (инфо) + расходы компании
-            const totalExpenses = warehouseCost + companyExpenses;
             // Итоговый баланс = наценка (онлайн + офлайн) − расходы компании. Склад НЕ вычитается.
             const balance       = profit - companyExpenses;
             const isPositive    = balance >= 0;
@@ -877,19 +875,14 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
                       icon={<Package className="w-4 h-4" style={{ color: 'var(--ax-danger)' }} />}
                       iconBg="rgba(248,113,113,0.12)"
                       label={language === 'uz' ? 'Kompaniya xarajatlari' : 'Затраты компании'}
-                      value={`−${formatPrice(totalExpenses)}`}
+                      value={`−${formatPrice(companyExpenses)}`}
                       valueColor="var(--ax-danger)"
                       sub={
                         <>
                           <SubRow
-                            name={language === 'uz' ? 'Ombor (balansga kirmaydi)' : 'Склад (не в балансе)'}
+                            name={language === 'uz' ? 'Ombor/xaridlar (balansga kirmaydi)' : 'Склад/закупки (не в балансе)'}
                             value={`−${formatPrice(warehouseCost)}`}
                             valueColor="var(--ax-text-2)"
-                          />
-                          <SubRow
-                            name={language === 'uz' ? 'Xarajatlar' : 'Расходы'}
-                            value={`−${formatPrice(companyExpenses)}`}
-                            valueColor="var(--ax-danger)"
                           />
                           <button
                             onClick={() => { setShowExpensesModal(true); setShowExtraExpenses(false); }}

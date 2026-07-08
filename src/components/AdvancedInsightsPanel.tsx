@@ -84,12 +84,12 @@ export default function AdvancedInsightsPanel({ products, customerOrders, salesH
         full_order: order
       });
 
-      // ✅ Считаем любой реальный заказ, КРОМЕ отменённых/отклонённых и 'completed'.
-      // ⚠️ 'completed' исключаем — такие заказы зеркалятся в кассовые продажи
-      //    (salesHistory) и были бы посчитаны дважды.
-      // Раньше был узкий белый список (confirmed/shipped/delivered/paid), из-за
-      // которого новые заказы (pending/new и т.п.) не попадали в ТОП.
-      const excludedStatuses = ['cancelled', 'canceled', 'rejected', 'declined', 'returned', 'completed'];
+      // ✅ Считаем любой реальный заказ, КРОМЕ отменённых/отклонённых.
+      // ⚠️ 'completed' НЕ исключаем: подтверждённые онлайн-заказы получают именно
+      //    статус 'completed' (см. order_confirm.go) и НЕ дублируются в кассовые
+      //    продажи (sales) — раньше они ошибочно выпадали из ТОПа онлайн-товаров.
+      //    Бэкенд (GetCompanyAnalytics) и так отдаёт только delivered/completed.
+      const excludedStatuses = ['cancelled', 'canceled', 'rejected', 'declined', 'returned'];
       if (excludedStatuses.includes((order.status || '').toLowerCase())) {
         console.log(`  ❌ Пропускаем: статус "${order.status}" (исключён)`);
         return;
