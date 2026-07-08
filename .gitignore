@@ -1,0 +1,21 @@
+node_modules
+# ...но НЕ иконочные шрифты внутри собранной веб-витрины (Expo кладёт их в
+# web-customer/assets/node_modules/...). Без них не отрисуются иконки.
+!web-customer/assets/**
+backend/firebase-admin-sdk.json
+*.tar.gz
+*.gz
+.expo
+dist
+
+# Local environment overrides with real secrets — keep these out of git.
+# The committed .env files in this repo hold placeholders only; put real
+# production secrets in *.local files or in the server's environment.
+.env.local
+.env.*.local
+backend/.env.local
+
+# Logs and compiled backend binaries
+*.log
+backend/azaton-backend
+backend/main

@@ -1,0 +1,80 @@
+{
+  "expo": {
+    "name": "Axentis Market",
+    "slug": "homepage",
+    "version": "1.0.0",
+    "scheme": "axentis",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0D1117"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.axentis.homepage",
+      "associatedDomains": ["applinks:axentis.uz"],
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Нам нужен доступ к вашему местоположению для выбора адреса доставки."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0D1117"
+      },
+      "package": "com.axentis.homepage",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            { "scheme": "https", "host": "axentis.uz", "pathPrefix": "/product" },
+            { "scheme": "https", "host": "axentis.uz", "pathPrefix": "/company" }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ],
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "POST_NOTIFICATIONS",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE",
+        "POST_NOTIFICATIONS"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#7B5CF0"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "a93b86bc-18bf-4662-b7e9-e01e8047efc7"
+      }
+    },
+    "owner": "supreme001",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/a93b86bc-18bf-4662-b7e9-e01e8047efc7"
+    }
+  }
+}

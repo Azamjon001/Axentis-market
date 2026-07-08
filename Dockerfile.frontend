@@ -1,0 +1,62 @@
+# Build stage
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Debug: show installed packages
+RUN echo "=== npm list ===" && npm list --depth=0 || true
+
+# Copy source code
+COPY . .
+
+# Debug: show copied files
+RUN echo "=== Files in /app ===" && ls -la /app/
+
+# Use Docker-specific .env if exists, otherwise use default .env
+RUN if [ -f .env.docker ]; then cp .env.docker .env; fi
+
+# Build arguments for environment variables
+ARG VITE_API_URL=/api
+ARG VITE_SOCKET_URL=
+
+# Set environment variables for build
+ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_SOCKET_URL=$VITE_SOCKET_URL
+
+# Build the application
+RUN echo "=== Starting build ===" && npm run build && echo "=== Build completed ==="
+
+# List dist contents for debugging
+RUN echo "=== Checking build folder ===" && \
+    ls -la /app/ && \
+    if [ -d "/app/build" ]; then \
+      echo "build folder exists, contents:" && ls -la /app/build/; \
+    else \
+      echo "ERROR: build folder does not exist!"; \
+      exit 1; \
+    fi
+
+# Runtime stage with Nginx
+FROM nginx:alpine
+
+# 🛒 Витрина покупателя (Homepage, собранный для веба Expo) — в корне сайта.
+# Это axentis.uz, 1:1 с мобильным приложением. Собирается заранее командой
+# `cd Homepage && npm run build:web` (кладёт результат в ./web-customer).
+COPY web-customer /usr/share/nginx/html
+
+# 🏢 Панели бизнеса (Vite, base=/business/) — в подпапку /business.
+COPY --from=builder /app/build /usr/share/nginx/html/business
+
+# Copy nginx configuration
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
+EXPOSE 443
+
+CMD ["nginx", "-g", "daemon off;"]

@@ -1,0 +1,217 @@
+package handlers
+
+import (
+	"azaton-backend/config"
+	"database/sql"
+	"log"
+	"net/http"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/bcrypt"
+)
+
+// Register User
+func RegisterUser(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Phone string `json:"phone" binding:"required"`
+			Name  string `json:"name"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		var userID int64
+		err := db.QueryRow(`
+			INSERT INTO users (phone, name, cart, likes, receipts)
+			VALUES ($1, $2, '{}'::jsonb, '[]'::jsonb, '[]'::jsonb)
+			ON CONFLICT (phone) DO UPDATE SET updated_at = NOW()
+			RETURNING id
+		`, req.Phone, req.Name).Scan(&userID)
+
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"user": gin.H{
+				"id":    userID,
+				"phone": req.Phone,
+				"name":  req.Name,
+			},
+		})
+	}
+}
+
+// Login User
+func LoginUser(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Phone string `json:"phone" binding:"required"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		var userID int64
+		var name sql.NullString
+		err := db.QueryRow("SELECT id, name FROM users WHERE phone = $1", req.Phone).Scan(&userID, &name)
+
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"user": gin.H{
+				"id":    userID,
+				"phone": req.Phone,
+				"name":  name.String,
+			},
+		})
+	}
+}
+
+// Register Company
+func RegisterCompany(db *sql.DB, cfg *config.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Name        string `json:"name" binding:"required"`
+			Phone       string `json:"phone" binding:"required"`
+			Password    string `json:"password" binding:"required"`
+			Mode        string `json:"mode" binding:"required"`
+			Description string `json:"description"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
+			return
+		}
+
+		var companyID int64
+		err = db.QueryRow(`
+		INSERT INTO companies (name, phone, password, password_hash, mode, description, status)
+		VALUES ($1, $2, $3, $4, $5, $6, 'pending')
+		RETURNING id
+	`, req.Name, req.Phone, req.Password, string(hashedPassword), req.Mode, req.Description).Scan(&companyID)
+			log.Println("❌ Error creating company:", err.Error())
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create company", "details": err.Error()})
+			return
+		}
+
+		// Generate JWT token
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+			"companyId": companyID,
+			"phone":     req.Phone,
+			"exp":       time.Now().Add(168 * time.Hour).Unix(),
+		})
+
+		tokenString, err := token.SignedString([]byte(cfg.JWTSecret))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"token":   tokenString,
+			"company": gin.H{
+				"id":     companyID,
+				"name":   req.Name,
+				"phone":  req.Phone,
+				"mode":   req.Mode,
+				"status": "pending",
+			},
+		})
+	}
+}
+
+// Login Company
+func LoginCompany(db *sql.DB, cfg *config.Config) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Phone    string `json:"phone" binding:"required"`
+			Password string `json:"password" binding:"required"`
+		}
+
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		var company struct {
+			ID           int64
+			Name         string
+		Password     sql.NullString
+		PasswordHash string
+		Mode         string
+		Status       string
+	}
+
+	err := db.QueryRow(`
+		SELECT id, name, password, password_hash, mode, status
+		FROM companies WHERE phone = $1
+	`, req.Phone).Scan(&company.ID, &company.Name, &company.Password, &company.PasswordHash, &company.Mode, &company.Status)
+		return
+	}
+
+	// Проверяем сначала plain text password (для совместимости), потом хеш
+	passwordValid := false
+	log.Printf("🔐 Login attempt - Phone: %s, Password: %s, DB Password Valid: %v, DB Password: %s", 
+		req.Phone, req.Password, company.Password.Valid, company.Password.String)
+	
+	if company.Password.Valid && company.Password.String == req.Password {
+		passwordValid = true
+		log.Println("✅ Plain text password match")
+	} else if err := bcrypt.CompareHashAndPassword([]byte(company.PasswordHash), []byte(req.Password)); err == nil {
+		passwordValid = true
+		log.Println("✅ Hashed password match")
+	}
+
+	if !passwordValid {
+		log.Println("❌ Password validation failed")
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
+		return
+	}
+
+	// Generate JWT token
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+			"companyId": company.ID,
+			"phone":     req.Phone,
+			"exp":       time.Now().Add(168 * time.Hour).Unix(),
+		})
+
+		tokenString, err := token.SignedString([]byte(cfg.JWTSecret))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"token":   tokenString,
+			"company": gin.H{
+				"id":     company.ID,
+				"name":   company.Name,
+				"phone":  req.Phone,
+				"mode":   company.Mode,
+				"status": company.Status,
+			},
+		})
+	}
+}

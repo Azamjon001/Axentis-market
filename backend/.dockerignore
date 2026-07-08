@@ -1,0 +1,33 @@
+# Ignore секретные файлы
+firebase-admin-sdk.json
+
+# Игнорируем бинарники и временные файлы
+main
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Тестовые файлы
+*_test.go
+
+# Документация
+*.md
+README.md
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Логи
+*.log
+
+# Временные файлы
+tmp/
+temp/

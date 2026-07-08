@@ -1,0 +1,50 @@
+{
+  "name": "Склад и Касса - Приложение для бизнеса",
+  "short_name": "Склад и Касса",
+  "description": "Мобильное приложение для управления складом и кассой с Supabase",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#C0BCBC",
+  "orientation": "portrait",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "productivity", "utilities"],
+  "screenshots": [
+    {
+      "src": "/screenshot-mobile.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Корзина",
+      "short_name": "Корзина",
+      "description": "Открыть корзину",
+      "url": "/?action=cart",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Каталог",
+      "short_name": "Каталог",
+      "description": "Открыть каталог товаров",
+      "url": "/?action=catalog",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

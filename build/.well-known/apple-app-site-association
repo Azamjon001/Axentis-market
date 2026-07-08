@@ -1,0 +1,11 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "TEAMID.com.axentis.homepage",
+        "paths": ["/product/*", "/company/*"]
+      }
+    ]
+  }
+}

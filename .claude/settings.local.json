@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx expo *)",
+      "Bash(eas --version)",
+      "Bash(npx eas-cli *)",
+      "Bash(eas whoami *)",
+      "Bash(eas build *)",
+      "Read(//usr/local/go/bin/**)",
+      "Read(//usr/bin/**)",
+      "Bash(find /c -name \"go.exe\")",
+      "Bash(cd /d d:\\\\app\\\\Birzumda)",
+      "Bash(dir /b)",
+      "Bash(npm run *)",
+      "Bash(git -C \"d:/app/Birzumda\" status)",
+      "Bash(git -C \"d:/app/Birzumda\" diff --stat HEAD)",
+      "Bash(git -C \"d:/app/Birzumda\" add backend/routes/handlers/orders.go src/components/DigitalWarehouse.tsx src/components/HomePage.tsx build/assets/index-ztif4AeY.js build/index.html)",
+      "Bash(npx eas *)",
+      "Bash(git -C \"d:/app/Birzumda\" push origin main)",
+      "Bash(xargs grep -l -i \"banner\\\\|carousel\\\\|slider\\\\|ad\\\\|promotional\")",
+      "PowerShell(npx eas --version 2>&1)",
+      "PowerShell(cd \"d:\\\\app\\\\Birzumda\\\\Homepage\"; $env:NODE_OPTIONS=\"--max-old-space-size=4096\"; $env:EXPO_MAX_WORKERS=\"2\"; npx eas update --branch main --message \"banner carousel, professional UI, fix stock decrement\" --non-interactive 2>&1)",
+      "PowerShell(cd \"d:\\\\app\\\\Birzumda\\\\Homepage\"; $env:NODE_OPTIONS=\"--max-old-space-size=4096\"; $env:METRO_MAX_WORKERS=\"1\"; npx eas update --branch main --platform android --message \"banner carousel, professional UI, fix stock decrement\" --non-interactive 2>&1)",
+      "PowerShell(cd \"d:\\\\app\\\\Birzumda\\\\Homepage\"; $env:NODE_OPTIONS=\"--max-old-space-size=4096\"; $env:METRO_MAX_WORKERS=\"1\"; npx eas update --branch main --platform ios --message \"banner carousel, professional UI, fix stock decrement\" --non-interactive 2>&1)"
+    ]
+  }
+}
