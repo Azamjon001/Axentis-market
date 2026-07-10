@@ -94,6 +94,8 @@ only**). Set real values via the server environment or a `*.local` file
 | `JWT_EXPIRATION` | Token lifetime (e.g. `168h`) |
 | `ALLOWED_ORIGINS` | Comma-separated CORS allow-list |
 | `ANTHROPIC_API_KEY` | Optional — AI product parsing |
+| `ESKIZ_EMAIL` / `ESKIZ_PASSWORD` / `ESKIZ_FROM` | Optional — SMS delivery via [Eskiz.uz](https://my.eskiz.uz) (free 100-SMS test package for new accounts) |
+| `TELEGRAM_BOT_TOKEN` | Optional — free OTP delivery through a Telegram bot (`/setWebhook` → `https://axentis.uz/api/telegram/webhook`) |
 
 On startup the backend logs loud warnings if `JWT_SECRET` / `DB_PASSWORD` are
 left at insecure defaults or `GIN_MODE` is not `release`.
@@ -105,13 +107,46 @@ Web/mobile read `VITE_API_URL` / `VITE_SOCKET_URL` (web) and
 
 ## Authentication
 
-- **Customers** sign in by phone (optional password, hashed with bcrypt).
+- **Customers** sign in by phone (optional password, hashed with bcrypt) **or
+  by SMS one-time code** (`POST /auth/otp/request` → `POST /auth/otp/verify`;
+  verifying the code proves phone ownership, logs the user in and creates the
+  account on first use). OTP delivery tries Eskiz.uz → Telegram bot → dev log;
+  codes are stored hashed (HMAC-SHA256), live 5 minutes, max 5 attempts and
+  3 sends / 10 min per number.
 - **Companies / admins** sign in with phone + password and receive a JWT.
 - **Referral agents** have their own login.
 
 The API attaches the authenticated principal (`companyId`, `phone`, `role`)
 to each request via JWT middleware ([`backend/middleware/auth.go`](backend/middleware/auth.go)).
 Auth endpoints are rate-limited per IP.
+
+---
+
+## Private (closed) companies
+
+A seller can switch its mode to **private** (`PUT /companies/:id/privacy`,
+seller settings panel). A private company gets a unique access code
+(`private_code`) and disappears from the public storefront entirely —
+catalog, search, suggestions, categories, similar / frequently-bought,
+recommendations, company lists and the personalized feed all filter through
+the shared visibility rule in
+[`backend/routes/handlers/privacy.go`](backend/routes/handlers/privacy.go).
+
+Customers of a private company sign in with that access code (login screen →
+«Закрытая компания», or the dedicated **Axentis Private** app variant:
+`APP_VARIANT=private npx expo start` in `Homepage/`). They see **only** that
+company's products, and public customers never see theirs. The mobile API
+layer scopes every request automatically once a private user is logged in.
+
+---
+
+## Personalized home feed
+
+`GET /products?phone=…` ranks the main feed per user, Instagram/YouTube
+style: product views (`product_views`, with 30-day exponential decay) and
+purchases (weight 5) build a category/brand affinity profile, which orders
+the feed (promoted items stay on top). Composition and pagination are
+unchanged — only the ordering is personal.
 
 ---
 

@@ -25,30 +25,31 @@ func GetFrequentlyBoughtWith(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		// Точное совпадение по элементам JSONB-массива (прежний LIKE по тексту
+		// давал ложные срабатывания: товар 12 «совпадал» со 120, а из-за
+		// приоритета AND/OR игнорировался фильтр статуса; вдобавок запросу
+		// передавалось два аргумента при одном плейсхолдере — Postgres такое
+		// отклонял, и ручка всегда возвращала пустой список).
+		args := []interface{}{productID}
+		argN := 2
+		visibility := visibilityCond(c, "c", &args, &argN)
+
 		rows, err := db.Query(`
 			WITH orders_with_product AS (
-				SELECT id FROM orders
+				SELECT id, items FROM orders
 				WHERE status NOT IN ('cancelled', 'pending')
-				  AND items::text LIKE '%"productId":' || $1 || '%'
-				  OR  items::text LIKE '%"product_id":' || $1 || '%'
+				  AND EXISTS (
+				      SELECT 1 FROM jsonb_array_elements(items) e
+				      WHERE COALESCE(e->>'productId', e->>'product_id') = $1::text
+				  )
 				LIMIT 500
 			),
 			other_items AS (
-				SELECT elem->>'productId'  AS pid
+				SELECT COALESCE(e->>'productId', e->>'product_id') AS pid
 				FROM   orders_with_product o,
-				       jsonb_array_elements(
-				           (SELECT items FROM orders WHERE id = o.id)
-				       ) AS elem
-				WHERE  (elem->>'productId')::bigint <> $1
-				  AND  (elem->>'productId') IS NOT NULL
-				UNION ALL
-				SELECT elem->>'product_id' AS pid
-				FROM   orders_with_product o,
-				       jsonb_array_elements(
-				           (SELECT items FROM orders WHERE id = o.id)
-				       ) AS elem
-				WHERE  (elem->>'product_id')::bigint <> $1
-				  AND  (elem->>'product_id') IS NOT NULL
+				       jsonb_array_elements(o.items) AS e
+				WHERE  COALESCE(e->>'productId', e->>'product_id') ~ '^[0-9]+$'
+				  AND  COALESCE(e->>'productId', e->>'product_id') <> $1::text
 			)
 			SELECT p.id, p.name,
 			       COALESCE(
@@ -64,10 +65,11 @@ func GetFrequentlyBoughtWith(db *sql.DB) gin.HandlerFunc {
 			JOIN   products p ON p.id = oi.pid::bigint
 			LEFT JOIN companies c ON c.id = p.company_id
 			WHERE  p.available_for_customers = TRUE
+			  AND  `+visibility+`
 			GROUP BY p.id, p.name, p.selling_price, p.price, p.images, p.sold_count, c.name
 			ORDER BY co_count DESC, sold_count DESC
 			LIMIT 8
-		`, productID, productID)
+		`, args...)
 		if err != nil {
 			log.Printf("❌ FrequentlyBoughtWith: %v", err)
 			c.JSON(http.StatusOK, []interface{}{})
@@ -298,21 +300,29 @@ func GetPersonalizedFeed(db *sql.DB) gin.HandlerFunc {
 
 		if phone == "" {
 			// Гость — просто популярные
+			args := []interface{}{}
+			argN := 1
+			visibility := visibilityCond(c, "c", &args, &argN)
+			args = append(args, limit)
 			rows, _ := db.Query(`
 				SELECT p.id, p.name,
 				       COALESCE(NULLIF((SELECT MIN(pv.selling_price) FROM product_variants pv WHERE pv.product_id = p.id AND pv.selling_price > 0),0), NULLIF(p.selling_price,0), p.price) AS price,
 				       p.images, COALESCE(p.sold_count,0), p.category, COALESCE(c.name,'') AS company_name
 				FROM products p
 				LEFT JOIN companies c ON c.id = p.company_id
-				WHERE p.available_for_customers = TRUE AND (c.mode = 'public' OR c.mode IS NULL)
+				WHERE p.available_for_customers = TRUE AND `+visibility+`
 				ORDER BY sold_count DESC, p.created_at DESC
-				LIMIT $1
-			`, limit)
+				LIMIT $`+strconv.Itoa(argN)+`
+			`, args...)
 			c.JSON(http.StatusOK, scanProductRows(rows))
 			return
 		}
 
 		// Извлекаем категории и бренды из истории заказов
+		feedArgs := []interface{}{phone}
+		feedArgN := 2
+		feedVisibility := visibilityCond(c, "c", &feedArgs, &feedArgN)
+		feedArgs = append(feedArgs, limit)
 		rows, err := db.Query(`
 			WITH user_history AS (
 				SELECT elem->>'productId' AS pid
@@ -337,13 +347,13 @@ func GetPersonalizedFeed(db *sql.DB) gin.HandlerFunc {
 			FROM products p
 			LEFT JOIN companies c ON c.id = p.company_id
 			WHERE p.available_for_customers = TRUE
-			  AND (c.mode = 'public' OR c.mode IS NULL)
+			  AND `+feedVisibility+`
 			  AND p.id NOT IN (
 			      SELECT DISTINCT h.pid::bigint FROM user_history h WHERE h.pid ~ '^[0-9]+$'
 			  )
 			ORDER BY relevance DESC, p.sold_count DESC, p.created_at DESC
-			LIMIT $2
-		`, phone, limit)
+			LIMIT $`+strconv.Itoa(feedArgN)+`
+		`, feedArgs...)
 		if err != nil {
 			log.Printf("❌ PersonalizedFeed: %v", err)
 			c.JSON(http.StatusOK, []interface{}{})

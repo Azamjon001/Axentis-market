@@ -5,12 +5,14 @@ import {
   Alert, Animated, Dimensions,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import Constants from 'expo-constants';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
+import { requestOtp, verifyPrivateCode } from '../../api';
 
 const { width } = Dimensions.get('window');
 
@@ -33,7 +35,7 @@ function getCleanPhone(formatted) {
 
 export default function LoginScreen() {
   const { colors, isDark } = useTheme();
-  const { login, register, user } = useAuth();
+  const { login, register, loginWithOtp, user } = useAuth();
   const { t } = useLanguage();
   const navigation = useNavigation();
 
@@ -54,6 +56,28 @@ export default function LoginScreen() {
   const [loginPassword, setLoginPassword] = useState('');
   const [loginPassVisible, setLoginPassVisible] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
+
+  // 🔒 Закрытая компания: вход/регистрация по уникальному ID компании.
+  // В этом режиме пользователь видит ТОЛЬКО товары своей компании.
+  // В сборке «Axentis Private» (APP_VARIANT=private) доступен только этот режим.
+  const isPrivateApp = Constants.expoConfig?.extra?.appVariant === 'private';
+  const [accessMode, setAccessMode] = useState(isPrivateApp ? 'private' : 'public'); // 'public' | 'private'
+  const [privateCode, setPrivateCode] = useState('');
+  const [privateCompany, setPrivateCompany] = useState(null); // { companyId, name }
+  const [checkingCode, setCheckingCode] = useState(false);
+
+  // 📲 Вход по SMS-коду (без пароля)
+  const [loginMethod, setLoginMethod] = useState('password'); // 'password' | 'sms'
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [resendTimer, setResendTimer] = useState(0);
+
+  useEffect(() => {
+    if (resendTimer <= 0) return undefined;
+    const id = setInterval(() => setResendTimer(s => (s > 0 ? s - 1 : 0)), 1000);
+    return () => clearInterval(id);
+  }, [resendTimer]);
 
   const [regName, setRegName] = useState('');
   const [regSurname, setRegSurname] = useState('');
@@ -99,12 +123,74 @@ export default function LoginScreen() {
     regPassword.length >= 6 &&
     regPassword === regConfirm;
 
+  // Доп. параметры входа/регистрации для закрытой компании.
+  const authExtra = () =>
+    accessMode === 'private' && privateCode.trim()
+      ? { mode: 'private', privateCode: privateCode.trim() }
+      : {};
+
+  // Проверка ID закрытой компании (показывает название до входа).
+  const handleCheckPrivateCode = async () => {
+    if (!privateCode.trim()) return;
+    setCheckingCode(true);
+    try {
+      const res = await verifyPrivateCode(privateCode.trim());
+      setPrivateCompany({ companyId: res.companyId, name: res.name });
+    } catch {
+      setPrivateCompany(null);
+      Alert.alert(t('error'), t('companyNotFound'));
+    } finally {
+      setCheckingCode(false);
+    }
+  };
+
+  // 📲 Запросить SMS-код
+  const handleRequestOtp = async () => {
+    if (!isLoginPhoneValid) return;
+    setOtpLoading(true);
+    try {
+      const phone = getCleanPhone(loginPhone);
+      const res = await requestOtp(phone);
+      setOtpSent(true);
+      setResendTimer(60);
+      if (res?.devCode) {
+        // Провайдер не настроен (dev): код приходит в ответе, подставляем сами.
+        setOtpCode(String(res.devCode));
+      } else {
+        Alert.alert(
+          res?.channel === 'telegram' ? t('smsCodeSentTelegram') : t('smsCodeSent'),
+          `+${phone}`,
+        );
+      }
+    } catch (err) {
+      const serverMsg = err?.response?.data?.error;
+      Alert.alert(t('error'), serverMsg || err?.message || t('loginError'));
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  // 📲 Подтвердить SMS-код → вход (аккаунт создаётся автоматически)
+  const handleVerifyOtp = async () => {
+    if (otpCode.trim().length !== 6) return;
+    setOtpLoading(true);
+    try {
+      const phone = getCleanPhone(loginPhone);
+      await loginWithOtp(phone, otpCode.trim(), authExtra());
+    } catch (err) {
+      const serverMsg = err?.response?.data?.error;
+      Alert.alert(t('invalidCode'), serverMsg || t('loginError'));
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
   const handleLogin = async () => {
     if (!isLoginValid) return;
     setLoginLoading(true);
     try {
       const phone = getCleanPhone(loginPhone);
-      await login(phone, loginPassword);
+      await login(phone, loginPassword, authExtra());
     } catch (err) {
       const status = err?.response?.status;
       const serverMsg = err?.response?.data?.error;
@@ -148,7 +234,7 @@ export default function LoginScreen() {
     setRegLoading(true);
     try {
       const phone = getCleanPhone(regPhone);
-      await register(phone, regName.trim(), regSurname.trim(), regPassword);
+      await register(phone, regName.trim(), regSurname.trim(), regPassword, authExtra());
     } catch (err) {
       const status = err?.response?.status;
       const serverMsg = err?.response?.data?.error;
@@ -210,6 +296,77 @@ export default function LoginScreen() {
               </TouchableOpacity>
             </View>
 
+            {/* 🔒 Режим доступа: общий маркет или закрытая компания по ID.
+                В сборке «Axentis Private» переключатель скрыт — только закрытый режим. */}
+            <View style={[styles.modeRow, isPrivateApp && { display: 'none' }]}>
+              <TouchableOpacity
+                style={[
+                  styles.modeChip,
+                  {
+                    backgroundColor: accessMode === 'public' ? colors.primary + '22' : colors.inputBg,
+                    borderColor: accessMode === 'public' ? colors.primary : colors.border,
+                  },
+                ]}
+                onPress={() => { setAccessMode('public'); setPrivateCompany(null); setPrivateCode(''); }}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="globe-outline" size={15} color={accessMode === 'public' ? colors.primary : colors.textMuted} />
+                <Text style={[styles.modeChipText, { color: accessMode === 'public' ? colors.primary : colors.textSecondary }]}>
+                  {t('publicMarketMode')}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.modeChip,
+                  {
+                    backgroundColor: accessMode === 'private' ? colors.primary + '22' : colors.inputBg,
+                    borderColor: accessMode === 'private' ? colors.primary : colors.border,
+                  },
+                ]}
+                onPress={() => setAccessMode('private')}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="lock-closed-outline" size={15} color={accessMode === 'private' ? colors.primary : colors.textMuted} />
+                <Text style={[styles.modeChipText, { color: accessMode === 'private' ? colors.primary : colors.textSecondary }]}>
+                  {t('privateCompanyMode')}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {accessMode === 'private' && (
+              <View style={{ marginTop: 12 }}>
+                <Text style={[styles.label, { color: colors.textSecondary }]}>{t('companyIdLabel')}</Text>
+                <View style={[styles.inputRow, { backgroundColor: colors.inputBg, borderColor: privateCompany ? '#22C55E' : colors.border }]}>
+                  <Ionicons name="key-outline" size={18} color={colors.textMuted} style={styles.inputIcon} />
+                  <TextInput
+                    style={[styles.input, { color: colors.text }]}
+                    value={privateCode}
+                    onChangeText={(v) => { setPrivateCode(v); setPrivateCompany(null); }}
+                    placeholder={t('companyIdPlaceholder')}
+                    placeholderTextColor={colors.textMuted}
+                    keyboardType="number-pad"
+                    autoCapitalize="none"
+                  />
+                  <TouchableOpacity onPress={handleCheckPrivateCode} disabled={checkingCode || !privateCode.trim()}>
+                    {checkingCode
+                      ? <ActivityIndicator size="small" color={colors.primary} />
+                      : <Text style={{ color: colors.primary, fontWeight: '600', fontSize: 13 }}>{t('checkCompanyId')}</Text>
+                    }
+                  </TouchableOpacity>
+                </View>
+                {privateCompany ? (
+                  <View style={styles.companyFoundRow}>
+                    <Ionicons name="checkmark-circle" size={16} color="#22C55E" />
+                    <Text style={{ color: '#22C55E', fontSize: 13, fontWeight: '600', marginLeft: 6 }}>
+                      {t('companyFound')}: {privateCompany.name}
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={[styles.privateHint, { color: colors.textMuted }]}>{t('privateModeHint')}</Text>
+                )}
+              </View>
+            )}
+
             {tab === 'login' ? (
               <View style={{ marginTop: 24 }}>
                 <Text style={[styles.formTitle, { color: colors.text }]}>{t('loginTitle')}</Text>
@@ -233,38 +390,111 @@ export default function LoginScreen() {
                   )}
                 </View>
 
-                <Text style={[styles.label, { color: colors.textSecondary }]}>{t('password')}</Text>
-                <View style={[styles.inputRow, { backgroundColor: colors.inputBg, borderColor: colors.border }]}>
-                  <Ionicons name="lock-closed-outline" size={18} color={colors.textMuted} style={styles.inputIcon} />
-                  <TextInput
-                    style={[styles.input, { color: colors.text }]}
-                    value={loginPassword}
-                    onChangeText={setLoginPassword}
-                    placeholder={t('enterPassword')}
-                    placeholderTextColor={colors.textMuted}
-                    secureTextEntry={!loginPassVisible}
-                    autoCapitalize="none"
-                  />
-                  <TouchableOpacity onPress={() => setLoginPassVisible(v => !v)}>
-                    <Ionicons
-                      name={loginPassVisible ? 'eye-off-outline' : 'eye-outline'}
-                      size={18}
-                      color={colors.textMuted}
-                    />
-                  </TouchableOpacity>
-                </View>
+                {loginMethod === 'password' ? (
+                  <>
+                    <Text style={[styles.label, { color: colors.textSecondary }]}>{t('password')}</Text>
+                    <View style={[styles.inputRow, { backgroundColor: colors.inputBg, borderColor: colors.border }]}>
+                      <Ionicons name="lock-closed-outline" size={18} color={colors.textMuted} style={styles.inputIcon} />
+                      <TextInput
+                        style={[styles.input, { color: colors.text }]}
+                        value={loginPassword}
+                        onChangeText={setLoginPassword}
+                        placeholder={t('enterPassword')}
+                        placeholderTextColor={colors.textMuted}
+                        secureTextEntry={!loginPassVisible}
+                        autoCapitalize="none"
+                      />
+                      <TouchableOpacity onPress={() => setLoginPassVisible(v => !v)}>
+                        <Ionicons
+                          name={loginPassVisible ? 'eye-off-outline' : 'eye-outline'}
+                          size={18}
+                          color={colors.textMuted}
+                        />
+                      </TouchableOpacity>
+                    </View>
 
-                <TouchableOpacity
-                  style={[styles.btn, { backgroundColor: isLoginValid ? colors.primary : colors.border }]}
-                  onPress={handleLogin}
-                  disabled={!isLoginValid || loginLoading}
-                  activeOpacity={0.85}
-                >
-                  {loginLoading
-                    ? <ActivityIndicator color="#fff" />
-                    : <Text style={styles.btnText}>{t('login')}</Text>
-                  }
-                </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.btn, { backgroundColor: isLoginValid ? colors.primary : colors.border }]}
+                      onPress={handleLogin}
+                      disabled={!isLoginValid || loginLoading}
+                      activeOpacity={0.85}
+                    >
+                      {loginLoading
+                        ? <ActivityIndicator color="#fff" />
+                        : <Text style={styles.btnText}>{t('login')}</Text>
+                      }
+                    </TouchableOpacity>
+
+                    {/* 📲 Переключение на вход по SMS-коду */}
+                    <TouchableOpacity
+                      onPress={() => { setLoginMethod('sms'); setOtpSent(false); setOtpCode(''); }}
+                      style={styles.switchHint}
+                    >
+                      <Text style={[styles.switchText, { color: colors.primary, fontWeight: '600' }]}>
+                        {t('smsLogin')}
+                      </Text>
+                      <Text style={[styles.switchText, { color: colors.textMuted, marginTop: 2 }]}>
+                        {t('smsLoginHint')}
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <>
+                    {otpSent && (
+                      <>
+                        <Text style={[styles.label, { color: colors.textSecondary }]}>{t('smsCodeLabel')}</Text>
+                        <View style={[styles.inputRow, { backgroundColor: colors.inputBg, borderColor: colors.border }]}>
+                          <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.textMuted} style={styles.inputIcon} />
+                          <TextInput
+                            style={[styles.input, { color: colors.text, letterSpacing: 6, fontWeight: '700' }]}
+                            value={otpCode}
+                            onChangeText={(v) => setOtpCode(v.replace(/\D/g, '').slice(0, 6))}
+                            placeholder="••••••"
+                            placeholderTextColor={colors.textMuted}
+                            keyboardType="number-pad"
+                            maxLength={6}
+                          />
+                        </View>
+                      </>
+                    )}
+
+                    <TouchableOpacity
+                      style={[styles.btn, {
+                        backgroundColor:
+                          (otpSent ? otpCode.length === 6 : isLoginPhoneValid) ? colors.primary : colors.border,
+                      }]}
+                      onPress={otpSent ? handleVerifyOtp : handleRequestOtp}
+                      disabled={otpLoading || (otpSent ? otpCode.length !== 6 : !isLoginPhoneValid)}
+                      activeOpacity={0.85}
+                    >
+                      {otpLoading
+                        ? <ActivityIndicator color="#fff" />
+                        : <Text style={styles.btnText}>{otpSent ? t('confirmCode') : t('sendCode')}</Text>
+                      }
+                    </TouchableOpacity>
+
+                    {otpSent && (
+                      <TouchableOpacity
+                        onPress={handleRequestOtp}
+                        disabled={resendTimer > 0 || otpLoading}
+                        style={styles.switchHint}
+                      >
+                        <Text style={[styles.switchText, { color: resendTimer > 0 ? colors.textMuted : colors.primary, fontWeight: '600' }]}>
+                          {resendTimer > 0 ? `${t('resendIn')} ${resendTimer}s` : t('resendCode')}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+
+                    <TouchableOpacity
+                      onPress={() => { setLoginMethod('password'); setOtpSent(false); setOtpCode(''); }}
+                      style={styles.switchHint}
+                    >
+                      <Text style={[styles.switchText, { color: colors.primary, fontWeight: '600' }]}>
+                        {t('backToPassword')}
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                )}
 
                 <TouchableOpacity onPress={() => switchTab('register')} style={styles.switchHint}>
                   <Text style={[styles.switchText, { color: colors.textSecondary }]}>
@@ -472,6 +702,21 @@ const styles = StyleSheet.create({
   btnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   switchHint: { alignItems: 'center', marginTop: 16 },
   switchText: { fontSize: 13 },
+  // 🔒 Режим доступа (общий маркет / закрытая компания)
+  modeRow: { flexDirection: 'row', gap: 8, marginTop: 16 },
+  modeChip: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    height: 40,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  modeChipText: { fontSize: 13, fontWeight: '600' },
+  companyFoundRow: { flexDirection: 'row', alignItems: 'center', marginTop: -6, marginBottom: 8 },
+  privateHint: { fontSize: 12, marginTop: -6, marginBottom: 8 },
   errorHint: { fontSize: 12, marginTop: -10, marginBottom: 10 },
   disclaimer: { textAlign: 'center', fontSize: 12, marginTop: 24, lineHeight: 18 },
 });

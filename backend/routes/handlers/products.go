@@ -49,63 +49,86 @@ func GetProducts(db *sql.DB) gin.HandlerFunc {
 		var err error
 
 		if companyID == "" {
+			// 🎯 Персональная лента: если передан phone, товары ранжируются по
+			// интересам покупателя (как у Instagram/YouTube). Сигналы:
+			//   • просмотры товаров (product_views) с затуханием по времени
+			//     (просмотр месячной давности весит в e раз меньше свежего);
+			//   • покупки (заказы) — самый сильный сигнал, вес 5.
+			// Интерес агрегируется по категории (×2) и бренду (×1), затем
+			// каждая карточка получает personal-score в ORDER BY. Состав
+			// выдачи не меняется — меняется только порядок, поэтому пагинация
+			// и карточки работают как раньше.
+			phone := strings.TrimSpace(c.Query("phone"))
+			args := []interface{}{}
+			prefix := ""
+			personalOrder := ""
+			if phone != "" {
+				args = append(args, phone)
+				prefix = `WITH prefs AS (
+					SELECT COALESCE(p2.category,'') AS cat, COALESCE(p2.brand,'') AS brand, SUM(s.w) AS weight
+					FROM (
+						SELECT pv.product_id AS pid,
+						       pv.view_count * EXP(-EXTRACT(EPOCH FROM (NOW() - pv.last_viewed_at)) / 2592000.0) AS w
+						FROM product_views pv
+						WHERE pv.user_phone = $1
+						UNION ALL
+						SELECT (COALESCE(e->>'productId', e->>'product_id'))::bigint AS pid, 5.0 AS w
+						FROM orders o, jsonb_array_elements(o.items) AS e
+						WHERE o.customer_phone = $1
+						  AND o.status <> 'cancelled'
+						  AND jsonb_typeof(o.items) = 'array'
+						  AND COALESCE(e->>'productId', e->>'product_id') ~ '^[0-9]+$'
+					) s
+					JOIN products p2 ON p2.id = s.pid
+					GROUP BY 1, 2
+				) `
+				personalOrder = `(
+					COALESCE((SELECT SUM(pr.weight) * 2 FROM prefs pr WHERE pr.cat <> '' AND pr.cat = COALESCE(p.category,'')), 0)
+					+ COALESCE((SELECT SUM(pr.weight) FROM prefs pr WHERE pr.brand <> '' AND pr.brand = COALESCE(p.brand,'')), 0)
+				) DESC, `
+			}
+
+			query := prefix + `
+				SELECT p.id, p.company_id, p.name, p.quantity, p.price, p.markup_percent,
+				       COALESCE(
+				           NULLIF((SELECT MIN(pv.selling_price) FROM product_variants pv WHERE pv.product_id = p.id AND pv.selling_price > 0), 0),
+				           NULLIF(p.selling_price, 0),
+				           p.price * (1.0 + COALESCE(p.markup_percent, 0) / 100.0)
+				       ) as selling_price,
+				       p.markup_amount, p.barcode, p.barid, p.category, p.images,
+				       p.description, p.color, p.size, p.brand, p.has_color_options, p.available_for_customers, p.sold_count, p.created_at, p.updated_at,
+				       c.name as company_name,
+				       COALESCE((SELECT AVG(cr.rating) FROM company_ratings cr WHERE cr.company_id = c.id), 0) as company_rating,
+				       ` + productLevelDiscountSubqueries + `,
+				       ` + promotedExpr + ` AS is_promoted
+				FROM products p
+				LEFT JOIN companies c ON p.company_id = c.id
+				WHERE p.available_for_customers = true`
+
 			if userMode == "private" && privateCompanyID != "" {
+				// 🔒 Закрытая компания: покупатель видит ТОЛЬКО её товары.
 				log.Printf("🔒 GetProducts: Private mode for company %s", privateCompanyID)
-				rows, err = db.Query(`
-					SELECT p.id, p.company_id, p.name, p.quantity, p.price, p.markup_percent,
-					       COALESCE(
-					           NULLIF((SELECT MIN(pv.selling_price) FROM product_variants pv WHERE pv.product_id = p.id AND pv.selling_price > 0), 0),
-					           NULLIF(p.selling_price, 0),
-					           p.price * (1.0 + COALESCE(p.markup_percent, 0) / 100.0)
-					       ) as selling_price,
-					       p.markup_amount, p.barcode, p.barid, p.category, p.images,
-					       p.description, p.color, p.size, p.brand, p.has_color_options, p.available_for_customers, p.sold_count, p.created_at, p.updated_at,
-					       c.name as company_name,
-					       COALESCE((SELECT AVG(cr.rating) FROM company_ratings cr WHERE cr.company_id = c.id), 0) as company_rating,
-					       ` + productLevelDiscountSubqueries + `,
-					       ` + promotedExpr + ` AS is_promoted
-					FROM products p
-					LEFT JOIN companies c ON p.company_id = c.id
-					WHERE p.available_for_customers = true
-					  AND c.id = $1
-					  AND c.mode = 'private'
-					ORDER BY is_promoted DESC, p.created_at DESC
-					LIMIT $2 OFFSET $3
-				`, privateCompanyID, limit, offset)
+				args = append(args, privateCompanyID)
+				query += fmt.Sprintf(" AND c.id = $%d AND c.mode = 'private'", len(args))
 			} else {
 				// 🗺️ Региональная фильтрация: если передан region, показываем только
 				// товары компаний, которые обслуживают этот регион (основной регион
 				// компании ИЛИ регион из списка доставки service_regions). Если ни одна
 				// компания не выбрала регион покупателя — товаров не будет (как и задумано).
 				region := strings.TrimSpace(c.Query("region"))
-				log.Printf("🌐 GetProducts: Public mode, limit=%d offset=%d region=%q", limit, offset, region)
-				query := `
-					SELECT p.id, p.company_id, p.name, p.quantity, p.price, p.markup_percent,
-					       COALESCE(
-					           NULLIF((SELECT MIN(pv.selling_price) FROM product_variants pv WHERE pv.product_id = p.id AND pv.selling_price > 0), 0),
-					           NULLIF(p.selling_price, 0),
-					           p.price * (1.0 + COALESCE(p.markup_percent, 0) / 100.0)
-					       ) as selling_price,
-					       p.markup_amount, p.barcode, p.barid, p.category, p.images,
-					       p.description, p.color, p.size, p.brand, p.has_color_options, p.available_for_customers, p.sold_count, p.created_at, p.updated_at,
-					       c.name as company_name,
-					       COALESCE((SELECT AVG(cr.rating) FROM company_ratings cr WHERE cr.company_id = c.id), 0) as company_rating,
-					       ` + productLevelDiscountSubqueries + `,
-					       ` + promotedExpr + ` AS is_promoted
-					FROM products p
-					LEFT JOIN companies c ON p.company_id = c.id
-					WHERE p.available_for_customers = true
-					  AND (c.mode = 'public' OR c.mode IS NULL)`
-				args := []interface{}{}
+				log.Printf("🌐 GetProducts: Public mode, limit=%d offset=%d region=%q personalized=%v", limit, offset, region, phone != "")
+				query += " AND (c.mode = 'public' OR c.mode IS NULL)"
 				if region != "" {
 					args = append(args, region)
-					query += " AND (c.region = $1 OR c.service_regions @> to_jsonb($1::text))"
+					query += fmt.Sprintf(" AND (c.region = $%d OR c.service_regions @> to_jsonb($%d::text))", len(args), len(args))
 				}
-				// Продвинутые товары (внутренняя реклама) — вверху выдачи.
-				query += fmt.Sprintf(" ORDER BY is_promoted DESC, p.created_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
-				args = append(args, limit, offset)
-				rows, err = db.Query(query, args...)
 			}
+
+			// Продвинутые товары (внутренняя реклама) — вверху выдачи, затем
+			// персональный интерес, затем новизна.
+			query += fmt.Sprintf(" ORDER BY is_promoted DESC, %s p.created_at DESC LIMIT $%d OFFSET $%d", personalOrder, len(args)+1, len(args)+2)
+			args = append(args, limit, offset)
+			rows, err = db.Query(query, args...)
 		} else {
 			// Товары конкретной компании (для админ-панели компании)
 			rows, err = db.Query(`
@@ -959,24 +982,29 @@ func GetSimilarProducts(db *sql.DB) gin.HandlerFunc {
 
 		whereClause := strings.Join(conditions, " OR ")
 
+		// Видимость: товары закрытых компаний не подмешиваются публичным
+		// покупателям (и наоборот — закрытый режим видит только свою компанию).
+		visibility := visibilityCond(c, "c", &args, &argIndex)
+
 		query := fmt.Sprintf(`
-			SELECT 
+			SELECT
 				p.id, p.company_id, p.name, p.quantity, p.price, p.markup_percent,
 				p.selling_price, p.markup_amount, p.barcode, p.barid, p.category, p.images,
-				p.description, p.color, p.size, p.brand, p.has_color_options, p.available_for_customers, p.sold_count, 
+				p.description, p.color, p.size, p.brand, p.has_color_options, p.available_for_customers, p.sold_count,
 				p.created_at, p.updated_at,
 				c.name as company_name
 			FROM products p
 			LEFT JOIN companies c ON p.company_id = c.id
-			WHERE p.id != $1 
+			WHERE p.id != $1
 			  AND p.available_for_customers = true
+			  AND %s
 			  AND (%s)
-			ORDER BY 
+			ORDER BY
 				CASE WHEN p.category = $%d THEN 1 ELSE 2 END,
 				p.sold_count DESC,
 				p.created_at DESC
 			LIMIT $%d
-		`, whereClause, argIndex, argIndex+1)
+		`, visibility, whereClause, argIndex, argIndex+1)
 
 		// Добавляем категорию и лимит в аргументы
 		categoryValue := ""

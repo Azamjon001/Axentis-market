@@ -141,14 +141,20 @@ export default function CompanySettingsPanel({ companyId }: CompanySettingsPanel
     try {
       setSwitchingMode(true);
       
+      // Маршрут защищён JWT — без Authorization бэкенд отвечает 401,
+      // из-за чего переключение режима «не работало».
       const response = await fetch(`${api.baseURL}/api/companies/${companyId}/privacy`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(api.getAuthToken() ? { Authorization: `Bearer ${api.getAuthToken()}` } : {})
+        },
         body: JSON.stringify({ mode: newMode })
       });
 
       if (!response.ok) {
-        throw new Error('Failed to update privacy mode');
+        const err = await response.json().catch(() => null);
+        throw new Error(err?.error || 'Failed to update privacy mode');
       }
 
       const data = await response.json();

@@ -9,21 +9,51 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+// 🔒 Область видимости закрытой компании. Когда покупатель вошёл по ID
+// закрытой компании, ВСЕ GET-запросы автоматически несут mode+privateCompanyId,
+// чтобы ни один экран (поиск, категории, похожие, рекомендации…) не показал
+// публичные товары — и наоборот. Устанавливается из AuthContext.
+let privateScope = null; // { privateCompanyId: number } | null
+export const setPrivateScope = (scope) => {
+  privateScope = scope?.privateCompanyId ? { privateCompanyId: scope.privateCompanyId } : null;
+};
+
 api.interceptors.request.use(async (config) => {
   const token = await AsyncStorage.getItem('userToken');
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  if (privateScope && (config.method || 'get').toLowerCase() === 'get') {
+    config.params = { mode: 'private', privateCompanyId: privateScope.privateCompanyId, ...config.params };
+  }
   return config;
 });
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
-export const loginUser = async (phone, password) => {
-  const res = await api.post(ENDPOINTS.loginUser, { phone, password });
+// extra: { mode: 'private', privateCode: '...' } — вход в закрытую компанию.
+export const loginUser = async (phone, password, extra = {}) => {
+  const res = await api.post(ENDPOINTS.loginUser, { phone, password, ...extra });
   return res.data;
 };
 
-export const registerUser = async (phone, name, surname, password) => {
-  const res = await api.post(ENDPOINTS.registerUser, { phone, name, surname, password });
+export const registerUser = async (phone, name, surname, password, extra = {}) => {
+  const res = await api.post(ENDPOINTS.registerUser, { phone, name, surname, password, ...extra });
   return res.data;
+};
+
+// 📲 Вход по SMS-коду
+export const requestOtp = async (phone) => {
+  const res = await api.post('/auth/otp/request', { phone });
+  return res.data; // { success, channel, ttlSeconds, devCode? }
+};
+
+export const verifyOtp = async (phone, code, extra = {}) => {
+  const res = await api.post('/auth/otp/verify', { phone, code, ...extra });
+  return res.data; // { success, user, token }
+};
+
+// 🔒 Проверка ID закрытой компании (перед входом/регистрацией)
+export const verifyPrivateCode = async (privateCode) => {
+  const res = await api.post('/companies/verify-private-code', { privateCode });
+  return res.data; // { success, companyId, name, logoUrl? }
 };
 
 // ─── Products ─────────────────────────────────────────────────────────────────

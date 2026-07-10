@@ -20,6 +20,13 @@ type Config struct {
 	CardEncryptionKey string
 	AdminPhone     string
 	AdminCode      string
+
+	// SMS/OTP delivery. Providers are tried in order:
+	// Eskiz (if credentials set) → Telegram bot (if user linked it) → dev log.
+	EskizEmail       string
+	EskizPassword    string
+	EskizFrom        string
+	TelegramBotToken string
 }
 
 func Load() *Config {
@@ -40,6 +47,11 @@ func Load() *Config {
 		// values by default; override via env in production).
 		AdminPhone: getEnv("ADMIN_PHONE", "914751330"),
 		AdminCode:  getEnv("ADMIN_CODE", "15051"),
+
+		EskizEmail:       getEnv("ESKIZ_EMAIL", ""),
+		EskizPassword:    getEnv("ESKIZ_PASSWORD", ""),
+		EskizFrom:        getEnv("ESKIZ_FROM", "4546"),
+		TelegramBotToken: getEnv("TELEGRAM_BOT_TOKEN", ""),
 	}
 }
 

@@ -61,6 +61,10 @@ func SearchProducts(db *sql.DB) gin.HandlerFunc {
 			addF(`COALESCE(p.brand, '') ILIKE ?`, v)
 		}
 
+		// Область видимости: публичный покупатель видит только публичные
+		// компании; покупатель закрытой компании — только её товары.
+		visibility := visibilityCond(c, "c", &args, &arg)
+
 		orderBy := "rank DESC, sold_count DESC"
 		switch c.Query("sort") {
 		case "price_asc":
@@ -93,7 +97,7 @@ func SearchProducts(db *sql.DB) gin.HandlerFunc {
 			FROM products p
 			LEFT JOIN companies c ON p.company_id = c.id
 			WHERE p.available_for_customers = TRUE
-			  AND (c.mode = 'public' OR c.mode IS NULL)
+			  AND `+visibility+`
 			  AND p.name NOT LIKE '__CATEGORY_MARKER__%'
 			  AND (
 			        p.article = $1
@@ -159,6 +163,12 @@ func SuggestProducts(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		// Видимость: закрытые компании не должны светиться даже в подсказках
+		// (бренды/категории раньше не фильтровались по компании — утечка).
+		args := []interface{}{q}
+		argN := 2
+		visibility := visibilityCond(c, "c", &args, &argN)
+
 		rows, err := db.Query(`
 			SELECT s.label, s.kind, SUM(s.weight) AS w
 			FROM (
@@ -166,24 +176,28 @@ func SuggestProducts(db *sql.DB) gin.HandlerFunc {
 				FROM products p
 				LEFT JOIN companies c ON p.company_id = c.id
 				WHERE p.available_for_customers = TRUE
-				  AND (c.mode = 'public' OR c.mode IS NULL)
+				  AND `+visibility+`
 				  AND p.name NOT LIKE '__CATEGORY_MARKER__%'
 				  AND (p.name ILIKE $1 || '%' OR p.name ILIKE '% ' || $1 || '%' OR word_similarity($1, p.name) > 0.4)
 				UNION ALL
 				SELECT p.brand AS label, 'brand' AS kind, COALESCE(p.sold_count, 0) + 1 AS weight
 				FROM products p
+				LEFT JOIN companies c ON p.company_id = c.id
 				WHERE COALESCE(p.brand, '') <> '' AND p.available_for_customers = TRUE
+				  AND `+visibility+`
 				  AND p.brand ILIKE $1 || '%'
 				UNION ALL
 				SELECT p.category AS label, 'category' AS kind, COALESCE(p.sold_count, 0) + 1 AS weight
 				FROM products p
+				LEFT JOIN companies c ON p.company_id = c.id
 				WHERE COALESCE(p.category, '') <> '' AND p.available_for_customers = TRUE
+				  AND `+visibility+`
 				  AND p.category ILIKE $1 || '%'
 			) s
 			GROUP BY s.label, s.kind
 			ORDER BY w DESC
 			LIMIT 8
-		`, q)
+		`, args...)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Suggest failed"})
 			return

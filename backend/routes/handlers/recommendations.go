@@ -108,15 +108,20 @@ func GetRecentlyViewed(db *sql.DB) gin.HandlerFunc {
 		if v, err := strconv.Atoi(c.Query("limit")); err == nil && v > 0 && v <= 50 {
 			limit = v
 		}
+		args := []interface{}{phone}
+		argN := 2
+		visibility := visibilityCond(c, "c", &args, &argN)
+		args = append(args, limit)
 		rows, err := db.Query(`
 			SELECT `+productCardSelect+`
 			FROM product_views vv
 			JOIN products p ON p.id = vv.product_id
 			LEFT JOIN companies c ON c.id = p.company_id
 			WHERE vv.user_phone = $1 AND p.available_for_customers = true
+			  AND `+visibility+`
 			ORDER BY vv.last_viewed_at DESC
-			LIMIT $2
-		`, phone, limit)
+			LIMIT $`+strconv.Itoa(argN)+`
+		`, args...)
 		if err != nil {
 			c.JSON(http.StatusOK, []interface{}{})
 			return
@@ -135,6 +140,10 @@ func GetRecommendations(db *sql.DB) gin.HandlerFunc {
 		if v, err := strconv.Atoi(c.Query("limit")); err == nil && v > 0 && v <= 50 {
 			limit = v
 		}
+		args := []interface{}{phone}
+		argN := 2
+		visibility := visibilityCond(c, "c", &args, &argN)
+		args = append(args, limit)
 		rows, err := db.Query(`
 			WITH interests AS (
 				SELECT DISTINCT COALESCE(p.category,'') AS cat, COALESCE(p.brand,'') AS brand
@@ -149,15 +158,15 @@ func GetRecommendations(db *sql.DB) gin.HandlerFunc {
 			FROM products p
 			LEFT JOIN companies c ON c.id = p.company_id
 			WHERE p.available_for_customers = true
-			  AND (c.mode = 'public' OR c.mode IS NULL)
+			  AND `+visibility+`
 			  AND (
 			      p.category IN (SELECT cat FROM interests WHERE cat <> '')
 			      OR COALESCE(p.brand,'') IN (SELECT brand FROM interests WHERE brand <> '')
 			  )
 			  AND p.id NOT IN (SELECT product_id FROM product_views WHERE user_phone = $1)
 			ORDER BY COALESCE(p.sold_count,0) DESC, p.created_at DESC
-			LIMIT $2
-		`, phone, limit)
+			LIMIT $`+strconv.Itoa(argN)+`
+		`, args...)
 		if err != nil {
 			c.JSON(http.StatusOK, []interface{}{})
 			return

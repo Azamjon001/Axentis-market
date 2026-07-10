@@ -37,6 +37,9 @@ func main() {
 	// Migrate algorithm tables (score, product_views, etc.)
 	handlers.MigrateAlgorithmTables(db)
 
+	// Migrate OTP tables (SMS login codes + telegram links)
+	handlers.MigrateOTPTables(db)
+
 	// Start SLA worker: auto-cancel orders pending > 45 min
 	handlers.RunSLAWorker(db, 45)
 

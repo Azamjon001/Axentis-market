@@ -338,12 +338,16 @@ export default function CompanyManagement() {
         
         const response = await fetch(`${api.baseURL}/api/companies/${company.id}/privacy`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(api.getAuthToken() ? { Authorization: `Bearer ${api.getAuthToken()}` } : {})
+          },
           body: JSON.stringify({ mode: 'private' })
         });
 
         if (!response.ok) {
-          throw new Error('Failed to update privacy mode');
+          const err = await response.json().catch(() => null);
+          throw new Error(err?.error || 'Failed to update privacy mode');
         }
 
         const data = await response.json();
@@ -358,12 +362,16 @@ export default function CompanyManagement() {
         
         const response = await fetch(`${api.baseURL}/api/companies/${company.id}/privacy`, {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(api.getAuthToken() ? { Authorization: `Bearer ${api.getAuthToken()}` } : {})
+          },
           body: JSON.stringify({ mode: 'public' })
         });
 
         if (!response.ok) {
-          throw new Error('Failed to update privacy mode');
+          const err = await response.json().catch(() => null);
+          throw new Error(err?.error || 'Failed to update privacy mode');
         }
 
         alert(`✅ Компания переведена в публичный режим!`);
