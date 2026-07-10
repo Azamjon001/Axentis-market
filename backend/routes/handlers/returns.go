@@ -51,12 +51,14 @@ func CreateReturn(db *sql.DB) gin.HandlerFunc {
 			req.CompanyID = nil
 		}
 
-		// Enforce the company's own return policy (enabled + time window).
+		// Enforce the company's own return policy. Пока заказ не выдан
+		// (pending/confirmed/shipped) возврат доступен в любой момент — покупатель
+		// мог оформить заказ случайно. После выдачи (delivered/completed) окно
+		// возврата отсчитывается от момента выдачи, а не от создания заказа.
 		if req.OrderID != nil && req.CompanyID != nil {
 			var (
-				retEnabled   bool
-				windowHours  int
-				orderCreated time.Time
+				retEnabled  bool
+				windowHours int
 			)
 			policyErr := db.QueryRow(`
 				SELECT COALESCE(return_enabled, true), COALESCE(return_window_hours, 24)
@@ -66,10 +68,15 @@ func CreateReturn(db *sql.DB) gin.HandlerFunc {
 					c.JSON(http.StatusForbidden, gin.H{"error": "Эта компания не принимает возвраты"})
 					return
 				}
-				if err := db.QueryRow(`SELECT created_at FROM orders WHERE id = $1`, *req.OrderID).Scan(&orderCreated); err == nil {
-					if windowHours > 0 && time.Since(orderCreated) > time.Duration(windowHours)*time.Hour {
+				var (
+					orderStatus  string
+					deliveredRef time.Time
+				)
+				if err := db.QueryRow(`SELECT status, COALESCE(updated_at, created_at) FROM orders WHERE id = $1`, *req.OrderID).Scan(&orderStatus, &deliveredRef); err == nil {
+					handedOver := orderStatus == "delivered" || orderStatus == "completed"
+					if handedOver && windowHours > 0 && time.Since(deliveredRef) > time.Duration(windowHours)*time.Hour {
 						c.JSON(http.StatusForbidden, gin.H{
-							"error": fmt.Sprintf("Срок возврата истёк (возврат возможен в течение %d ч после заказа)", windowHours),
+							"error": fmt.Sprintf("Срок возврата истёк (возврат возможен в течение %d ч после получения заказа)", windowHours),
 						})
 						return
 					}

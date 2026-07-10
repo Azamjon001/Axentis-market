@@ -126,6 +126,9 @@ func Migrate(db *sql.DB) error {
 		status VARCHAR(20) DEFAULT 'pending',
 		comment TEXT,
 		order_code VARCHAR(6) UNIQUE,
+		-- Общий код группы: один заказ покупателя из корзины с товарами
+		-- нескольких компаний хранится как под-заказы с одинаковой группой.
+		order_group_code VARCHAR(32),
 		created_at TIMESTAMPTZ DEFAULT NOW(),
 		updated_at TIMESTAMPTZ DEFAULT NOW()
 	);
@@ -139,7 +142,8 @@ func Migrate(db *sql.DB) error {
 		'delivery_address TEXT',
 		'delivery_coordinates VARCHAR(50)',
 		'markup_profit NUMERIC(12,2) DEFAULT 0',
-		'order_code VARCHAR(6)'
+		'order_code VARCHAR(6)',
+		'order_group_code VARCHAR(32)'
 	];
 	col TEXT;
 	col_name TEXT;
@@ -158,6 +162,7 @@ func Migrate(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_orders_company_id ON orders(company_id);
 	CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 	CREATE INDEX IF NOT EXISTS idx_orders_code ON orders(order_code);
+	CREATE INDEX IF NOT EXISTS idx_orders_group_code ON orders(order_group_code);
 
 	-- Users table (for customers) — all columns declared upfront so fresh
 	-- deployments work without needing every incremental migration file.
