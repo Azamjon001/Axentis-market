@@ -189,36 +189,90 @@ export default function PurchaseAnalytics({ companyId }: PurchaseAnalyticsProps)
     return { dateStr, timeStr };
   };
 
-  // Prepare chart data - group by date
+  // 📈 Динамика закупок: фиксированная сетка точек по выбранному периоду.
+  // Сегодня/вчера — 24 точки (каждый час), неделя — 14 (каждые 12 часов),
+  // месяц — точка на каждый день, год — 52 (каждая неделя). Пустые интервалы
+  // дают 0 — линия сплошная по всему периоду, а не одна точка.
   const chartData = React.useMemo(() => {
-    const grouped: Record<string, { date: string; quantity: number; cost: number }> = {};
+    if (purchases.length === 0) return [];
 
-    purchases.forEach(purchase => {
-      const date = new Date(purchase.purchaseDate).toLocaleDateString('uz-UZ');
-      if (!grouped[date]) {
-        grouped[date] = { date, quantity: 0, cost: 0 };
+    const now = new Date();
+    let start: Date;
+    let end = new Date(now);
+    let pointsCount: number;
+    let labelMode: 'hour' | 'half-day' | 'day';
+
+    switch (timePeriod) {
+      case 'day': {
+        start = new Date(now); start.setHours(0, 0, 0, 0);
+        end = new Date(start); end.setHours(23, 59, 59, 999);
+        pointsCount = 24; labelMode = 'hour';
+        break;
       }
-      grouped[date].quantity += purchase.quantity;
-      grouped[date].cost += purchase.totalCost;
+      case 'yesterday': {
+        start = new Date(now); start.setDate(now.getDate() - 1); start.setHours(0, 0, 0, 0);
+        end = new Date(start); end.setHours(23, 59, 59, 999);
+        pointsCount = 24; labelMode = 'hour';
+        break;
+      }
+      case 'week': {
+        start = new Date(now); start.setDate(now.getDate() - 7);
+        pointsCount = 14; labelMode = 'half-day';
+        break;
+      }
+      case 'month': {
+        start = new Date(now); start.setMonth(now.getMonth() - 1);
+        pointsCount = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000));
+        labelMode = 'day';
+        break;
+      }
+      case 'year': {
+        start = new Date(now); start.setFullYear(now.getFullYear() - 1);
+        pointsCount = 52; labelMode = 'day';
+        break;
+      }
+      default: { // custom / all — шаг подбирается по длине диапазона
+        if (timePeriod === 'custom' && customStartDate && customEndDate) {
+          start = new Date(customStartDate); start.setHours(0, 0, 0, 0);
+          end = new Date(customEndDate); end.setHours(23, 59, 59, 999);
+        } else {
+          start = new Date(Math.min(...purchases.map(p => new Date(p.purchaseDate).getTime())));
+        }
+        const spanDays = Math.max((end.getTime() - start.getTime()) / 86_400_000, 0.01);
+        if (spanDays <= 1.5) { pointsCount = 24; labelMode = 'hour'; }
+        else if (spanDays <= 8) { pointsCount = 14; labelMode = 'half-day'; }
+        else if (spanDays <= 62) { pointsCount = Math.max(2, Math.round(spanDays)); labelMode = 'day'; }
+        else { pointsCount = 52; labelMode = 'day'; }
+      }
+    }
+
+    const startMs = start.getTime();
+    const bucketMs = Math.max(1, (end.getTime() - startMs) / pointsCount);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const makeLabel = (d: Date) => {
+      if (labelMode === 'hour') return `${pad(d.getHours())}:00`;
+      if (labelMode === 'half-day') return `${pad(d.getDate())}.${pad(d.getMonth() + 1)} ${d.getHours() < 12 ? '00:00' : '12:00'}`;
+      return `${pad(d.getDate())}.${pad(d.getMonth() + 1)}`;
+    };
+
+    const buckets = Array.from({ length: pointsCount }, (_, i) => ({
+      date: makeLabel(new Date(startMs + i * bucketMs)),
+      quantity: 0,
+      cost: 0,
+    }));
+
+    purchases.forEach(p => {
+      const t = new Date(p.purchaseDate).getTime();
+      if (Number.isNaN(t) || t < startMs || t > end.getTime()) return;
+      const idx = Math.min(Math.floor((t - startMs) / bucketMs), pointsCount - 1);
+      buckets[idx].quantity += p.quantity;
+      buckets[idx].cost += p.totalCost;
     });
 
-    return Object.values(grouped).sort(
-      (a, b) =>
-        new Date(a.date.split('.').reverse().join('-')).getTime() -
-        new Date(b.date.split('.').reverse().join('-')).getTime()
-    );
-  }, [purchases]);
+    return buckets;
+  }, [purchases, timePeriod, customStartDate, customEndDate]);
 
-  // Single-point fix: add a leading zero-point so the chart renders properly
-  const enhancedChartData = React.useMemo(() => {
-    if (chartData.length === 0) return [];
-    if (chartData.length === 1) {
-      return [{ date: '—', quantity: 0, cost: 0 }, ...chartData];
-    }
-    return chartData;
-  }, [chartData]);
-
-  // Top products by purchase quantity
+  // 🏆 Топ-10 товаров по закупкам — просто список с количеством, без диаграмм
   const topProducts = React.useMemo(() => {
     const productMap: Record<string, { name: string; quantity: number; cost: number }> = {};
 
@@ -236,17 +290,8 @@ export default function PurchaseAnalytics({ companyId }: PurchaseAnalyticsProps)
 
     return Object.values(productMap)
       .sort((a, b) => b.quantity - a.quantity)
-      .slice(0, 8);
+      .slice(0, 10);
   }, [purchases]);
-
-  // Single-point fix: линия рисуется корректно даже при одном товаре
-  const enhancedTopProducts = React.useMemo(() => {
-    if (topProducts.length === 0) return [];
-    if (topProducts.length === 1) {
-      return [{ name: '—', quantity: 0, cost: 0 }, ...topProducts];
-    }
-    return topProducts;
-  }, [topProducts]);
 
   if (loading) {
     return (
@@ -461,118 +506,6 @@ export default function PurchaseAnalytics({ companyId }: PurchaseAnalyticsProps)
         </div>
       ) : (
         <>
-          {/* Charts */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 24 }}>
-            {/* Purchases Over Time — AreaChart */}
-            <div
-              style={{
-                background: 'var(--ax-card)',
-                border: '1px solid rgba(255,255,255,0.07)',
-                borderRadius: 16,
-                padding: 24,
-              }}
-            >
-              <h4 style={{ fontSize: 16, fontWeight: 600, color: 'var(--ax-text)', margin: '0 0 4px' }}>
-                {language === 'uz' ? 'Xaridlar dinamikasi' : 'Динамика закупок'}
-              </h4>
-              <p style={{ fontSize: 13, color: '#5A5A78', margin: '0 0 20px' }}>
-                {language === 'uz'
-                  ? "Xaridlar summasi o'zgarishi vaqt bo'yicha"
-                  : 'Изменение суммы закупок по времени'}
-              </p>
-              <ResponsiveContainer width="100%" height={250}>
-                <AreaChart data={enhancedChartData}>
-                  <defs>
-                    <linearGradient id="purchaseGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#7C5CF0" stopOpacity={0.4} />
-                      <stop offset="95%" stopColor="#7C5CF0" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                  <XAxis dataKey="date" tick={{ fill: '#5A5A78', fontSize: 12 }} axisLine={false} tickLine={false} />
-                  <YAxis
-                    tick={{ fill: '#5A5A78', fontSize: 12 }}
-                    axisLine={false}
-                    tickLine={false}
-                    tickFormatter={v =>
-                      v >= 1_000_000
-                        ? `${(v / 1_000_000).toFixed(1)}M`
-                        : v >= 1000
-                        ? `${(v / 1000).toFixed(0)}K`
-                        : String(v)
-                    }
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: '#13132A',
-                      border: '1px solid rgba(255,255,255,0.07)',
-                      borderRadius: 10,
-                      color: 'var(--ax-text)',
-                    }}
-                    labelStyle={{ color: '#8B8BAA' }}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="cost"
-                    stroke="#7C5CF0"
-                    strokeWidth={2}
-                    fill="url(#purchaseGrad)"
-                    name={language === 'uz' ? 'Summa (so\'m)' : 'Сумма (сум)'}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Top Products — AreaChart (сплошная линия, только закупки) */}
-            <div
-              style={{
-                background: 'var(--ax-card)',
-                border: '1px solid rgba(255,255,255,0.07)',
-                borderRadius: 16,
-                padding: 24,
-              }}
-            >
-              <h4 style={{ fontSize: 16, fontWeight: 600, color: 'var(--ax-text)', margin: '0 0 4px' }}>
-                {language === 'uz' ? 'Top tovarlar' : 'Топ товаров по закупкам'}
-              </h4>
-              <p style={{ fontSize: 13, color: '#5A5A78', margin: '0 0 20px' }}>
-                {language === 'uz' ? "Eng ko'p sotib olingan tovarlar" : 'Самые покупаемые товары'}
-              </p>
-              <ResponsiveContainer width="100%" height={250}>
-                <AreaChart data={enhancedTopProducts}>
-                  <defs>
-                    <linearGradient id="topProductsGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#22C55E" stopOpacity={0.4} />
-                      <stop offset="95%" stopColor="#22C55E" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                  <XAxis dataKey="name" tick={{ fill: '#5A5A78', fontSize: 11 }} axisLine={false} tickLine={false} interval={0} />
-                  <YAxis tick={{ fill: '#5A5A78', fontSize: 12 }} axisLine={false} tickLine={false} allowDecimals={false} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: '#13132A',
-                      border: '1px solid rgba(255,255,255,0.07)',
-                      borderRadius: 10,
-                      color: 'var(--ax-text)',
-                    }}
-                    labelStyle={{ color: '#8B8BAA' }}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="quantity"
-                    stroke="#22C55E"
-                    strokeWidth={2.5}
-                    fill="url(#topProductsGrad)"
-                    dot={{ r: 3, fill: '#22C55E' }}
-                    activeDot={{ r: 5, fill: '#22C55E', stroke: '#FFFFFF', strokeWidth: 2 }}
-                    name={language === 'uz' ? 'Miqdori' : 'Количество'}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
           {/* Recent Purchases Table */}
           <div
             style={{
@@ -767,6 +700,167 @@ export default function PurchaseAnalytics({ companyId }: PurchaseAnalyticsProps)
                   })}
                 </tbody>
               </table>
+            </div>
+          </div>
+
+          {/* 📈 Динамика закупок — во всю ширину, точки по всему периоду */}
+          <div
+            style={{
+              background: 'var(--ax-card)',
+              border: '1px solid rgba(255,255,255,0.07)',
+              borderRadius: 16,
+              padding: 24,
+            }}
+          >
+            <h4 style={{ fontSize: 16, fontWeight: 600, color: 'var(--ax-text)', margin: '0 0 4px' }}>
+              {language === 'uz' ? 'Xaridlar dinamikasi' : 'Динамика закупок'}
+            </h4>
+            <p style={{ fontSize: 13, color: '#5A5A78', margin: '0 0 20px' }}>
+              {language === 'uz'
+                ? "Bugun — har soat, hafta — har 12 soat, oy — har kun, yil — har hafta"
+                : 'Сегодня — по часам, неделя — каждые 12 часов, месяц — по дням, год — по неделям'}
+            </p>
+            <ResponsiveContainer width="100%" height={320}>
+              <AreaChart data={chartData} margin={{ left: 0, right: 8 }}>
+                <defs>
+                  <linearGradient id="purchaseGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#7C5CF0" stopOpacity={0.4} />
+                    <stop offset="95%" stopColor="#7C5CF0" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                <XAxis
+                  dataKey="date"
+                  tick={{ fill: '#5A5A78', fontSize: 11 }}
+                  axisLine={false}
+                  tickLine={false}
+                  minTickGap={24}
+                />
+                <YAxis
+                  tick={{ fill: '#5A5A78', fontSize: 12 }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={v =>
+                    v >= 1_000_000
+                      ? `${(v / 1_000_000).toFixed(1)}M`
+                      : v >= 1000
+                      ? `${(v / 1000).toFixed(0)}K`
+                      : String(v)
+                  }
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#13132A',
+                    border: '1px solid rgba(255,255,255,0.07)',
+                    borderRadius: 10,
+                    color: 'var(--ax-text)',
+                  }}
+                  labelStyle={{ color: '#8B8BAA' }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="cost"
+                  stroke="#7C5CF0"
+                  strokeWidth={2}
+                  fill="url(#purchaseGrad)"
+                  dot={false}
+                  name={language === 'uz' ? 'Summa (so\'m)' : 'Сумма (сум)'}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* 🏆 Топ-10 товаров по закупкам — список, без диаграмм */}
+          <div
+            style={{
+              background: 'var(--ax-card)',
+              border: '1px solid rgba(255,255,255,0.07)',
+              borderRadius: 16,
+              padding: 24,
+            }}
+          >
+            <h4 style={{ fontSize: 16, fontWeight: 600, color: 'var(--ax-text)', margin: '0 0 4px' }}>
+              {language === 'uz' ? 'Top-10 tovarlar (xaridlar boʻyicha)' : 'Топ-10 товаров по закупкам'}
+            </h4>
+            <p style={{ fontSize: 13, color: '#5A5A78', margin: '0 0 16px' }}>
+              {language === 'uz' ? "Eng ko'p sotib olingan tovarlar va soni" : 'Самые закупаемые товары и их количество'}
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {topProducts.map((p, i) => {
+                const maxQty = topProducts[0]?.quantity || 1;
+                return (
+                  <div
+                    key={p.name}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: '10px 14px',
+                      borderRadius: 12,
+                      background: i === 0 ? 'rgba(124,92,240,0.10)' : 'rgba(255,255,255,0.03)',
+                      border: '1px solid rgba(255,255,255,0.05)',
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: 8,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                        fontSize: 13,
+                        fontWeight: 700,
+                        background: i < 3 ? 'rgba(124,92,240,0.25)' : 'rgba(255,255,255,0.06)',
+                        color: i < 3 ? '#A78BFA' : '#8B8BAA',
+                      }}
+                    >
+                      {i + 1}
+                    </span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: 14,
+                          fontWeight: 600,
+                          color: 'var(--ax-text)',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        {p.name}
+                      </div>
+                      <div
+                        style={{
+                          marginTop: 6,
+                          height: 5,
+                          borderRadius: 3,
+                          background: 'rgba(255,255,255,0.06)',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: `${Math.max(4, Math.round((p.quantity / maxQty) * 100))}%`,
+                            height: '100%',
+                            borderRadius: 3,
+                            background: 'linear-gradient(90deg, #7C5CF0, #A78BFA)',
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: '#22C55E', lineHeight: 1.2 }}>
+                        {p.quantity.toLocaleString()} {language === 'uz' ? 'dona' : 'шт'}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#5A5A78' }}>
+                        {p.cost.toLocaleString()} {language === 'uz' ? "so'm" : 'сум'}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </>

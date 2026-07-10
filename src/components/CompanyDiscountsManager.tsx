@@ -4,6 +4,7 @@ import CompanyAggressiveDiscountsPanel from './CompanyAggressiveDiscountsPanel';
 import CompanyPromoCodesPanel from './CompanyPromoCodesPanel';
 import CompanyCampaignsPanel from './CompanyCampaignsPanel';
 import { getCurrentLanguage, useTranslation, type Language } from '../utils/translations';
+import api from '../utils/api';
 
 interface CompanyDiscountsManagerProps {
   companyId: number;
@@ -14,6 +15,23 @@ export default function CompanyDiscountsManager({ companyId, products = [] }: Co
   const [activeTab, setActiveTab] = useState<'regular' | 'aggressive' | 'promo' | 'campaigns'>('regular');
   const [language, setLanguage] = useState<Language>(getCurrentLanguage());
   const t = useTranslation(language);
+  // 🎟️ Промокоды доступны только закрытым (приватным) магазинам: у публичных
+  // магазинов раздача кодов не имеет смысла — товары и так видны всем.
+  const [companyMode, setCompanyMode] = useState<'public' | 'private' | null>(null);
+  const promoAllowed = companyMode === 'private';
+
+  useEffect(() => {
+    let cancelled = false;
+    api.companies.get(String(companyId))
+      .then((c: any) => { if (!cancelled) setCompanyMode(c?.mode === 'private' ? 'private' : 'public'); })
+      .catch(() => { if (!cancelled) setCompanyMode('public'); });
+    return () => { cancelled = true; };
+  }, [companyId]);
+
+  // Если магазин стал публичным, а открыта вкладка промокодов — уводим на обычные скидки
+  useEffect(() => {
+    if (companyMode === 'public' && activeTab === 'promo') setActiveTab('regular');
+  }, [companyMode, activeTab]);
 
   useEffect(() => {
     // Язык меняется через кастомное событие 'languageChange' (а не 'storage'),
@@ -75,25 +93,27 @@ export default function CompanyDiscountsManager({ companyId, products = [] }: Co
         >
           🔥 {t.aggressiveDiscounts}
         </button>
-        <button
-          className={`discounts-tab ${activeTab === 'promo' ? 'discounts-tab-active' : 'discounts-tab-inactive'}`}
-          style={{
-            padding: '12px 24px',
-            fontSize: '16px',
-            fontWeight: '600',
-            border: 'none',
-            borderRadius: '8px 8px 0 0',
-            cursor: 'pointer',
-            transition: 'all 0.2s',
-            whiteSpace: 'nowrap',
-            ...(activeTab === 'promo'
-              ? { borderBottom: '3px solid #3b82f6', marginBottom: '-2px' }
-              : {})
-          }}
-          onClick={() => setActiveTab('promo')}
-        >
-          🎟️ {language === 'uz' ? 'Promokodlar' : 'Промокоды'}
-        </button>
+        {promoAllowed && (
+          <button
+            className={`discounts-tab ${activeTab === 'promo' ? 'discounts-tab-active' : 'discounts-tab-inactive'}`}
+            style={{
+              padding: '12px 24px',
+              fontSize: '16px',
+              fontWeight: '600',
+              border: 'none',
+              borderRadius: '8px 8px 0 0',
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              whiteSpace: 'nowrap',
+              ...(activeTab === 'promo'
+                ? { borderBottom: '3px solid #3b82f6', marginBottom: '-2px' }
+                : {})
+            }}
+            onClick={() => setActiveTab('promo')}
+          >
+            🎟️ {language === 'uz' ? 'Promokodlar' : 'Промокоды'}
+          </button>
+        )}
         <button
           className={`discounts-tab ${activeTab === 'campaigns' ? 'discounts-tab-active' : 'discounts-tab-inactive'}`}
           style={{
@@ -123,7 +143,7 @@ export default function CompanyDiscountsManager({ companyId, products = [] }: Co
         {activeTab === 'aggressive' && (
           <CompanyAggressiveDiscountsPanel companyId={companyId} products={products} />
         )}
-        {activeTab === 'promo' && (
+        {activeTab === 'promo' && promoAllowed && (
           <CompanyPromoCodesPanel companyId={companyId} />
         )}
         {activeTab === 'campaigns' && (

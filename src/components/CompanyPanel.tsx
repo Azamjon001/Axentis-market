@@ -11,7 +11,6 @@ const BroadcastChatPanel = React.lazy(() => import('./BroadcastChatPanel'));
 const AnalyticsPanel = React.lazy(() => import('./AnalyticsPanel'));
 const BarcodeSearchPanel = React.lazy(() => import('./BarcodeSearchPanel'));
 const CompanySMMPanel = React.lazy(() => import('./CompanySMMPanel'));
-const CompanyPromotionsPanel = React.lazy(() => import('./CompanyPromotionsPanel'));
 const CompanyDiscountsManager = React.lazy(() => import('./CompanyDiscountsManager'));
 const CompanyReturnsPanel = React.lazy(() => import('./CompanyReturnsPanel'));
 const CompanyStoriesPanel = React.lazy(() => import('./CompanyStoriesPanel'));
@@ -46,7 +45,7 @@ export default function CompanyPanel({ onLogout, companyId, companyName }: Compa
     }
   }, [companyId, companyName]);
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'warehouse' | 'sales' | 'orders' | 'analytics' | 'barcode' | 'smm' | 'promotions' | 'stories' | 'discounts' | 'returns' | 'questions' | 'couriers' | 'chat' | 'settings'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'warehouse' | 'sales' | 'orders' | 'analytics' | 'barcode' | 'smm' | 'stories' | 'discounts' | 'returns' | 'questions' | 'couriers' | 'chat' | 'settings'>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showInbox, setShowInbox] = useState(false);
   const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
@@ -104,7 +103,7 @@ export default function CompanyPanel({ onLogout, companyId, companyName }: Compa
 
   useEffect(() => {
     const hash = window.location.hash.replace('#', '');
-    const validTabs: Array<typeof activeTab> = ['dashboard', 'warehouse', 'sales', 'orders', 'analytics', 'barcode', 'smm', 'promotions', 'stories', 'discounts', 'returns', 'questions', 'couriers', 'chat', 'settings'];
+    const validTabs: Array<typeof activeTab> = ['dashboard', 'warehouse', 'sales', 'orders', 'analytics', 'barcode', 'smm', 'stories', 'discounts', 'returns', 'questions', 'couriers', 'chat', 'settings'];
     const initialTab = validTabs.includes(hash as any) ? (hash as typeof activeTab) : 'dashboard';
 
     const currentState = window.history.state || {};
@@ -144,7 +143,6 @@ export default function CompanyPanel({ onLogout, companyId, companyName }: Compa
     { key: 'analytics' as const,  icon: BarChart3,    label: t.statistics },
     { key: 'barcode' as const,    icon: Barcode,      label: t.searchByBarcode },
     { key: 'smm' as const,        icon: Megaphone,    label: t.smm },
-    { key: 'promotions' as const, icon: Megaphone,    label: language === 'uz' ? 'Reklama' : 'Реклама' },
     { key: 'stories' as const,    icon: Camera,       label: language === 'uz' ? 'Storilar' : 'Сторис' },
     { key: 'discounts' as const,  icon: Tag,          label: t.discountsManagement },
     { key: 'returns' as const,    icon: RotateCcw,    label: language === 'uz' ? 'Qaytarishlar' : 'Возвраты' },
@@ -393,7 +391,6 @@ export default function CompanyPanel({ onLogout, companyId, companyName }: Compa
                 {activeTab === 'analytics' && t.statistics}
                 {activeTab === 'barcode' && t.searchByBarcode}
                 {activeTab === 'smm' && t.smm}
-                {activeTab === 'promotions' && (language === 'uz' ? 'Reklama' : 'Реклама')}
                 {activeTab === 'stories' && (language === 'uz' ? 'Storilar' : 'Сторис')}
                 {activeTab === 'discounts' && t.discountsManagement}
                 {activeTab === 'dashboard' && (language === 'uz' ? 'Boshqaruv' : 'Дашборд')}
@@ -446,7 +443,6 @@ export default function CompanyPanel({ onLogout, companyId, companyName }: Compa
           {activeTab === 'analytics' && <AnalyticsPanel companyId={companyId} />}
           {activeTab === 'barcode' && <BarcodeSearchPanel companyId={companyId} />}
           {activeTab === 'smm' && <CompanySMMPanel companyId={companyId} companyName={companyName} />}
-          {activeTab === 'promotions' && <CompanyPromotionsPanel companyId={companyId} />}
           {activeTab === 'stories' && <CompanyStoriesPanel companyId={companyId} />}
           {activeTab === 'discounts' && <CompanyDiscountsManager companyId={companyId} products={[]} />}
           {activeTab === 'dashboard' && <CompanyDashboardPanel companyId={companyId} onNavigate={(tab) => handleNavigate(tab as typeof activeTab)} />}

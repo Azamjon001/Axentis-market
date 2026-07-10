@@ -32,6 +32,7 @@ type OrderListItem struct {
 	MarkupProfit        float64         `json:"markup_profit"`
 	Items               json.RawMessage `json:"items"`
 	CreatedAt           string          `json:"created_at"`
+	OrderGroupCode      string          `json:"order_group_code"`
 }
 
 // OrdersPage — ответ пагинации.
@@ -121,12 +122,13 @@ func checkStockAvailable(tx *sql.Tx, productID int64, color, size string, qty in
 // GetOrders — production-ready handler с cursor pagination.
 //
 // Query params:
-//   customer_phone  — фильтр по телефону (мобильное приложение)
-//   company_id      — фильтр по компании (panель компании); принимает и companyId
-//   cursor          — ID последнего заказа предыдущей страницы (cursor mode)
-//   page            — номер страницы, начиная с 1 (offset mode)
-//   page_size       — размер страницы (default 20, max 100)
-//   mode            — "cursor" (default) | "offset"
+//
+//	customer_phone  — фильтр по телефону (мобильное приложение)
+//	company_id      — фильтр по компании (panель компании); принимает и companyId
+//	cursor          — ID последнего заказа предыдущей страницы (cursor mode)
+//	page            — номер страницы, начиная с 1 (offset mode)
+//	page_size       — размер страницы (default 20, max 100)
+//	mode            — "cursor" (default) | "offset"
 //
 // items в список НЕ включены. Используйте GET /orders/:id для получения деталей.
 func GetOrders(db *sql.DB) gin.HandlerFunc {
@@ -198,7 +200,8 @@ func getOrdersCursor(ctx context.Context, c *gin.Context, db *sql.DB, customerPh
 		       COALESCE(delivery_coordinates, '')      AS delivery_coordinates,
 		       COALESCE(markup_profit, 0)              AS markup_profit,
 		       COALESCE(items, '[]'::jsonb)            AS items,
-		       created_at
+		       created_at,
+		       COALESCE(order_group_code, '')          AS order_group_code
 		FROM orders`
 
 	var (
@@ -252,7 +255,7 @@ func getOrdersCursor(ctx context.Context, c *gin.Context, db *sql.DB, customerPh
 			&o.TotalAmount, &o.DeliveryCost, &o.DeliveryType,
 			&o.CustomerName, &o.CustomerPhone,
 			&o.RecipientName, &o.DeliveryAddress, &o.DeliveryCoordinates,
-			&o.MarkupProfit, &o.Items, &o.CreatedAt,
+			&o.MarkupProfit, &o.Items, &o.CreatedAt, &o.OrderGroupCode,
 		); err != nil {
 			log.Printf("⚠️ getOrdersCursor scan: %v", err)
 			continue
@@ -306,7 +309,8 @@ func getOrdersOffset(ctx context.Context, c *gin.Context, db *sql.DB, customerPh
 		       COALESCE(delivery_coordinates, '')      AS delivery_coordinates,
 		       COALESCE(markup_profit, 0)              AS markup_profit,
 		       COALESCE(items, '[]'::jsonb)            AS items,
-		       created_at
+		       created_at,
+		       COALESCE(order_group_code, '')          AS order_group_code
 		FROM orders`
 
 	var (
@@ -355,7 +359,7 @@ func getOrdersOffset(ctx context.Context, c *gin.Context, db *sql.DB, customerPh
 			&o.TotalAmount, &o.DeliveryCost, &o.DeliveryType,
 			&o.CustomerName, &o.CustomerPhone,
 			&o.RecipientName, &o.DeliveryAddress, &o.DeliveryCoordinates,
-			&o.MarkupProfit, &o.Items, &o.CreatedAt,
+			&o.MarkupProfit, &o.Items, &o.CreatedAt, &o.OrderGroupCode,
 		); err != nil {
 			log.Printf("⚠️ getOrdersOffset scan: %v", err)
 			continue
@@ -404,16 +408,27 @@ func GetOrderByID(db *sql.DB) gin.HandlerFunc {
 			Comment             sql.NullString
 			OrderCode           sql.NullString
 			CreatedAt           string
+			UpdatedAt           sql.NullString
+			OrderGroupCode      sql.NullString
+			CompanyName         sql.NullString
+			ReturnEnabled       sql.NullBool
+			ReturnWindowHours   sql.NullInt64
 		}
 
 		err := db.QueryRow(`
-			SELECT id, company_id, customer_name, customer_phone, address, items,
-			       total_amount, delivery_cost, delivery_type, recipient_name,
-			       delivery_address, delivery_coordinates, markup_profit, status, comment, order_code, created_at
-			FROM orders WHERE id = $1
+			SELECT o.id, o.company_id, o.customer_name, o.customer_phone, o.address, o.items,
+			       o.total_amount, o.delivery_cost, o.delivery_type, o.recipient_name,
+			       o.delivery_address, o.delivery_coordinates, o.markup_profit, o.status, o.comment, o.order_code, o.created_at,
+			       o.updated_at, o.order_group_code,
+			       c.name, c.return_enabled, c.return_window_hours
+			FROM orders o
+			LEFT JOIN companies c ON c.id = o.company_id
+			WHERE o.id = $1
 		`, id).Scan(&o.ID, &o.CompanyID, &o.CustomerName, &o.CustomerPhone, &o.Address, &o.Items,
 			&o.TotalAmount, &o.DeliveryCost, &o.DeliveryType, &o.RecipientName,
-			&o.DeliveryAddress, &o.DeliveryCoordinates, &o.MarkupProfit, &o.Status, &o.Comment, &o.OrderCode, &o.CreatedAt)
+			&o.DeliveryAddress, &o.DeliveryCoordinates, &o.MarkupProfit, &o.Status, &o.Comment, &o.OrderCode, &o.CreatedAt,
+			&o.UpdatedAt, &o.OrderGroupCode,
+			&o.CompanyName, &o.ReturnEnabled, &o.ReturnWindowHours)
 		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Order not found"})
 			return
@@ -459,29 +474,40 @@ func GetOrderByID(db *sql.DB) gin.HandlerFunc {
 		}
 
 		order := map[string]interface{}{
-			"id":            o.ID,
-			"companyId":     o.CompanyID.Int64,
-			"company_id":    o.CompanyID.Int64,
-			"customerName":  o.CustomerName,
-			"customerPhone": o.CustomerPhone,
-			"items":         itemsArray,
-			"delivery_cost": o.DeliveryCost,
-			"deliveryCost":  o.DeliveryCost,
-			"total_amount":  o.TotalAmount,
-			"totalAmount":   o.TotalAmount,
-			"markup_profit": o.MarkupProfit,
-			"markupProfit":  o.MarkupProfit,
-			"status":        o.Status,
-			"created_at":    o.CreatedAt,
-			"createdAt":     o.CreatedAt,
-			"deliveryType":  ternStr(o.DeliveryType, "pickup"),
-			"recipientName": o.RecipientName.String,
-			"deliveryAddress": o.DeliveryAddress.String,
+			"id":                  o.ID,
+			"companyId":           o.CompanyID.Int64,
+			"company_id":          o.CompanyID.Int64,
+			"customerName":        o.CustomerName,
+			"customerPhone":       o.CustomerPhone,
+			"items":               itemsArray,
+			"delivery_cost":       o.DeliveryCost,
+			"deliveryCost":        o.DeliveryCost,
+			"total_amount":        o.TotalAmount,
+			"totalAmount":         o.TotalAmount,
+			"markup_profit":       o.MarkupProfit,
+			"markupProfit":        o.MarkupProfit,
+			"status":              o.Status,
+			"created_at":          o.CreatedAt,
+			"createdAt":           o.CreatedAt,
+			"deliveryType":        ternStr(o.DeliveryType, "pickup"),
+			"recipientName":       o.RecipientName.String,
+			"deliveryAddress":     o.DeliveryAddress.String,
 			"deliveryCoordinates": o.DeliveryCoordinates.String,
-			"address":       o.Address.String,
-			"comment":       o.Comment.String,
-			"orderCode":     o.OrderCode.String,
-			"order_code":    o.OrderCode.String,
+			"address":             o.Address.String,
+			"comment":             o.Comment.String,
+			"orderCode":           o.OrderCode.String,
+			"order_code":          o.OrderCode.String,
+			"orderGroupCode":      o.OrderGroupCode.String,
+			"updatedAt":           o.UpdatedAt.String,
+			"companyName":         o.CompanyName.String,
+			// Политика возвратов компании — клиент показывает/прячет кнопку возврата
+			"returnEnabled": !o.ReturnEnabled.Valid || o.ReturnEnabled.Bool,
+			"returnWindowHours": func() int64 {
+				if o.ReturnWindowHours.Valid {
+					return o.ReturnWindowHours.Int64
+				}
+				return 24
+			}(),
 		}
 		c.JSON(http.StatusOK, order)
 	}
@@ -617,6 +643,16 @@ func CreateOrder(db *sql.DB) gin.HandlerFunc {
 		customerName := fmt.Sprintf("%v", req["customerName"])
 		customerPhone := fmt.Sprintf("%v", req["customerPhone"])
 
+		// Код группы: одна корзина с товарами нескольких компаний оформляется
+		// как под-заказы с общим order_group_code — для покупателя это один заказ.
+		orderGroupCode := ""
+		if req["orderGroupCode"] != nil {
+			orderGroupCode = fmt.Sprintf("%v", req["orderGroupCode"])
+			if len(orderGroupCode) > 32 {
+				orderGroupCode = orderGroupCode[:32]
+			}
+		}
+
 		// Anti-fraud: block suspicious users before creating order
 		if blocked, reason := CheckAntiFraud(db, customerPhone); blocked {
 			log.Printf("🚫 AntifraudBlock: phone=%s reason=%s", customerPhone, reason)
@@ -651,50 +687,54 @@ func CreateOrder(db *sql.DB) gin.HandlerFunc {
 		} else {
 			itemsArray = []map[string]interface{}{}
 		}
-		
+
 		log.Printf("✅ CreateOrder: Parsed %d items", len(itemsArray))
 
-	// Calculate markup profit — ALWAYS look up actual variant price from DB
-	// Frontend may send product-level min price instead of the selected variant's price,
-	// so we use selling_price as a fingerprint to find the exact variant.
-	var markupProfit float64
-	for _, item := range itemsArray {
-		quantity := 0.0
-		frontendBase := 0.0
-		frontendSelling := 0.0
+		// Calculate markup profit — ALWAYS look up actual variant price from DB
+		// Frontend may send product-level min price instead of the selected variant's price,
+		// so we use selling_price as a fingerprint to find the exact variant.
+		var markupProfit float64
+		for _, item := range itemsArray {
+			quantity := 0.0
+			frontendBase := 0.0
+			frontendSelling := 0.0
 
-		if q, ok := item["quantity"].(float64); ok { quantity = q }
-		if p, ok := item["price"].(float64); ok { frontendBase = p }
-		if pwm, ok := item["price_with_markup"].(float64); ok {
-			frontendSelling = pwm
-		} else if pwm, ok := item["priceWithMarkup"].(float64); ok {
-			frontendSelling = pwm
-		}
+			if q, ok := item["quantity"].(float64); ok {
+				quantity = q
+			}
+			if p, ok := item["price"].(float64); ok {
+				frontendBase = p
+			}
+			if pwm, ok := item["price_with_markup"].(float64); ok {
+				frontendSelling = pwm
+			} else if pwm, ok := item["priceWithMarkup"].(float64); ok {
+				frontendSelling = pwm
+			}
 
-		if quantity <= 0 {
-			continue
-		}
+			if quantity <= 0 {
+				continue
+			}
 
-		var productId int64
-		if pid, ok := item["productId"].(float64); ok {
-			productId = int64(pid)
-		} else if pid, ok := item["product_id"].(float64); ok {
-			productId = int64(pid)
-		}
+			var productId int64
+			if pid, ok := item["productId"].(float64); ok {
+				productId = int64(pid)
+			} else if pid, ok := item["product_id"].(float64); ok {
+				productId = int64(pid)
+			}
 
-		basePrice := frontendBase
-		priceWithMarkup := frontendSelling
+			basePrice := frontendBase
+			priceWithMarkup := frontendSelling
 
-		if productId > 0 {
-			color, _ := item["color"].(string)
-			size, _ := item["size"].(string)
-			var dbBase, dbSelling float64
+			if productId > 0 {
+				color, _ := item["color"].(string)
+				size, _ := item["size"].(string)
+				var dbBase, dbSelling float64
 
-			// Step 1: Match variant by selling_price fingerprint (identifies exact variant)
-			// This handles the case where frontend sends product-level min price but customer
-			// actually bought a more expensive variant.
-			if frontendSelling > 0 {
-				db.QueryRow(`
+				// Step 1: Match variant by selling_price fingerprint (identifies exact variant)
+				// This handles the case where frontend sends product-level min price but customer
+				// actually bought a more expensive variant.
+				if frontendSelling > 0 {
+					db.QueryRow(`
 					SELECT price, selling_price
 					FROM product_variants
 					WHERE product_id = $1
@@ -703,11 +743,11 @@ func CreateOrder(db *sql.DB) gin.HandlerFunc {
 					ORDER BY ABS(selling_price - $2) ASC
 					LIMIT 1
 				`, productId, frontendSelling).Scan(&dbBase, &dbSelling)
-			}
+				}
 
-			// Step 2: Match by color AND size (when size is provided)
-			if dbBase == 0 && size != "" && size != "Любой" && size != "Any" {
-				db.QueryRow(`
+				// Step 2: Match by color AND size (when size is provided)
+				if dbBase == 0 && size != "" && size != "Любой" && size != "Any" {
+					db.QueryRow(`
 					SELECT price, selling_price
 					FROM product_variants
 					WHERE product_id = $1
@@ -716,11 +756,11 @@ func CreateOrder(db *sql.DB) gin.HandlerFunc {
 					  AND size = $3
 					ORDER BY id ASC LIMIT 1
 				`, productId, color, size).Scan(&dbBase, &dbSelling)
-			}
+				}
 
-			// Step 3: Match by color only (if unique variant or best match)
-			if dbBase == 0 && color != "" && color != "Любой" && color != "Any" {
-				db.QueryRow(`
+				// Step 3: Match by color only (if unique variant or best match)
+				if dbBase == 0 && color != "" && color != "Любой" && color != "Any" {
+					db.QueryRow(`
 					SELECT price, selling_price
 					FROM product_variants
 					WHERE product_id = $1
@@ -728,21 +768,21 @@ func CreateOrder(db *sql.DB) gin.HandlerFunc {
 					  AND color = $2
 					ORDER BY id ASC LIMIT 1
 				`, productId, color).Scan(&dbBase, &dbSelling)
-			}
+				}
 
-			// Step 4: Any variant with markup
-			if dbBase == 0 {
-				db.QueryRow(`
+				// Step 4: Any variant with markup
+				if dbBase == 0 {
+					db.QueryRow(`
 					SELECT price, selling_price
 					FROM product_variants
 					WHERE product_id = $1 AND selling_price > price
 					ORDER BY price ASC LIMIT 1
 				`, productId).Scan(&dbBase, &dbSelling)
-			}
+				}
 
-			// Step 5: Product-level fallback (no variants)
-			if dbBase == 0 {
-				db.QueryRow(`
+				// Step 5: Product-level fallback (no variants)
+				if dbBase == 0 {
+					db.QueryRow(`
 					SELECT price,
 						COALESCE(
 							NULLIF(selling_price, 0),
@@ -750,96 +790,96 @@ func CreateOrder(db *sql.DB) gin.HandlerFunc {
 						)
 					FROM products WHERE id = $1
 				`, productId).Scan(&dbBase, &dbSelling)
+				}
+
+				if dbBase > 0 && dbSelling > dbBase {
+					basePrice = dbBase
+					priceWithMarkup = dbSelling
+				}
 			}
 
-			if dbBase > 0 && dbSelling > dbBase {
-				basePrice = dbBase
-				priceWithMarkup = dbSelling
+			if priceWithMarkup > basePrice {
+				markupProfit += (priceWithMarkup - basePrice) * quantity
 			}
 		}
 
-		if priceWithMarkup > basePrice {
-			markupProfit += (priceWithMarkup - basePrice) * quantity
-		}
-	}
+		log.Printf("💰 CreateOrder: Calculated markup_profit: %.2f", markupProfit)
 
-	log.Printf("💰 CreateOrder: Calculated markup_profit: %.2f", markupProfit)
+		// Soft stock pre-check — reject if a specific variant clearly has insufficient stock.
+		// This gives the customer an immediate error before the order is even created.
+		// The hard check with FOR UPDATE locks happens again at confirmation time.
+		for _, item := range itemsArray {
+			var productId int64
+			if pid, ok := item["productId"].(float64); ok {
+				productId = int64(pid)
+			} else if pid, ok := item["product_id"].(float64); ok {
+				productId = int64(pid)
+			} else if pid, ok := item["id"].(float64); ok {
+				productId = int64(pid)
+			}
+			if productId == 0 {
+				continue
+			}
+			qty := 0
+			if q, ok := item["quantity"].(float64); ok {
+				qty = int(q)
+			}
+			if qty <= 0 {
+				continue
+			}
+			itemColor, _ := item["color"].(string)
+			if itemColor == "Любой" || itemColor == "любой" {
+				itemColor = ""
+			}
+			itemSize, _ := item["size"].(string)
 
-	// Soft stock pre-check — reject if a specific variant clearly has insufficient stock.
-	// This gives the customer an immediate error before the order is even created.
-	// The hard check with FOR UPDATE locks happens again at confirmation time.
-	for _, item := range itemsArray {
-		var productId int64
-		if pid, ok := item["productId"].(float64); ok {
-			productId = int64(pid)
-		} else if pid, ok := item["product_id"].(float64); ok {
-			productId = int64(pid)
-		} else if pid, ok := item["id"].(float64); ok {
-			productId = int64(pid)
-		}
-		if productId == 0 {
-			continue
-		}
-		qty := 0
-		if q, ok := item["quantity"].(float64); ok {
-			qty = int(q)
-		}
-		if qty <= 0 {
-			continue
-		}
-		itemColor, _ := item["color"].(string)
-		if itemColor == "Любой" || itemColor == "любой" {
-			itemColor = ""
-		}
-		itemSize, _ := item["size"].(string)
-
-		if itemColor != "" || itemSize != "" {
-			// Check variant-level stock
-			var variantStock sql.NullInt64
-			_ = db.QueryRow(`
+			if itemColor != "" || itemSize != "" {
+				// Check variant-level stock
+				var variantStock sql.NullInt64
+				_ = db.QueryRow(`
 				SELECT COALESCE(SUM(stock_quantity), 0) FROM product_variants
 				WHERE product_id = $1
 				  AND ($2 = '' OR color = $2)
 				  AND ($3 = '' OR size  = $3)
 			`, productId, itemColor, itemSize).Scan(&variantStock)
 
-			if variantStock.Valid && int(variantStock.Int64) < qty {
+				if variantStock.Valid && int(variantStock.Int64) < qty {
+					var pName string
+					_ = db.QueryRow(`SELECT name FROM products WHERE id = $1`, productId).Scan(&pName)
+					log.Printf("🚫 CreateOrder: insufficient variant stock for product %d (%s), need %d, have %d",
+						productId, pName, qty, variantStock.Int64)
+					c.JSON(http.StatusConflict, gin.H{
+						"error":   fmt.Sprintf("Недостаточно товара на складе: %s (доступно %d шт.)", pName, variantStock.Int64),
+						"product": pName,
+					})
+					return
+				}
+			} else {
+				// No variant specified — check total product quantity
+				var productQty sql.NullInt64
 				var pName string
-				_ = db.QueryRow(`SELECT name FROM products WHERE id = $1`, productId).Scan(&pName)
-				log.Printf("🚫 CreateOrder: insufficient variant stock for product %d (%s), need %d, have %d",
-					productId, pName, qty, variantStock.Int64)
-				c.JSON(http.StatusConflict, gin.H{
-					"error":   fmt.Sprintf("Недостаточно товара на складе: %s (доступно %d шт.)", pName, variantStock.Int64),
-					"product": pName,
-				})
-				return
-			}
-		} else {
-			// No variant specified — check total product quantity
-			var productQty sql.NullInt64
-			var pName string
-			_ = db.QueryRow(`SELECT quantity, name FROM products WHERE id = $1`, productId).Scan(&productQty, &pName)
-			if productQty.Valid && int(productQty.Int64) < qty {
-				log.Printf("🚫 CreateOrder: insufficient product stock for product %d (%s), need %d, have %d",
-					productId, pName, qty, productQty.Int64)
-				c.JSON(http.StatusConflict, gin.H{
-					"error":   fmt.Sprintf("Недостаточно товара на складе: %s (доступно %d шт.)", pName, productQty.Int64),
-					"product": pName,
-				})
-				return
+				_ = db.QueryRow(`SELECT quantity, name FROM products WHERE id = $1`, productId).Scan(&productQty, &pName)
+				if productQty.Valid && int(productQty.Int64) < qty {
+					log.Printf("🚫 CreateOrder: insufficient product stock for product %d (%s), need %d, have %d",
+						productId, pName, qty, productQty.Int64)
+					c.JSON(http.StatusConflict, gin.H{
+						"error":   fmt.Sprintf("Недостаточно товара на складе: %s (доступно %d шт.)", pName, productQty.Int64),
+						"product": pName,
+					})
+					return
+				}
 			}
 		}
-	}
 
-	// Generate unique order code
-	var orderCode string
-	var exists bool
-	rand.Seed(time.Now().UnixNano())
-		
+		// Generate unique order code
+		var orderCode string
+		var exists bool
+		rand.Seed(time.Now().UnixNano())
+
 		for {
 			// Генерируем 6-значное число (100000 - 999999)
 			orderCode = fmt.Sprintf("%06d", rand.Intn(900000)+100000)
-			
+
 			// Проверяем существование
 			err := db.QueryRow("SELECT EXISTS(SELECT 1 FROM orders WHERE order_code = $1)", orderCode).Scan(&exists)
 			if err != nil || !exists {
@@ -855,51 +895,51 @@ func CreateOrder(db *sql.DB) gin.HandlerFunc {
 		log.Printf("   TotalAmount: %.2f", totalAmount)
 		log.Printf("   OrderCode: %s", orderCode)
 
-	// Marshal itemsArray to JSONB
-	itemsBytes, _ := json.Marshal(itemsArray)
-	
-	var orderID int64
-	err := db.QueryRow(`
-		INSERT INTO orders (company_id, customer_name, customer_phone, address, 
-	                   items, total_amount, delivery_cost, delivery_type, recipient_name, 
-	                   delivery_address, delivery_coordinates, markup_profit, comment, order_code, status)
-	VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		// Marshal itemsArray to JSONB
+		itemsBytes, _ := json.Marshal(itemsArray)
+
+		var orderID int64
+		err := db.QueryRow(`
+		INSERT INTO orders (company_id, customer_name, customer_phone, address,
+	                   items, total_amount, delivery_cost, delivery_type, recipient_name,
+	                   delivery_address, delivery_coordinates, markup_profit, comment, order_code, status, order_group_code)
+	VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NULLIF($16, ''))
 	RETURNING id
 `, companyID, customerName, customerPhone, address,
-	itemsBytes, totalAmount, deliveryCost, deliveryType, recipientName, 
-	deliveryAddress, deliveryCoordinates, markupProfit, comment, orderCode, "pending").Scan(&orderID)
-	
-	if err != nil {
-		log.Printf("❌ CreateOrder: Ошибка создания заказа: %v", err)
-		log.Printf("   - customerPhone: %s", customerPhone)
-		log.Printf("   - address: %s", address)
-		log.Printf("   - items: %s", string(itemsBytes))
-		log.Printf("   - totalAmount: %.2f", totalAmount)
-		log.Printf("   - comment: %s", comment)
-		log.Printf("   - orderCode: %s", orderCode)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create order: %v", err)})
-		return
-	}
+			itemsBytes, totalAmount, deliveryCost, deliveryType, recipientName,
+			deliveryAddress, deliveryCoordinates, markupProfit, comment, orderCode, "pending", orderGroupCode).Scan(&orderID)
 
-	log.Printf("✅ Order created successfully: ID=%d, Code=%s, CompanyID=%d", orderID, orderCode, companyID)
-	
-	// 💰 Сохранить доход админа от доставки (если доставка была)
-	if deliveryCost > 0 {
-		_, err := db.Exec(`
+		if err != nil {
+			log.Printf("❌ CreateOrder: Ошибка создания заказа: %v", err)
+			log.Printf("   - customerPhone: %s", customerPhone)
+			log.Printf("   - address: %s", address)
+			log.Printf("   - items: %s", string(itemsBytes))
+			log.Printf("   - totalAmount: %.2f", totalAmount)
+			log.Printf("   - comment: %s", comment)
+			log.Printf("   - orderCode: %s", orderCode)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create order: %v", err)})
+			return
+		}
+
+		log.Printf("✅ Order created successfully: ID=%d, Code=%s, CompanyID=%d", orderID, orderCode, companyID)
+
+		// 💰 Сохранить доход админа от доставки (если доставка была)
+		if deliveryCost > 0 {
+			_, err := db.Exec(`
 			INSERT INTO admin_delivery_revenue (order_id, company_id, delivery_cost, customer_phone, delivery_type, delivery_address, delivery_coordinates)
 			VALUES ($1, $2, $3, $4, $5, $6, $7)
 		`, orderID, companyID, deliveryCost, customerPhone, deliveryType, deliveryAddress, deliveryCoordinates)
-		
-		if err != nil {
-			log.Printf("⚠️ Failed to save admin delivery revenue: %v", err)
-		} else {
-			log.Printf("💰 Admin delivery revenue saved: %.2f sum", deliveryCost)
+
+			if err != nil {
+				log.Printf("⚠️ Failed to save admin delivery revenue: %v", err)
+			} else {
+				log.Printf("💰 Admin delivery revenue saved: %.2f sum", deliveryCost)
+			}
 		}
-	}
-	
-	// 📍 Сохранить адрес доставки пользователя для будущих заказов (если доставка была)
-	if deliveryType == "delivery" && deliveryAddress != "" {
-		_, err := db.Exec(`
+
+		// 📍 Сохранить адрес доставки пользователя для будущих заказов (если доставка была)
+		if deliveryType == "delivery" && deliveryAddress != "" {
+			_, err := db.Exec(`
 			UPDATE users 
 			SET default_delivery_address = $1,
 			    default_delivery_coordinates = $2,
@@ -907,15 +947,15 @@ func CreateOrder(db *sql.DB) gin.HandlerFunc {
 			    updated_at = NOW()
 			WHERE phone = $4
 		`, deliveryAddress, deliveryCoordinates, recipientName, customerPhone)
-		
-		if err != nil {
-			log.Printf("⚠️ Failed to save user default delivery address: %v", err)
-		} else {
-			log.Printf("📍 User default delivery address saved for phone: %s", customerPhone)
+
+			if err != nil {
+				log.Printf("⚠️ Failed to save user default delivery address: %v", err)
+			} else {
+				log.Printf("📍 User default delivery address saved for phone: %s", customerPhone)
+			}
 		}
-	}
-	
-	c.JSON(http.StatusOK, gin.H{"success": true, "id": orderID, "orderCode": orderCode, "createdAt": time.Now().Format(time.RFC3339)})
+
+		c.JSON(http.StatusOK, gin.H{"success": true, "id": orderID, "orderCode": orderCode, "createdAt": time.Now().Format(time.RFC3339)})
 	}
 }
 
@@ -1137,14 +1177,14 @@ func GetShippedDeliveryOrders(db *sql.DB) gin.HandlerFunc {
 		result := make([]map[string]interface{}, 0)
 		for rows.Next() {
 			var o struct {
-				ID          int64
-				CustomerName string
-				CustomerPhone string
-				DeliveryAddress sql.NullString
+				ID                  int64
+				CustomerName        string
+				CustomerPhone       string
+				DeliveryAddress     sql.NullString
 				DeliveryCoordinates sql.NullString
-				TotalAmount float64
-				OrderCode   sql.NullString
-				CreatedAt   string
+				TotalAmount         float64
+				OrderCode           sql.NullString
+				CreatedAt           string
 			}
 			if err := rows.Scan(&o.ID, &o.CustomerName, &o.CustomerPhone,
 				&o.DeliveryAddress, &o.DeliveryCoordinates,

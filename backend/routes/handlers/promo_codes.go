@@ -115,6 +115,17 @@ func CreateCompanyPromoCode(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid company id"})
 			return
 		}
+		// Промокоды доступны только закрытым (private) магазинам: у публичного
+		// магазина товары видны всем, поэтому механика кодов для него отключена.
+		var mode sql.NullString
+		if err := db.QueryRow(`SELECT mode FROM companies WHERE id = $1`, companyID).Scan(&mode); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "company not found"})
+			return
+		}
+		if !mode.Valid || mode.String != "private" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Промокоды доступны только закрытым магазинам"})
+			return
+		}
 		var req struct {
 			Code           string   `json:"code"`
 			Description    string   `json:"description"`

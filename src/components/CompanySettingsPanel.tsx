@@ -45,9 +45,21 @@ export default function CompanySettingsPanel({ companyId }: CompanySettingsPanel
   const [serviceRegions, setServiceRegions] = useState<string[]>([]);
   const [savingRegion, setSavingRegion] = useState(false);
   const [regionsMapOpen, setRegionsMapOpen] = useState(false);
+  // Зоны, созданные админом в админ-панели (с границами GeoJSON) — выбираются
+  // наравне с системными областями Узбекистана.
+  const [adminRegions, setAdminRegions] = useState<Array<{ id: number; name: string; nameUz?: string; geojson?: any }>>([]);
 
   useEffect(() => {
     loadCompanyData();
+    // Кастомные зоны из админ-панели: системные области не дублируем
+    api.regions.list()
+      .then((list: any) => {
+        const items = (Array.isArray(list) ? list : []).filter(
+          (r: any) => r?.name && !UZBEKISTAN_REGIONS.some((u) => u.name === r.name)
+        );
+        setAdminRegions(items);
+      })
+      .catch(() => setAdminRegions([]));
   }, [companyId]);
 
   const loadCompanyData = async () => {
@@ -276,6 +288,46 @@ export default function CompanySettingsPanel({ companyId }: CompanySettingsPanel
             );
           })}
         </div>
+
+        {/* Зоны, созданные администратором платформы (с границами на карте) */}
+        {adminRegions.length > 0 && (
+          <>
+            <div className="flex items-center gap-2 mt-5 mb-2">
+              <MapPin className="w-4 h-4 text-sky-500" />
+              <h4 className="text-sm font-bold text-gray-800 dark:text-gray-100">
+                {language === 'uz' ? 'Platforma hududlari' : 'Зоны платформы'}
+              </h4>
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                {language === 'uz' ? '(admin tomonidan yaratilgan)' : '(созданы в админ-панели)'}
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {adminRegions.map((r) => {
+                const active = serviceRegions.includes(r.name);
+                return (
+                  <button
+                    key={`admin-${r.id}`}
+                    disabled={savingRegion}
+                    onClick={() => toggleRegion(r.name)}
+                    className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-left font-medium border transition disabled:opacity-60 ${
+                      active
+                        ? 'bg-sky-600 text-white border-sky-600'
+                        : 'bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600 hover:border-sky-400'
+                    }`}
+                  >
+                    <span className={`w-5 h-5 rounded flex items-center justify-center flex-shrink-0 border ${active ? 'bg-white border-white' : 'border-gray-400 dark:border-gray-500'}`}>
+                      {active && <Check className="w-3.5 h-3.5 text-sky-600" />}
+                    </span>
+                    <span className="truncate">{language === 'uz' && r.nameUz ? r.nameUz : r.name}</span>
+                    {r.geojson && (
+                      <MapPin className="w-3.5 h-3.5 ml-auto flex-shrink-0 opacity-60" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
 
         {serviceRegions.length > 0 && (
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">

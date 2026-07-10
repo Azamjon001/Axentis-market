@@ -134,13 +134,23 @@ export default function HomePage({ onLogout, userName, userPhone, userCompanyId,
     total: number;
     itemsCount: number;
     date: string;
-    items: Array<{ name: string; quantity: number; price: number; total: number; color?: string }>;
-    status?: string; 
-    orderId?: number; 
+    items: Array<{ name: string; quantity: number; price: number; total: number; color?: string; size?: string; companyId?: number | string; companyName?: string; orderId?: number }>;
+    status?: string;
+    orderId?: number;
+    // 🏢 Под-заказы по компаниям: одна корзина → один заказ покупателя,
+    // внутри — распределение по компаниям (статус и код у каждой своей)
+    subOrders?: Array<{ orderId: number; code: string; companyId: number | string; companyName?: string; status?: string; total: number; deliveredAt?: string; returnWindowHours?: number; returnEnabled?: boolean }>;
+    returnRequested?: boolean;
   }>>(() => {
     const saved = localStorage.getItem('myOrders');
     return saved ? JSON.parse(saved) : [];
   });
+
+  // ↩️ Модал возврата: полный или частичный (выбранные позиции)
+  const [returnOrderTarget, setReturnOrderTarget] = useState<any | null>(null);
+  const [returnSelection, setReturnSelection] = useState<boolean[]>([]);
+  const [returnReason, setReturnReason] = useState('');
+  const [isSubmittingReturn, setIsSubmittingReturn] = useState(false);
 
   const [hiddenReceiptCodes, setHiddenReceiptCodes] = useState<string[]>(() => {
     const saved = localStorage.getItem(`hiddenReceipts_${userPhone}`);
@@ -1003,7 +1013,8 @@ export default function HomePage({ onLogout, userName, userPhone, userCompanyId,
         color: itemColor,
         size: itemSize,
         image_url: product.images && product.images.length > 0 ? getImageUrl(product.images[0]) : null,
-        company_id: product.company_id
+        company_id: product.company_id || (product as any).companyId,
+        companyName: product.company_name || (product as any).companyName || ''
       });
     }
 
@@ -1019,9 +1030,10 @@ export default function HomePage({ onLogout, userName, userPhone, userCompanyId,
       const selectedCard = checkoutPaymentMethod === 'card' && savedPaymentCards.find(c => c.id === selectedCardId);
       const cardSubtype = selectedCard ? selectedCard.card_type : undefined;
 
-      // 🛒 Корзина может содержать товары РАЗНЫХ компаний. Каждая компания
-      // должна получить ОТДЕЛЬНЫЙ заказ только со своими товарами и своей
-      // суммой — иначе заказ и вся сумма ошибочно уходят одной компании.
+      // 🛒 Корзина может содержать товары РАЗНЫХ компаний. Для покупателя это
+      // ОДИН заказ, но внутри он распределяется по компаниям: каждая компания
+      // получает под-заказ только со своими товарами и своей суммой. Все
+      // под-заказы связаны общим orderGroupCode.
       const groupsMap = new Map<string, any[]>();
       for (const item of purchasedItems) {
         const key = String(item.company_id || userCompanyId || '1');
@@ -1029,13 +1041,14 @@ export default function HomePage({ onLogout, userName, userPhone, userCompanyId,
         groupsMap.get(key)!.push(item);
       }
       const groups = Array.from(groupsMap.entries());
+      const orderGroupCode = `G${Date.now().toString(36).toUpperCase()}${Math.floor(Math.random() * 1296).toString(36).toUpperCase().padStart(2, '0')}`;
 
       // Скидки (промокод + баллы) распределяем между компаниями
       // пропорционально их доле в общей сумме заказа.
       const totalDiscount = promoDisc + pointsDisc;
       const grandSubtotal = totalAmount; // сумма всех товаров до скидок
 
-      const created: Array<{ code: string; orderId: number; companyId: string; items: any[]; total: number }> = [];
+      const created: Array<{ code: string; orderId: number; companyId: string; companyName: string; items: any[]; total: number }> = [];
       let distributedDiscount = 0;
 
       for (let g = 0; g < groups.length; g++) {
@@ -1060,11 +1073,19 @@ export default function HomePage({ onLogout, userName, userPhone, userCompanyId,
             ? `${checkoutDeliveryCoords.lat},${checkoutDeliveryCoords.lng}`
             : undefined,
           paymentMethod: checkoutPaymentMethod,
-          cardSubtype
-        });
+          cardSubtype,
+          orderGroupCode: groups.length > 1 ? orderGroupCode : undefined,
+        } as any);
 
         const orderCode = result.orderCode || result.order_code || `ORD-${result.id}`;
-        created.push({ code: orderCode, orderId: result.id, companyId, items: groupItems, total: groupFinal });
+        created.push({
+          code: orderCode,
+          orderId: result.id,
+          companyId,
+          companyName: groupItems[0]?.companyName || '',
+          items: groupItems,
+          total: groupFinal,
+        });
       }
 
       // Промокод и баллы списываем один раз, относя их к первому заказу.
@@ -1082,16 +1103,26 @@ export default function HomePage({ onLogout, userName, userPhone, userCompanyId,
       setUsePoints(false);
 
       const nowIso = getUzbekistanISOString();
+      // Один заказ в «Мои заказы» на всю корзину: товары внутри помечены
+      // компанией, под-заказы хранятся в subOrders для статусов и возвратов.
       setMyOrders(prev => [
-        ...created.map(co => ({
-          code: co.code,
-          total: co.total,
-          itemsCount: co.items.length,
+        {
+          code: created.length > 1 ? orderGroupCode : created[0].code,
+          total: created.reduce((s, co) => s + co.total, 0),
+          itemsCount: purchasedItems.length,
           date: nowIso,
-          items: co.items.map(item => ({ name: item.name, quantity: item.quantity, price: item.price, total: item.total, color: item.color, size: item.size })),
+          items: created.flatMap(co => co.items.map(item => ({
+            name: item.name, quantity: item.quantity, price: item.price, total: item.total,
+            color: item.color, size: item.size,
+            companyId: co.companyId, companyName: co.companyName, orderId: co.orderId,
+          }))),
           status: 'pending',
-          orderId: co.orderId,
-        })),
+          orderId: created[0].orderId,
+          subOrders: created.map(co => ({
+            orderId: co.orderId, code: co.code, companyId: co.companyId,
+            companyName: co.companyName, status: 'pending', total: co.total,
+          })),
+        },
         ...prev,
       ]);
 
@@ -1262,19 +1293,24 @@ export default function HomePage({ onLogout, userName, userPhone, userCompanyId,
 
   const handleCancelOrder = async (order: any) => {
     if (!confirm('Вы действительно хотите отменить этот заказ?')) return;
-    
+
     try {
-      console.log('🚫 Cancelling order:', order.orderId);
+      console.log('🚫 Cancelling order:', order.orderId, order.subOrders);
       // Optimistic update
-      const updatedOrders = myOrders.map(o => 
-        o.code === order.code ? { ...o, status: 'cancelled' } : o
+      const updatedOrders = myOrders.map(o =>
+        o.code === order.code
+          ? { ...o, status: 'cancelled', subOrders: o.subOrders?.map(s => ({ ...s, status: 'cancelled' })) }
+          : o
       );
       setMyOrders(updatedOrders);
 
-      // Persist the cancellation. The backend restores stock for a
-      // previously-confirmed order and notifies the customer.
-      if (order.orderId) {
-        await api.orders.cancel(order.orderId);
+      // Persist the cancellation. Заказ мог быть распределён на несколько
+      // компаний — отменяем каждый под-заказ.
+      const orderIds: number[] = order.subOrders?.length
+        ? order.subOrders.map((s: any) => s.orderId).filter(Boolean)
+        : (order.orderId ? [order.orderId] : []);
+      for (const oid of orderIds) {
+        await api.orders.cancel(oid);
       }
 
       alert('Заказ отменен');
@@ -1284,24 +1320,137 @@ export default function HomePage({ onLogout, userName, userPhone, userCompanyId,
     }
   };
 
-  const handleReturnOrder = async (order: any) => {
-    const reason = prompt('Опишите причину возврата:');
-    if (reason === null) return; // user cancelled the prompt
+  // ↩️ Открыть модал возврата: по умолчанию выбраны все позиции (полный возврат)
+  const handleReturnOrder = (order: any) => {
+    setReturnOrderTarget(order);
+    setReturnSelection((order.items || []).map(() => true));
+    setReturnReason('');
+  };
+
+  // Возврат ещё доступен? Пока заказ не выдан — всегда. После выдачи —
+  // в течение окна возврата компании (считается от момента выдачи).
+  const isReturnAvailable = (order: any): boolean => {
+    if (order.status === 'cancelled' || order.returnRequested) return false;
+    const subs: any[] = order.subOrders?.length
+      ? order.subOrders
+      : [{ status: order.status, deliveredAt: (order as any).deliveredAt, returnWindowHours: (order as any).returnWindowHours, returnEnabled: (order as any).returnEnabled }];
+    return subs.some(s => {
+      if (s.returnEnabled === false) return false;
+      if (s.status === 'cancelled' || s.status === 'returned') return false;
+      const handedOver = s.status === 'delivered' || s.status === 'completed';
+      if (!handedOver) return true; // до выдачи возврат возможен в любой момент
+      const windowH = Number(s.returnWindowHours ?? 24);
+      if (windowH <= 0) return true;
+      if (!s.deliveredAt) return true; // нет данных о времени выдачи — решает бэкенд
+      return Date.now() - new Date(s.deliveredAt).getTime() < windowH * 3600_000;
+    });
+  };
+
+  // Отправка заявок на возврат: выбранные позиции группируются по компаниям,
+  // каждая компания получает свою заявку по своему под-заказу.
+  const submitReturn = async () => {
+    const order = returnOrderTarget;
+    if (!order || isSubmittingReturn) return;
+    const selectedItems = (order.items || []).filter((_: any, i: number) => returnSelection[i]);
+    if (selectedItems.length === 0) {
+      alert('Выберите хотя бы один товар для возврата');
+      return;
+    }
+    setIsSubmittingReturn(true);
     try {
-      await api.returns.create({
-        orderId: order.orderId || null,
-        companyId: order.companyId || order.company_id || null,
-        customerPhone: userPhone,
-        reason: reason || '',
-        items: order.items || [],
-        refundAmount: order.totalAmount || order.total_amount || 0,
-      });
-      alert('Заявка на возврат отправлена продавцу');
-    } catch (error) {
-      console.error('Error requesting return:', error);
-      alert('Не удалось отправить заявку на возврат');
+      // Группируем по orderId под-заказа (у старых заказов один orderId на всё)
+      const byOrder = new Map<string, { orderId: number | null; companyId: any; items: any[] }>();
+      for (const item of selectedItems) {
+        const oid = item.orderId || order.orderId || null;
+        const key = String(oid ?? 'none');
+        if (!byOrder.has(key)) {
+          byOrder.set(key, { orderId: oid, companyId: item.companyId || (order as any).companyId || null, items: [] });
+        }
+        byOrder.get(key)!.items.push(item);
+      }
+      const failures: string[] = [];
+      for (const group of byOrder.values()) {
+        const refund = group.items.reduce((s, it) => s + (Number(it.total) || 0), 0);
+        try {
+          await api.returns.create({
+            orderId: group.orderId,
+            companyId: group.companyId ? Number(group.companyId) : null,
+            customerPhone: userPhone,
+            reason: returnReason || '',
+            items: group.items,
+            refundAmount: refund,
+          });
+        } catch (e: any) {
+          failures.push(e?.message || 'Ошибка');
+        }
+      }
+      if (failures.length === 0) {
+        setMyOrders(prev => prev.map(o => o.code === order.code ? { ...o, returnRequested: true } : o));
+        alert('Заявка на возврат отправлена продавцу');
+        setReturnOrderTarget(null);
+      } else {
+        alert(`Не удалось отправить часть заявок: ${failures.join('; ')}`);
+      }
+    } finally {
+      setIsSubmittingReturn(false);
     }
   };
+
+  // 🔄 При открытии «Мои заказы» подтягиваем актуальные статусы под-заказов
+  // (нужны для показа/скрытия кнопки возврата по времени выдачи).
+  useEffect(() => {
+    if (!showCart || cartTab !== 'orders' || !userPhone) return;
+    let cancelled = false;
+    (async () => {
+      const recent = myOrders.slice(0, 10);
+      const updates = new Map<number, any>();
+      for (const o of recent) {
+        const ids: number[] = o.subOrders?.length
+          ? o.subOrders.map(s => s.orderId).filter(Boolean)
+          : (o.orderId ? [o.orderId] : []);
+        for (const oid of ids) {
+          try {
+            const fresh = await api.orders.get(String(oid));
+            if (fresh) updates.set(oid, fresh);
+          } catch { /* ignore */ }
+        }
+      }
+      if (cancelled || updates.size === 0) return;
+      setMyOrders(prev => prev.map(o => {
+        const patchSub = (s: any) => {
+          const fresh = updates.get(s.orderId);
+          if (!fresh) return s;
+          const handedOver = fresh.status === 'delivered' || fresh.status === 'completed';
+          return {
+            ...s,
+            status: fresh.status || s.status,
+            companyName: s.companyName || fresh.companyName || '',
+            deliveredAt: handedOver ? (fresh.updatedAt || s.deliveredAt) : s.deliveredAt,
+            returnWindowHours: fresh.returnWindowHours ?? s.returnWindowHours,
+            returnEnabled: fresh.returnEnabled ?? s.returnEnabled,
+          };
+        };
+        if (o.subOrders?.length) {
+          const subs = o.subOrders.map(patchSub);
+          const statuses = new Set(subs.map(s => s.status));
+          const combined = statuses.size === 1 ? subs[0].status : (statuses.has('cancelled') && statuses.size === 1 ? 'cancelled' : o.status === 'cancelled' ? 'cancelled' : Array.from(statuses).every(st => st === 'completed' || st === 'delivered') ? 'completed' : 'pending');
+          return { ...o, subOrders: subs, status: combined };
+        }
+        if (o.orderId && updates.has(o.orderId)) {
+          const fresh = updates.get(o.orderId);
+          const handedOver = fresh.status === 'delivered' || fresh.status === 'completed';
+          return {
+            ...o,
+            status: fresh.status || o.status,
+            ...(handedOver ? { deliveredAt: fresh.updatedAt, returnWindowHours: fresh.returnWindowHours, returnEnabled: fresh.returnEnabled } : {}),
+          } as any;
+        }
+        return o;
+      }));
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showCart, cartTab, userPhone]);
 
   if (isUploadingRAM) {
     return <LoadingAnimation text={uploadProgress.step || 'Загрузка данных...'} />;
@@ -1389,7 +1538,8 @@ export default function HomePage({ onLogout, userName, userPhone, userCompanyId,
 
   const getStatusColor = (status?: string) => {
     switch (status) {
-      case 'completed': return 'text-green-600 bg-green-100';
+      case 'completed':
+      case 'delivered': return 'text-green-600 bg-green-100';
       case 'cancelled': return 'text-red-600 bg-red-100';
       default: return 'text-blue-600 bg-blue-100';
     }
@@ -1398,6 +1548,7 @@ export default function HomePage({ onLogout, userName, userPhone, userCompanyId,
   const getStatusText = (status?: string) => {
     switch (status) {
       case 'completed': return 'Выполнен';
+      case 'delivered': return 'Выдан';
       case 'cancelled': return 'Отменен';
       default: return 'В обработке';
     }
@@ -2334,40 +2485,70 @@ export default function HomePage({ onLogout, userName, userPhone, userCompanyId,
                             </div>
                           </div>
 
-                          {/* Items Summary */}
+                          {/* Items Summary — товары сгруппированы по компаниям */}
                           <div className={`text-sm mb-3 pb-3 border-b ${isNight ? 'border-slate-700 text-gray-300' : 'border-gray-200 text-gray-600'}`}>
-                            {order.items.map((item, idx) => (
-                              <div key={idx} className="flex justify-between py-1">
-                                <span className="line-clamp-1 flex-1 pr-2">
-                                  {item.quantity}x {item.name}
-                                  {[item.color && item.color !== 'Любой' ? item.color : '', (item as any).size || ''].filter(Boolean).length > 0
-                                    ? ` (${[item.color && item.color !== 'Любой' ? item.color : '', (item as any).size || ''].filter(Boolean).join(', ')})`
-                                    : ''}
-                                </span>
-                                <span className="font-medium">{formatPrice(item.total)}</span>
-                              </div>
-                            ))}
+                            {(order.subOrders && order.subOrders.length > 1 ? order.subOrders : [null]).map((sub, sIdx) => {
+                              const sectionItems = sub
+                                ? order.items.filter((it: any) => String(it.orderId ?? '') === String(sub.orderId))
+                                : order.items;
+                              return (
+                                <div key={sIdx} className={sIdx > 0 ? 'mt-2 pt-2 border-t border-dashed ' + (isNight ? 'border-slate-700' : 'border-gray-200') : ''}>
+                                  {sub && (
+                                    <div className="flex items-center justify-between py-1">
+                                      <span className={`text-xs font-semibold flex items-center gap-1 ${isNight ? 'text-violet-300' : 'text-violet-700'}`}>
+                                        🏪 {sub.companyName || `Компания #${sub.companyId}`}
+                                        <span className={isNight ? 'text-gray-500' : 'text-gray-400'}>· #{sub.code}</span>
+                                      </span>
+                                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${getStatusColor(sub.status)}`}>
+                                        {getStatusText(sub.status)}
+                                      </span>
+                                    </div>
+                                  )}
+                                  {sectionItems.map((item: any, idx: number) => (
+                                    <div key={idx} className="flex justify-between py-1">
+                                      <span className="line-clamp-1 flex-1 pr-2">
+                                        {item.quantity}x {item.name}
+                                        {[item.color && item.color !== 'Любой' ? item.color : '', item.size || ''].filter(Boolean).length > 0
+                                          ? ` (${[item.color && item.color !== 'Любой' ? item.color : '', item.size || ''].filter(Boolean).join(', ')})`
+                                          : ''}
+                                        {!sub && item.companyName ? (
+                                          <span className={`ml-1 text-[10px] ${isNight ? 'text-violet-300' : 'text-violet-600'}`}>· {item.companyName}</span>
+                                        ) : null}
+                                      </span>
+                                      <span className="font-medium">{formatPrice(item.total)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            })}
                           </div>
 
                           {/* Actions */}
-                          {(order.status === 'pending' || !order.status) && (
-                            <button
-                              onClick={() => handleCancelOrder(order)}
-                              className="w-full py-2.5 rounded-xl border border-red-200 text-red-600 font-medium hover:bg-red-50 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
-                            >
-                              <X className="w-4 h-4" />
-                              Отменить заказ
-                            </button>
-                          )}
-                          {(order.status === 'delivered' || order.status === 'completed') && (
-                            <button
-                              onClick={() => handleReturnOrder(order)}
-                              className="w-full py-2.5 rounded-xl border border-orange-200 text-orange-600 font-medium hover:bg-orange-50 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
-                            >
-                              <RotateCcw className="w-4 h-4" />
-                              Вернуть товар
-                            </button>
-                          )}
+                          <div className="space-y-2">
+                            {(order.status === 'pending' || !order.status) && (
+                              <button
+                                onClick={() => handleCancelOrder(order)}
+                                className="w-full py-2.5 rounded-xl border border-red-200 text-red-600 font-medium hover:bg-red-50 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                              >
+                                <X className="w-4 h-4" />
+                                Отменить заказ
+                              </button>
+                            )}
+                            {order.returnRequested ? (
+                              <div className="w-full py-2.5 rounded-xl border border-orange-200 text-orange-500 text-sm font-medium flex items-center justify-center gap-2 opacity-80">
+                                <RotateCcw className="w-4 h-4" />
+                                Заявка на возврат отправлена
+                              </div>
+                            ) : isReturnAvailable(order) && (
+                              <button
+                                onClick={() => handleReturnOrder(order)}
+                                className="w-full py-2.5 rounded-xl border border-orange-200 text-orange-600 font-medium hover:bg-orange-50 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                              >
+                                <RotateCcw className="w-4 h-4" />
+                                Вернуть товар
+                              </button>
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -2428,6 +2609,107 @@ export default function HomePage({ onLogout, userName, userPhone, userCompanyId,
         </div>
       )}
       
+      {/* ↩️ Return Modal: полный возврат или выбранные позиции */}
+      {returnOrderTarget && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-[85]"
+          onClick={() => { if (!isSubmittingReturn) setReturnOrderTarget(null); }}
+        >
+          <div
+            className={`rounded-xl p-5 max-w-sm w-full shadow-2xl max-h-[85vh] overflow-y-auto ${isNight ? 'bg-slate-800' : 'bg-white'}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <h3 className={`text-lg font-bold flex items-center gap-2 ${isNight ? 'text-white' : 'text-gray-900'}`}>
+                <RotateCcw className="w-5 h-5 text-orange-500" />
+                Возврат товаров
+              </h3>
+              <button onClick={() => setReturnOrderTarget(null)} className={isNight ? 'text-gray-400' : 'text-gray-500'}>
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className={`text-xs mb-3 ${isNight ? 'text-gray-400' : 'text-gray-500'}`}>
+              Отметьте товары, которые хотите вернуть — все (полный возврат) или только выбранные.
+            </p>
+
+            {/* Выбрать всё */}
+            <label className={`flex items-center gap-2 py-2 px-3 rounded-lg mb-2 cursor-pointer text-sm font-semibold ${isNight ? 'bg-slate-700 text-white' : 'bg-gray-100 text-gray-800'}`}>
+              <input
+                type="checkbox"
+                className="w-4 h-4 accent-orange-500"
+                checked={returnSelection.every(Boolean)}
+                onChange={(e) => setReturnSelection(returnSelection.map(() => e.target.checked))}
+              />
+              Полный возврат (все товары)
+            </label>
+
+            <div className="space-y-1 mb-3">
+              {(returnOrderTarget.items || []).map((item: any, idx: number) => (
+                <label
+                  key={idx}
+                  className={`flex items-center gap-2 py-2 px-3 rounded-lg cursor-pointer text-sm ${
+                    returnSelection[idx]
+                      ? (isNight ? 'bg-orange-500/10 border border-orange-500/30' : 'bg-orange-50 border border-orange-200')
+                      : (isNight ? 'bg-slate-700/50 border border-transparent' : 'bg-gray-50 border border-transparent')
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 accent-orange-500 flex-shrink-0"
+                    checked={!!returnSelection[idx]}
+                    onChange={(e) => setReturnSelection(returnSelection.map((v, i) => (i === idx ? e.target.checked : v)))}
+                  />
+                  <span className={`flex-1 min-w-0 ${isNight ? 'text-gray-200' : 'text-gray-800'}`}>
+                    <span className="line-clamp-1">{item.quantity}x {item.name}</span>
+                    {item.companyName && (
+                      <span className={`text-[10px] ${isNight ? 'text-violet-300' : 'text-violet-600'}`}>🏪 {item.companyName}</span>
+                    )}
+                  </span>
+                  <span className={`font-medium flex-shrink-0 ${isNight ? 'text-gray-200' : 'text-gray-800'}`}>
+                    {formatPrice(item.total)}
+                  </span>
+                </label>
+              ))}
+            </div>
+
+            <textarea
+              value={returnReason}
+              onChange={(e) => setReturnReason(e.target.value)}
+              placeholder="Причина возврата (необязательно)"
+              rows={2}
+              className={`w-full px-3 py-2 rounded-lg border text-sm mb-3 ${
+                isNight ? 'bg-slate-700 border-slate-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900'
+              }`}
+            />
+
+            <div className={`flex justify-between items-center text-sm font-semibold mb-3 ${isNight ? 'text-white' : 'text-gray-900'}`}>
+              <span>К возврату:</span>
+              <span className="text-[#E8472A]">
+                {formatPrice((returnOrderTarget.items || []).reduce((s: number, it: any, i: number) => s + (returnSelection[i] ? (Number(it.total) || 0) : 0), 0))}
+              </span>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setReturnOrderTarget(null)}
+                disabled={isSubmittingReturn}
+                className={`flex-1 py-2.5 rounded-xl border font-medium ${isNight ? 'border-slate-600 text-gray-300' : 'border-gray-300 text-gray-600'}`}
+              >
+                Отмена
+              </button>
+              <button
+                onClick={submitReturn}
+                disabled={isSubmittingReturn || !returnSelection.some(Boolean)}
+                className="flex-1 py-2.5 rounded-xl bg-orange-500 text-white font-semibold disabled:opacity-60 active:scale-[0.98] transition-all"
+              >
+                {isSubmittingReturn ? 'Отправка…' : 'Отправить заявку'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Order Confirmation Modal */}
       {showOrderConfirmation && confirmedOrder && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-[80]">
