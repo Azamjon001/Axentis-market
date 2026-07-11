@@ -49,6 +49,12 @@
       "skillPath": "skills/improve-animations/SKILL.md",
       "computedHash": "32f23d860467841f5b07cef198fb53efc70f2adaaa6144cf1a3434d782aed246"
     },
+    "motion-dev-animations": {
+      "source": "199-biotechnologies/motion-dev-animations-skill",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "80b2e54af2f404faed091b0319ab0047c3fe9f73b7cc7e85500e066768640df1"
+    },
     "review-animations": {
       "source": "emilkowalski/skills",
       "sourceType": "github",
