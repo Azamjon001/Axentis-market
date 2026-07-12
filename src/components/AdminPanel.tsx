@@ -16,13 +16,14 @@ const AdminDecorationVideosPanel = React.lazy(() => import('./AdminDecorationVid
 const AdminAnalyticsPanel = React.lazy(() => import('./AdminAnalyticsPanel'));
 const AdminDiscountsPanel = React.lazy(() => import('./AdminDiscountsPanel'));
 const AdminPromoCodesPanel = React.lazy(() => import('./AdminPromoCodesPanel'));
-const AdminPromotionsPanel = React.lazy(() => import('./AdminPromotionsPanel'));
 const AdminPlatformDashboard = React.lazy(() => import('./AdminPlatformDashboard'));
 const AdminComplaintsPanel = React.lazy(() => import('./AdminComplaintsPanel'));
 const AdminGlobalSearch = React.lazy(() => import('./AdminGlobalSearch'));
 const AdminReferralPanel = React.lazy(() => import('./AdminReferralPanel')); // 👥 Реферальная система
 const CouriersManagementPanel = React.lazy(() => import('./CouriersManagementPanel')); // 🚚 Курьеры
 const AdminSecurityPanel = React.lazy(() => import('./AdminSecurityPanel')); // 🔐 Безопасность (смена пароля админа)
+const AdminPoliciesPanel = React.lazy(() => import('./AdminPoliciesPanel')); // 📜 Политика конфиденциальности
+const AdminPayoutsPanel = React.lazy(() => import('./AdminPayoutsPanel')); // 💸 Выплаты компаниям
 
 // Спиннер на время подгрузки раздела
 const AdminTabLoading = () => (
@@ -39,7 +40,7 @@ interface AdminPanelProps {
 }
 
 export default function AdminPanel({ onLogout }: AdminPanelProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'analytics' | 'companies' | 'payment' | 'history' | 'ads' | 'categories' | 'notifications' | 'companyMessages' | 'discounts' | 'referrals' | 'promo' | 'promotions' | 'dashboard' | 'complaints' | 'couriers' | 'chat' | 'regions' | 'decorationVideos' | 'security'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'analytics' | 'companies' | 'payment' | 'history' | 'ads' | 'categories' | 'notifications' | 'companyMessages' | 'discounts' | 'referrals' | 'promo' | 'dashboard' | 'complaints' | 'couriers' | 'chat' | 'regions' | 'decorationVideos' | 'security' | 'policies' | 'payouts'>('overview');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false); // 📱 Для мобильной версии
   
   // 🌍 Система локализации для админа (заблокирована на русском)
@@ -177,11 +178,13 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
       
       if (company) {
         console.log('✅ Company data loaded:', company);
+        // 🔒 Учётные данные не подгружаются: поля пустые и служат только
+        // для установки НОВЫХ значений (политика конфиденциальности).
         const data = {
           name: company.name || '',
-          phone: company.phone || '',
-          password: '', // Пароль не возвращается из API
-          access_key: company.accessKey || company.access_key || ''
+          phone: '',
+          password: '',
+          access_key: ''
         };
         setCompanyData(data);
         setOriginalCompanyData(data);
@@ -209,43 +212,30 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
         return;
       }
       
-      if (!companyData.phone.trim()) {
-        alert('Введите номер телефона');
-        return;
-      }
-      
+      // 🔒 Учётные данные скрыты и не подгружаются — поля заполняются только
+      // для ЗАМЕНЫ. Пустое поле означает «оставить как есть».
       const phoneDigits = companyData.phone.replace(/\s/g, '');
-      if (phoneDigits.length !== 9 || !/^\d+$/.test(phoneDigits)) {
+      if (phoneDigits && (phoneDigits.length !== 9 || !/^\d+$/.test(phoneDigits))) {
         alert('Номер телефона должен содержать 9 цифр');
         return;
       }
-      
-      if (!companyData.password.trim()) {
-        alert('Введите пароль');
-        return;
-      }
-      
-      if (!companyData.access_key.trim()) {
-        alert('Введите ключ доступа');
-        return;
-      }
-      
-      if (companyData.access_key.length !== 30 || !/^\d+$/.test(companyData.access_key)) {
+
+      if (companyData.access_key && (companyData.access_key.length !== 30 || !/^\d+$/.test(companyData.access_key))) {
         alert('Ключ доступа должен содержать 30 цифр');
         return;
       }
 
       setSaving(true);
-      
+
       // Получаем первую компанию и обновляем её
       const companies = await api.companies.list();
       if (companies && companies.length > 0) {
         const companyId = companies[0].id;
         await api.companies.update(companyId.toString(), {
           name: companyData.name,
-          phone: companyData.phone,
-          // password можно обновить отдельным endpoint если нужно
-          access_key: companyData.access_key
+          phone: phoneDigits || undefined,
+          password: companyData.password || undefined,
+          access_key: companyData.access_key || undefined
         });
       } else {
         throw new Error('No company found to update');
@@ -528,18 +518,6 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
             </button>
 
             <button
-              onClick={() => handleNavigate('promotions')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ${
-                activeTab === 'promotions'
-                  ? 'bg-[#7C5CF0] text-white shadow-lg shadow-purple-900/40'
-                  : 'text-gray-300 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <Megaphone className="w-5 h-5" />
-              <span className="font-medium">{language === 'uz' ? 'Ichki reklama' : 'Внутренняя реклама'}</span>
-            </button>
-
-            <button
               onClick={() => handleNavigate('referrals')}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ${
                 activeTab === 'referrals'
@@ -573,6 +551,30 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
             >
               <Shield className="w-5 h-5" />
               <span className="font-medium">Безопасность</span>
+            </button>
+
+            <button
+              onClick={() => handleNavigate('policies')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ${
+                activeTab === 'policies'
+                  ? 'bg-[#7C5CF0] text-white shadow-lg shadow-purple-900/40'
+                  : 'text-gray-300 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              <Shield className="w-5 h-5" />
+              <span className="font-medium">{language === 'uz' ? 'Maxfiylik siyosati' : 'Политика конфиденциальности'}</span>
+            </button>
+
+            <button
+              onClick={() => handleNavigate('payouts')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ${
+                activeTab === 'payouts'
+                  ? 'bg-[#7C5CF0] text-white shadow-lg shadow-purple-900/40'
+                  : 'text-gray-300 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              <CreditCard className="w-5 h-5" />
+              <span className="font-medium">{language === 'uz' ? 'Toʻlovlar (pul yechish)' : 'Выплаты компаниям'}</span>
             </button>
           </nav>
 
@@ -616,12 +618,13 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
               {activeTab === 'decorationVideos' && (language === 'uz' ? 'Video-bezaklar' : 'Видео-декорации')}
               {activeTab === 'discounts' && 'Модерация скидок'}
               {activeTab === 'promo' && (language === 'uz' ? 'Promokodlar' : 'Промокоды')}
-              {activeTab === 'promotions' && (language === 'uz' ? 'Ichki reklama' : 'Внутренняя реклама')}
               {activeTab === 'dashboard' && (language === 'uz' ? 'Platforma' : 'Дашборд платформы')}
               {activeTab === 'complaints' && (language === 'uz' ? 'Shikoyatlar' : 'Жалобы')}
               {activeTab === 'referrals' && 'Реферальные агенты'}
               {activeTab === 'couriers' && (language === 'uz' ? 'Kuryerlar' : 'Курьеры')}
               {activeTab === 'security' && (language === 'uz' ? 'Xavfsizlik' : 'Безопасность')}
+              {activeTab === 'policies' && (language === 'uz' ? 'Maxfiylik siyosati' : 'Политика конфиденциальности')}
+              {activeTab === 'payouts' && (language === 'uz' ? 'Toʻlovlar (pul yechish)' : 'Выплаты компаниям')}
             </h1>
 
             {/* 🔍 Глобальный поиск по платформе */}
@@ -701,7 +704,7 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
                       </button>
                     </div>
                     <p className="text-xs text-gray-500 mt-1">
-                      Текущий: {companyData.phone || 'не установлен'} ({companyData.phone.length}/9)
+                      🔒 Текущий номер скрыт. Заполните, только чтобы заменить ({companyData.phone.length}/9)
                     </p>
                   </div>
 
@@ -741,7 +744,7 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
                       </div>
                     </div>
                     <p className="text-xs text-gray-500 mt-1">
-                      💡 Текущий пароль: {companyData.password || 'не установлен'}
+                      🔒 Текущий пароль скрыт. Заполните, только чтобы заменить
                     </p>
                   </div>
 
@@ -786,8 +789,8 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
                         </button>
                       </div>
                     </div>
-                    <p className="text-xs text-gray-500 mt-1 break-all select-text">
-                      💡 Текущий: <code className="bg-gray-100 px-2 py-0.5 rounded select-all" onClick={() => handleCopyToClipboard(companyData.access_key, 'access_key')}>{companyData.access_key || 'не установлен'}</code> ({companyData.access_key.length}/30 символов)
+                    <p className="text-xs text-gray-500 mt-1">
+                      🔒 Текущий ключ скрыт. Заполните, только чтобы заменить ({companyData.access_key.length}/30 символов)
                     </p>
                   </div>
 
@@ -908,8 +911,6 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
             <AdminDiscountsPanel />
           ) : activeTab === 'referrals' ? (
             <AdminReferralPanel />
-          ) : activeTab === 'promotions' ? (
-            <AdminPromotionsPanel />
           ) : activeTab === 'dashboard' ? (
             <AdminPlatformDashboard onNavigate={(tab) => handleNavigate(tab as any)} />
           ) : activeTab === 'complaints' ? (
@@ -926,6 +927,10 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
             <AdminDecorationVideosPanel />
           ) : activeTab === 'security' ? (
             <AdminSecurityPanel />
+          ) : activeTab === 'policies' ? (
+            <AdminPoliciesPanel />
+          ) : activeTab === 'payouts' ? (
+            <AdminPayoutsPanel />
           ) : (
             <AdminAdsPanel />
           )}

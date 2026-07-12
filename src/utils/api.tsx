@@ -1932,8 +1932,43 @@ export const promotions = {
     apiCall(`/promotions/${id}`, { method: 'DELETE' }),
 };
 
+// ============================================================================
+// 💸 ВЫВОД СРЕДСТВ (онлайн-заработок компаний за вычетом комиссии платформы)
+// ============================================================================
+export const payouts = {
+  balance: (companyId: number) => apiCall(`/companies/${companyId}/payout-balance`),
+  list: (companyId: number) => apiCall(`/companies/${companyId}/payouts`),
+  create: (companyId: number, data: { cardNumber: string; cardHolder: string; amount: number }) =>
+    apiCall(`/companies/${companyId}/payouts`, { method: 'POST', body: JSON.stringify(data) }),
+  verifyCard: (cardNumber: string) =>
+    apiCall('/payouts/verify-card', { method: 'POST', body: JSON.stringify({ cardNumber }) }),
+  cancel: (id: number) => apiCall(`/payouts/${id}/cancel`, { method: 'PUT' }),
+  // Админ: очередь выплат и ручная обработка
+  listAll: (status?: string) => apiCall(`/payouts${status ? `?status=${status}` : ''}`),
+  updateStatus: (id: number, data: { status: string; providerRef?: string; failureReason?: string }) =>
+    apiCall(`/payouts/${id}/status`, { method: 'PUT', body: JSON.stringify(data) }),
+};
+
+// ============================================================================
+// 📜 ПОЛИТИКА КОНФИДЕНЦИАЛЬНОСТИ (customer | company)
+// ============================================================================
+export const policies = {
+  get: (audience: 'customer' | 'company') =>
+    apiCall(`/policies/${audience}`, { requiresAuth: false }),
+  update: (audience: 'customer' | 'company', data: { contentRu: string; contentUz: string }) =>
+    apiCall(`/policies/${audience}`, { method: 'PUT', body: JSON.stringify(data) }),
+  accept: (audience: 'customer' | 'company', subject: string) =>
+    apiCall(`/policies/${audience}/accept`, {
+      method: 'POST',
+      body: JSON.stringify({ subject }),
+      requiresAuth: false,
+    }),
+};
+
 export default {
   baseURL: API_BASE.replace('/api', ''), // 🔗 Base URL для прямых fetch запросов
+  policies, // 📜 Политика конфиденциальности
+  payouts, // 💸 Вывод средств компаний
   promotions, // 📢 Внутренняя реклама
   moderation, // 🛡️ Лента модерации
   complaints, // 🚩 Жалобы

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Building2, Phone, Lock, Ticket } from 'lucide-react';
 import api from '../utils/api';
+import PolicyModal from './PolicyModal';
 import { getCurrentLanguage, useTranslation, type Language } from '../utils/translations';
 
 interface CompanyLoginProps {
@@ -13,7 +14,10 @@ export default function CompanyLogin({ onLogin }: CompanyLoginProps) {
   const [referralCode, setReferralCode] = useState(''); // 👥 Реферальный код (опционально)
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  
+  // 📜 Согласие с политикой конфиденциальности компаний — обязательно для входа
+  const [policyAccepted, setPolicyAccepted] = useState(false);
+  const [policyOpen, setPolicyOpen] = useState(false);
+
   const language = getCurrentLanguage();
   const t = useTranslation(language);
 
@@ -23,6 +27,13 @@ export default function CompanyLogin({ onLogin }: CompanyLoginProps) {
 
     if (!phone.trim() || !password.trim()) {
       setError(t.fillAllFields);
+      return;
+    }
+
+    if (!policyAccepted) {
+      setError(language === 'uz'
+        ? 'Kirish uchun maxfiylik siyosatini qabul qiling'
+        : 'Для входа примите политику конфиденциальности');
       return;
     }
 
@@ -52,6 +63,8 @@ export default function CompanyLogin({ onLogin }: CompanyLoginProps) {
         const response = await api.auth.loginCompany(phone, password, undefined, referralCode || undefined);
         console.log('✅ Company login successful:', response);
         if (response.company) {
+          // 📜 Фиксируем принятие политики (документальное подтверждение)
+          api.policies.accept('company', String(response.company.id)).catch(() => { /* не критично */ });
           onLogin(response.company);
           return;
         }
@@ -150,6 +163,27 @@ export default function CompanyLogin({ onLogin }: CompanyLoginProps) {
               </p>
             </div>
 
+            {/* 📜 Согласие с политикой конфиденциальности */}
+            <label className="flex items-start gap-2.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={policyAccepted}
+                onChange={(e) => setPolicyAccepted(e.target.checked)}
+                className="mt-0.5 w-4 h-4 accent-purple-600"
+              />
+              <span className="text-sm text-gray-600">
+                {language === 'uz' ? 'Men ' : 'Я принимаю '}
+                <button
+                  type="button"
+                  onClick={(e) => { e.preventDefault(); setPolicyOpen(true); }}
+                  className="text-purple-600 font-medium underline underline-offset-2 hover:text-purple-800"
+                >
+                  {language === 'uz' ? 'maxfiylik siyosati' : 'политику конфиденциальности'}
+                </button>
+                {language === 'uz' ? 'ni qabul qilaman' : ' и условия платформы'}
+              </span>
+            </label>
+
             {error && (
               <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
                 {error}
@@ -158,7 +192,7 @@ export default function CompanyLogin({ onLogin }: CompanyLoginProps) {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !policyAccepted}
               className="w-full bg-purple-600 text-white py-3 rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-medium"
             >
               {loading ? t.loading : t.loginButton}
@@ -167,6 +201,9 @@ export default function CompanyLogin({ onLogin }: CompanyLoginProps) {
 
         </div>
       </div>
+
+      {/* 📜 Текст политики для компаний */}
+      <PolicyModal audience="company" open={policyOpen} onClose={() => setPolicyOpen(false)} language={language as 'ru' | 'uz'} />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { User, Lock, Globe, Sparkles } from 'lucide-react';
 import api from '../utils/api';
+import PolicyModal from './PolicyModal';
 import LoadingAnimation from './LoadingAnimation'; // 🎨 Анимация загрузки
 
 interface UserAuthPageProps {
@@ -30,6 +31,9 @@ export default function UserAuthPage({ onLoginSuccess, isPrivateMode, onBack, on
   const [registerCompanyId, setRegisterCompanyId] = useState('');
   const [registerError, setRegisterError] = useState('');
   const [loading, setLoading] = useState(false);
+  // 📜 Согласие с политикой конфиденциальности — обязательно при регистрации
+  const [policyAccepted, setPolicyAccepted] = useState(false);
+  const [policyOpen, setPolicyOpen] = useState(false);
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -107,6 +111,11 @@ export default function UserAuthPage({ onLoginSuccess, isPrivateMode, onBack, on
       return;
     }
 
+    if (!policyAccepted) {
+      setRegisterError('Для регистрации примите политику конфиденциальности');
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -130,6 +139,9 @@ export default function UserAuthPage({ onLoginSuccess, isPrivateMode, onBack, on
 
       const data = await response.json();
       console.log('✅ Registration successful:', data);
+
+      // 📜 Фиксируем принятие политики покупателем (документальное подтверждение)
+      api.policies.accept('customer', registerPhone).catch(() => { /* не критично */ });
 
       onLoginSuccess({
         firstName: firstName,
@@ -328,6 +340,26 @@ export default function UserAuthPage({ onLoginSuccess, isPrivateMode, onBack, on
               />
             )}
 
+            {/* 📜 Согласие с политикой конфиденциальности */}
+            <label className="flex items-start gap-2.5 cursor-pointer select-none text-left">
+              <input
+                type="checkbox"
+                checked={policyAccepted}
+                onChange={(e) => setPolicyAccepted(e.target.checked)}
+                className="mt-0.5 w-4 h-4 accent-pink-500"
+              />
+              <span className="text-sm text-gray-700">
+                Я принимаю{' '}
+                <button
+                  type="button"
+                  onClick={(e) => { e.preventDefault(); setPolicyOpen(true); }}
+                  className="text-pink-600 font-medium underline underline-offset-2 hover:text-pink-800"
+                >
+                  политику конфиденциальности
+                </button>
+              </span>
+            </label>
+
             {registerError && (
               <div className="text-red-600 text-sm text-center mt-2 font-medium bg-red-50 py-3 px-4 rounded-lg border border-red-200">
                 {registerError}
@@ -336,7 +368,7 @@ export default function UserAuthPage({ onLoginSuccess, isPrivateMode, onBack, on
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !policyAccepted}
               className="w-full bg-gradient-to-r from-gray-700 to-gray-900 text-white py-4 rounded-xl mt-2 font-bold hover:from-gray-800 hover:to-black transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
             >
               {loading ? 'Регистрация...' : 'Зарегистрироваться'}
@@ -344,6 +376,9 @@ export default function UserAuthPage({ onLoginSuccess, isPrivateMode, onBack, on
           </form>
         )}
       </div>
+
+      {/* 📜 Текст политики для покупателей */}
+      <PolicyModal audience="customer" open={policyOpen} onClose={() => setPolicyOpen(false)} />
 
       {/* Footer с переключателями режима и переходами */}
       <div className="flex flex-col gap-3 pb-6 items-center">
