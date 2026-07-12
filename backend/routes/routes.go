@@ -143,6 +143,7 @@ func Setup(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 		regions := api.Group("/regions")
 		{
 			regions.GET("", handlers.ListRegions(db))
+			regions.GET("/resolve", handlers.ResolveRegionAtPoint(db)) // 📍 точка покупателя → зоны доставки
 			regions.POST("", middleware.RequireAdmin(cfg), handlers.CreateRegion(db))
 			regions.PUT("/:id", middleware.RequireAdmin(cfg), handlers.UpdateRegion(db))
 			regions.DELETE("/:id", middleware.RequireAdmin(cfg), handlers.DeleteRegion(db))

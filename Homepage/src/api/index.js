@@ -553,6 +553,19 @@ export const askProductQuestion = async (productId, data) => {
 };
 
 // ─── ↩️ Возвраты / возврат средств ──────────────────────────────────────────────
+// ─── Зоны доставки (границы рисует админ) ────────────────────────────────────
+// Список зон — для ручного выбора региона в шапке каталога.
+export const getDeliveryRegions = async () => {
+  const res = await api.get(ENDPOINTS.regions);
+  return Array.isArray(res.data) ? res.data : [];
+};
+
+// Точка покупателя → зоны, внутри которых он находится: [{ id, name, nameUz }]
+export const resolveDeliveryZones = async (lat, lng) => {
+  const res = await api.get(ENDPOINTS.regionsResolve, { params: { lat, lng } });
+  return Array.isArray(res.data?.matched) ? res.data.matched : [];
+};
+
 export const createReturn = async (data) => {
   // data: { orderId, companyId, customerPhone, reason, refundAmount }
   const res = await api.post(ENDPOINTS.returns, data);
