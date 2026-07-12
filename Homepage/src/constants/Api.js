@@ -76,4 +76,7 @@ export const ENDPOINTS = {
   promoRedeem: '/promo-codes/redeem',
   // 🎉 Скидочные кампании
   campaigns: '/campaigns',
+  // 🗺️ Зоны доставки, нарисованные админом
+  regions: '/regions',
+  regionsResolve: '/regions/resolve',
 };

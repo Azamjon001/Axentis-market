@@ -138,15 +138,21 @@ func GetReturns(db *sql.DB) gin.HandlerFunc {
 		switch {
 		case companyID != "":
 			rows, err = db.Query(`
-				SELECT id, order_id, company_id, customer_phone, COALESCE(reason, ''), items,
-				       refund_amount, status, COALESCE(comment, ''), created_at, updated_at, resolved_at
-				FROM order_returns WHERE company_id = $1 ORDER BY created_at DESC
+				SELECT r.id, r.order_id, r.company_id, r.customer_phone, COALESCE(r.reason, ''), r.items,
+				       r.refund_amount, r.status, COALESCE(r.comment, ''), r.created_at, r.updated_at, r.resolved_at,
+				       COALESCE(o.order_code, '')
+				FROM order_returns r
+				LEFT JOIN orders o ON o.id = r.order_id
+				WHERE r.company_id = $1 ORDER BY r.created_at DESC
 			`, companyID)
 		case customerPhone != "":
 			rows, err = db.Query(`
-				SELECT id, order_id, company_id, customer_phone, COALESCE(reason, ''), items,
-				       refund_amount, status, COALESCE(comment, ''), created_at, updated_at, resolved_at
-				FROM order_returns WHERE customer_phone = $1 ORDER BY created_at DESC
+				SELECT r.id, r.order_id, r.company_id, r.customer_phone, COALESCE(r.reason, ''), r.items,
+				       r.refund_amount, r.status, COALESCE(r.comment, ''), r.created_at, r.updated_at, r.resolved_at,
+				       COALESCE(o.order_code, '')
+				FROM order_returns r
+				LEFT JOIN orders o ON o.id = r.order_id
+				WHERE r.customer_phone = $1 ORDER BY r.created_at DESC
 			`, customerPhone)
 		default:
 			c.JSON(http.StatusBadRequest, gin.H{"error": "companyId or customerPhone is required"})
@@ -166,9 +172,12 @@ func GetReturns(db *sql.DB) gin.HandlerFunc {
 func GetReturn(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		rows, err := db.Query(`
-			SELECT id, order_id, company_id, customer_phone, COALESCE(reason, ''), items,
-			       refund_amount, status, COALESCE(comment, ''), created_at, updated_at, resolved_at
-			FROM order_returns WHERE id = $1
+			SELECT r.id, r.order_id, r.company_id, r.customer_phone, COALESCE(r.reason, ''), r.items,
+			       r.refund_amount, r.status, COALESCE(r.comment, ''), r.created_at, r.updated_at, r.resolved_at,
+			       COALESCE(o.order_code, '')
+			FROM order_returns r
+			LEFT JOIN orders o ON o.id = r.order_id
+			WHERE r.id = $1
 		`, c.Param("id"))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch return"})
@@ -246,9 +255,10 @@ func scanReturns(rows *sql.Rows) []gin.H {
 			status, comment      string
 			createdAt, updatedAt time.Time
 			resolvedAt           sql.NullTime
+			orderCode            string
 		)
 		if err := rows.Scan(&id, &orderID, &companyID, &phone, &reason, &items,
-			&refund, &status, &comment, &createdAt, &updatedAt, &resolvedAt); err != nil {
+			&refund, &status, &comment, &createdAt, &updatedAt, &resolvedAt, &orderCode); err != nil {
 			continue
 		}
 		var itemsArr []map[string]interface{}
@@ -262,6 +272,11 @@ func scanReturns(rows *sql.Rows) []gin.H {
 		}
 		if orderID.Valid {
 			item["orderId"] = orderID.Int64
+		}
+		if orderCode != "" {
+			// Человекочитаемый номер заказа — тот же, что видит покупатель и
+			// панель заказов (#order_code), а не внутренний id из БД.
+			item["orderCode"] = orderCode
 		}
 		if companyID.Valid {
 			item["companyId"] = companyID.Int64

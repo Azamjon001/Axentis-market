@@ -78,7 +78,20 @@ func GetProducts(db *sql.DB) gin.HandlerFunc {
 				// компании ИЛИ регион из списка доставки service_regions). Если ни одна
 				// компания не выбрала регион покупателя — товаров не будет (как и задумано).
 				region := strings.TrimSpace(c.Query("region"))
-				log.Printf("🌐 GetProducts: Public mode, limit=%d offset=%d region=%q", limit, offset, region)
+				// 📍 Дополнительно: координаты покупателя. Точка сверяется с границами,
+				// нарисованными админом (таблица regions), — компания совпадает, если
+				// выбрала эту зону (region_id или её название в region/service_regions).
+				var matchedRegions []MatchedRegion
+				hasCoords := false
+				if latStr, lngStr := c.Query("lat"), c.Query("lng"); latStr != "" && lngStr != "" {
+					lat, errLat := strconv.ParseFloat(latStr, 64)
+					lng, errLng := strconv.ParseFloat(lngStr, 64)
+					if errLat == nil && errLng == nil {
+						hasCoords = true
+						matchedRegions = ResolveRegionsAtPoint(db, lat, lng)
+					}
+				}
+				log.Printf("🌐 GetProducts: Public mode, limit=%d offset=%d region=%q coords=%v matchedZones=%d", limit, offset, region, hasCoords, len(matchedRegions))
 				query := `
 					SELECT p.id, p.company_id, p.name, p.quantity, p.price, p.markup_percent,
 					       COALESCE(
@@ -97,9 +110,32 @@ func GetProducts(db *sql.DB) gin.HandlerFunc {
 					WHERE p.available_for_customers = true
 					  AND (c.mode = 'public' OR c.mode IS NULL)`
 				args := []interface{}{}
+				// Компания подходит, если обслуживает регион покупателя ЛЮБЫМ из способов:
+				// текстовое название области (reverse-геокодинг) ИЛИ зона, нарисованная
+				// админом, внутри которой находится точка покупателя.
+				regionConds := []string{}
+				addNameCond := func(name string) {
+					args = append(args, name)
+					n := len(args)
+					regionConds = append(regionConds, fmt.Sprintf("(c.region = $%d OR c.service_regions @> to_jsonb($%d::text))", n, n))
+				}
 				if region != "" {
-					args = append(args, region)
-					query += " AND (c.region = $1 OR c.service_regions @> to_jsonb($1::text))"
+					addNameCond(region)
+				}
+				for _, m := range matchedRegions {
+					args = append(args, m.ID)
+					regionConds = append(regionConds, fmt.Sprintf("c.region_id = $%d", len(args)))
+					addNameCond(m.Name)
+					if m.NameUz != "" && m.NameUz != m.Name {
+						addNameCond(m.NameUz)
+					}
+				}
+				if len(regionConds) > 0 {
+					query += " AND (" + strings.Join(regionConds, " OR ") + ")"
+				} else if hasCoords {
+					// Координаты переданы, но точка вне всех зон и области нет —
+					// строгая региональность: не показываем чужие товары.
+					query += " AND FALSE"
 				}
 				// Продвинутые товары (внутренняя реклама) — вверху выдачи.
 				query += fmt.Sprintf(" ORDER BY is_promoted DESC, p.created_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)

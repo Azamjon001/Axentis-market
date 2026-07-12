@@ -145,25 +145,32 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
     shipped: 'В пути', delivered: 'Доставлен', completed: 'Завершён', cancelled: 'Отменён',
   };
 
-  // Build 7-day chart data from all orders
+  // 📈 Динамика продаж за 7 дней: 14 точек — каждые 12 часов (00:00 и 12:00),
+  // а не одна точка в день. Ключ ячейки = локальная дата + половина суток.
   const chartData = useMemo(() => {
-    const days: Record<string, { date: string; revenue: number; orders: number }> = {};
+    const buckets: Record<string, { date: string; revenue: number; orders: number }> = {};
+    const localKey = (d: Date, half: 0 | 1) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}-${half}`;
     const now = new Date();
     for (let i = 6; i >= 0; i--) {
       const d = new Date(now);
       d.setDate(d.getDate() - i);
-      const key = d.toISOString().slice(0, 10);
-      const label = `${d.getDate()}.${String(d.getMonth() + 1).padStart(2, '0')}`;
-      days[key] = { date: label, revenue: 0, orders: 0 };
+      const dayLabel = `${d.getDate()}.${String(d.getMonth() + 1).padStart(2, '0')}`;
+      buckets[localKey(d, 0)] = { date: `${dayLabel} 00:00`, revenue: 0, orders: 0 };
+      buckets[localKey(d, 1)] = { date: `${dayLabel} 12:00`, revenue: 0, orders: 0 };
     }
     allOrders.forEach((o: any) => {
-      const dateStr = (o.created_at || o.order_date || '').slice(0, 10);
-      if (days[dateStr] && o.status !== 'cancelled') {
-        days[dateStr].revenue += parseFloat(o.total_amount) || 0;
-        days[dateStr].orders += 1;
+      const dateStr = o.created_at || o.order_date || '';
+      if (!dateStr || o.status === 'cancelled') return;
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return;
+      const key = localKey(d, d.getHours() < 12 ? 0 : 1);
+      if (buckets[key]) {
+        buckets[key].revenue += parseFloat(o.total_amount) || 0;
+        buckets[key].orders += 1;
       }
     });
-    return Object.values(days);
+    return Object.values(buckets);
   }, [allOrders]);
 
   // Build pie chart data from order statuses
@@ -255,7 +262,7 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
           <>
             <div style={{ padding: '16px 20px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontSize: 14, fontWeight: 600, color: '#FFFFFF' }}>{L.salesChart}</span>
-              <span style={{ fontSize: 12, color: '#5A5A78' }}>7 {isUz ? 'kun' : 'дней'}</span>
+              <span style={{ fontSize: 12, color: '#5A5A78' }}>7 {isUz ? 'kun · har 12 soat' : 'дней · каждые 12 ч'}</span>
             </div>
             <div style={{ padding: '0 8px 16px' }}>
               <ResponsiveContainer width="100%" height={200}>
@@ -267,10 +274,11 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                  <XAxis dataKey="date" tick={{ fill: '#5A5A78', fontSize: 11 }} axisLine={false} tickLine={false} />
+                  {/* 14 подписей не помещаются — показываем каждую вторую (даты в 00:00) */}
+                  <XAxis dataKey="date" interval={1} tickFormatter={(v: string) => v.replace(' 00:00', '')} tick={{ fill: '#5A5A78', fontSize: 11 }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fill: '#5A5A78', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
                   <Tooltip content={<CustomTooltip />} />
-                  <Area type="monotone" dataKey="revenue" stroke="#7C5CF0" strokeWidth={2} fill="url(#revGrad)" dot={{ fill: '#7C5CF0', r: 3 }} activeDot={{ r: 5 }} />
+                  <Area type="monotone" dataKey="revenue" stroke="#7C5CF0" strokeWidth={2} fill="url(#revGrad)" dot={{ fill: '#7C5CF0', r: 2.5 }} activeDot={{ r: 5 }} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
