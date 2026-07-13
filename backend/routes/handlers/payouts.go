@@ -436,15 +436,19 @@ func UpdatePayoutStatus(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "status must be processing|completed|failed"})
 			return
 		}
+		// $1 приводится к text во всех местах использования: без каста Postgres
+		// выводит для параметра противоречивые типы (varchar в SET, text в CASE)
+		// и падает с "inconsistent types deduced for parameter $1".
 		res, err := db.Exec(`
 			UPDATE payouts
-			SET status = $1,
+			SET status = $1::text,
 			    provider_ref = COALESCE(NULLIF($2, ''), provider_ref),
-			    failure_reason = CASE WHEN $1 = 'failed' THEN NULLIF($3, '') ELSE failure_reason END,
-			    processed_at = CASE WHEN $1 IN ('completed', 'failed') THEN NOW() ELSE processed_at END
+			    failure_reason = CASE WHEN $1::text = 'failed' THEN NULLIF($3, '') ELSE failure_reason END,
+			    processed_at = CASE WHEN $1::text IN ('completed', 'failed') THEN NOW() ELSE processed_at END
 			WHERE id = $4 AND status IN ('pending', 'processing')
 		`, req.Status, req.ProviderRef, req.FailureReason, id)
 		if err != nil {
+			log.Printf("❌ UpdatePayoutStatus: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update"})
 			return
 		}

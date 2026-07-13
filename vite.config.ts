@@ -1,10 +1,14 @@
 
   import { defineConfig } from 'vite';
   import react from '@vitejs/plugin-react-swc';
+  import tailwindcss from '@tailwindcss/vite';
   import path from 'path';
 
   export default defineConfig({
-    plugins: [react()],
+    // Tailwind компилируется из исходников при сборке: любые новые классы в
+    // компонентах работают. Раньше в репо лежал только статический index.css
+    // со «снимком» утилит — новые классы молча не применялись.
+    plugins: [react(), tailwindcss()],
     resolve: {
       extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
       alias: {

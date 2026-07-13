@@ -81,24 +81,26 @@ func GetCompanies(db *sql.DB) gin.HandlerFunc {
 				"isVerified":      comp.IsVerified,
 			}
 
-			// 🔒 Учётные данные (пароль, ключ доступа, приватный код) видит ТОЛЬКО
-			// сама компания в своей строке (панель настроек продавца читает свой
-			// private code). Админ их НЕ получает — по политике конфиденциальности
-			// платформа имеет доступ к аналитике и заказам компаний, но не к их
-			// логинам и кодам. Админ может лишь ЗАДАТЬ новые значения через
-			// редактирование. Bcrypt-хэш не отдаётся никому.
+			// 🔒 Пароль и приватный код видит ТОЛЬКО сама компания в своей строке
+			// (панель настроек продавца читает свой private code). Bcrypt-хэш не
+			// отдаётся никому. Эндпоинт публичный — анонимам учётные данные не
+			// отдаются вообще.
 			if ctxRole(c) == "company" && ctxCompanyID(c) == comp.ID {
 				if comp.PasswordPlain != "" {
 					company["password"] = comp.PasswordPlain
 				} else if comp.PasswordHash != "" && !strings.HasPrefix(comp.PasswordHash, "$2") {
 					company["password"] = comp.PasswordHash
 				}
-				if comp.AccessKey.Valid {
-					company["accessKey"] = comp.AccessKey.String
-				}
 				if comp.PrivateCode.Valid {
 					company["privateCode"] = comp.PrivateCode.String
 				}
+			}
+			// 🔑 30-значный ключ доступа виден самой компании И администратору
+			// платформы: админ выдаёт ключи компаниям и должен всегда видеть их
+			// в панели управления.
+			if comp.AccessKey.Valid &&
+				(isAdmin(c) || (ctxRole(c) == "company" && ctxCompanyID(c) == comp.ID)) {
+				company["accessKey"] = comp.AccessKey.String
 			}
 			if comp.LogoURL.Valid {
 				company["logoUrl"] = comp.LogoURL.String

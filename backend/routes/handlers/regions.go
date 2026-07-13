@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -302,6 +303,127 @@ func ResolveRegionAtPoint(db *sql.DB) gin.HandlerFunc {
 		}
 		c.JSON(http.StatusOK, gin.H{"matched": out})
 	}
+}
+
+// ─── Мост «зона админа ↔ текстовая область» ──────────────────────────────────
+//
+// Компании выбирают регионы доставки ДВУМЯ способами: текстовые области из
+// статического списка («Андижанская область») и зоны, нарисованные админом
+// («Карасу»). Покупатель же передаёт ОДНО название (ручной выбор) или точку.
+// Чтобы покупатель из Карасу видел и компании, обслуживающие всю Андижанскую
+// область, название зоны сопоставляется с областью по ключевым словам — тот же
+// словарь, что в приложении (Homepage/src/utils/region.js).
+
+var oblastKeywords = []struct {
+	Name string
+	Keys []string
+}{
+	{"Андижанская область", []string{"andijan", "andijon", "андижан", "asaka", "асака", "shahrixon", "shahrikhan", "shakhrikhan", "qorgontepa", "qo'rg'ontepa", "kurgontepa", "kurgantepa", "кургантепа", "qorasuv", "korasuv", "karasu", "карасу", "xonobod", "khanabad", "ханабад", "xo'jaobod", "мархамат", "marhamat", "paxtaobod", "пахтаабад"}},
+	{"Бухарская область", []string{"bukhara", "buxoro", "бухар", "kogon", "когон", "g'ijduvon", "гиждуван"}},
+	{"Джизакская область", []string{"jizzakh", "jizzax", "джизак", "zomin", "зомин", "заамин"}},
+	{"Кашкадарьинская область", []string{"kashkadarya", "qashqadaryo", "qarshi", "karshi", "кашкадар", "карши", "shahrisabz", "шахрисабз"}},
+	{"Навоийская область", []string{"navoiy", "navoi", "навои", "zarafshon", "зарафшан"}},
+	{"Наманганская область", []string{"namangan", "наманган", "chust", "чуст", "pop", "поп", "chortoq", "чартак"}},
+	{"Самаркандская область", []string{"samarkand", "samarqand", "самарканд", "kattaqo'rg'on", "каттакурган", "urgut", "ургут"}},
+	{"Сурхандарьинская область", []string{"surkhandarya", "surxondaryo", "termez", "termiz", "сурхандар", "термез", "denov", "денау"}},
+	{"Сырдарьинская область", []string{"syrdarya", "sirdaryo", "gulistan", "guliston", "сырдар", "гулистан", "yangiyer", "янгиер"}},
+	{"Ферганская область", []string{"fergana", "farg'ona", "fargona", "ферган", "kokand", "qo'qon", "коканд", "margilan", "marg'ilon", "маргилан", "quvasoy", "кувасай", "rishton", "риштан"}},
+	{"Хорезмская область", []string{"khorezm", "xorazm", "urgench", "urganch", "хорезм", "ургенч", "xiva", "khiva", "хива"}},
+	{"Республика Каракалпакстан", []string{"karakalpak", "qoraqalpog", "nukus", "каракалпак", "нукус"}},
+}
+
+// matchOblastName возвращает каноническое название области по названию зоны
+// («Карасу» → «Андижанская область»), либо "" если не распознано.
+func matchOblastName(zoneName string) string {
+	hay := strings.ToLower(strings.TrimSpace(zoneName))
+	if hay == "" {
+		return ""
+	}
+	if strings.Contains(hay, "tashkent") || strings.Contains(hay, "toshkent") || strings.Contains(hay, "ташкент") {
+		if strings.Contains(hay, "region") || strings.Contains(hay, "viloyat") || strings.Contains(hay, "област") {
+			return "Ташкентская область"
+		}
+		return "город Ташкент"
+	}
+	for _, o := range oblastKeywords {
+		for _, k := range o.Keys {
+			if strings.Contains(hay, k) {
+				return o.Name
+			}
+		}
+	}
+	return ""
+}
+
+// ExpandBuyerRegion разворачивает регион покупателя (название зоны или области)
+// в полный набор условий: id совпавших зон (для companies.region_id), их
+// названия (ru и uz), названия всех родительских зон и текстовая область.
+// Так покупатель из «Карасу» находит компании, выбравшие зону «Карасу»,
+// родительскую зону «Андижан» или текстовую «Андижанскую область».
+func ExpandBuyerRegion(db *sql.DB, buyerRegion string) (zoneIDs []int64, names []string) {
+	buyerRegion = strings.TrimSpace(buyerRegion)
+	if buyerRegion == "" {
+		return nil, nil
+	}
+	seenName := map[string]bool{}
+	addName := func(n string) {
+		n = strings.TrimSpace(n)
+		if n == "" || seenName[strings.ToLower(n)] {
+			return
+		}
+		seenName[strings.ToLower(n)] = true
+		names = append(names, n)
+	}
+	addName(buyerRegion)
+
+	// Зоны админа: совпадение по ru/uz названию + подъём по цепочке родителей.
+	rows, err := db.Query(`SELECT id, name, COALESCE(name_uz, ''), parent_id FROM regions`)
+	if err == nil {
+		defer rows.Close()
+		type zone struct {
+			id       int64
+			name     string
+			nameUz   string
+			parentID sql.NullInt64
+		}
+		all := map[int64]zone{}
+		for rows.Next() {
+			var z zone
+			if err := rows.Scan(&z.id, &z.name, &z.nameUz, &z.parentID); err != nil {
+				continue
+			}
+			all[z.id] = z
+		}
+		lower := strings.ToLower(buyerRegion)
+		seenZone := map[int64]bool{}
+		for _, z := range all {
+			if strings.ToLower(z.name) != lower && (z.nameUz == "" || strings.ToLower(z.nameUz) != lower) {
+				continue
+			}
+			// сама зона + все родители
+			for cur, ok := z, true; ok && !seenZone[cur.id]; {
+				seenZone[cur.id] = true
+				zoneIDs = append(zoneIDs, cur.id)
+				addName(cur.name)
+				if cur.nameUz != "" {
+					addName(cur.nameUz)
+				}
+				if !cur.parentID.Valid {
+					break
+				}
+				cur, ok = all[cur.parentID.Int64]
+			}
+		}
+	}
+
+	// Текстовая область по ключевым словам — для каждого найденного названия
+	// (names уже содержит buyerRegion; снимок нужен, т.к. addName растит срез).
+	for _, n := range append([]string(nil), names...) {
+		if oblast := matchOblastName(n); oblast != "" {
+			addName(oblast)
+		}
+	}
+	return zoneIDs, names
 }
 
 // SetCompanyRegion — PUT /companies/:id/region. Компания выбирает свой регион.

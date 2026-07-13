@@ -839,6 +839,28 @@ export const users = {
     return apiCall('/users/me');
   },
 
+  // 🗑️ Опасная зона (админ): удалить всех покупателей.
+  // scope 'users' — только аккаунты; 'all' — вместе с отзывами и активностью.
+  deleteAll: async (scope: 'users' | 'all' = 'users') => {
+    return apiCall(`/users?scope=${scope}`, { method: 'DELETE' });
+  },
+
+  // Get profile by phone (avatar, counters)
+  getProfile: async (phone: string) => {
+    return apiCall(`/users/${encodeURIComponent(phone)}/profile`);
+  },
+
+  // Upload avatar photo (multipart). apiCall не выставляет Content-Type для
+  // FormData — браузер сам подставит boundary.
+  uploadAvatar: async (phone: string, file: File) => {
+    const formData = new FormData();
+    formData.append('avatar', file);
+    return apiCall(`/users/${encodeURIComponent(phone)}/avatar`, {
+      method: 'POST',
+      body: formData,
+    });
+  },
+
   // Update own profile
   updateProfile: async (data: { name?: string; phone?: string; address?: string }) => {
     return apiCall('/users/me', {

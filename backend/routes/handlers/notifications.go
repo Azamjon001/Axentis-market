@@ -328,9 +328,12 @@ func MarkAllNotificationsAsRead(db *sql.DB) gin.HandlerFunc {
 
 // CreateNotificationForSubscribers - создать уведомление для всех подписчиков компании
 func CreateNotificationForSubscribers(db *sql.DB, companyID int64, productID int64, productName string, companyName string) error {
-	// Получаем всех подписчиков компании
+	// Получаем всех подписчиков компании вместе с их push-токенами
 	rows, err := db.Query(`
-		SELECT user_phone FROM company_subscribers WHERE company_id = $1
+		SELECT cs.user_phone, COALESCE(u.expo_push_token, '')
+		FROM company_subscribers cs
+		LEFT JOIN users u ON u.phone = cs.user_phone
+		WHERE cs.company_id = $1
 	`, companyID)
 	if err != nil {
 		return err
@@ -340,9 +343,10 @@ func CreateNotificationForSubscribers(db *sql.DB, companyID int64, productID int
 	title := "🆕 Новый товар от " + companyName
 	message := productName + " добавлен в каталог!"
 
+	var pushTokens []string
 	for rows.Next() {
-		var userPhone string
-		if err := rows.Scan(&userPhone); err != nil {
+		var userPhone, pushToken string
+		if err := rows.Scan(&userPhone, &pushToken); err != nil {
 			continue
 		}
 
@@ -353,7 +357,21 @@ func CreateNotificationForSubscribers(db *sql.DB, companyID int64, productID int
 		`, userPhone, title, message, companyID, productID)
 		if err != nil {
 			log.Printf("⚠️ Failed to create notification for %s: %v", userPhone, err)
+			continue
 		}
+		if pushToken != "" {
+			pushTokens = append(pushTokens, pushToken)
+		}
+	}
+
+	// 📲 Реальный push на телефон (раньше уведомление попадало только в БД и
+	// было видно лишь при открытом приложении).
+	if len(pushTokens) > 0 {
+		go func() {
+			if _, err := SendFCMPushNotification(pushTokens, title, message); err != nil {
+				log.Printf("⚠️ Subscriber push failed: %v", err)
+			}
+		}()
 	}
 
 	log.Printf("📬 Notifications sent to subscribers of company %d for product %d", companyID, productID)

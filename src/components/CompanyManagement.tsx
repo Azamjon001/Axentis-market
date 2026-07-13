@@ -92,14 +92,15 @@ export default function CompanyManagement() {
     }
   };
 
-  // 🔒 Учётные данные скрыты по политике конфиденциальности: поля начинаются
+  // 🔒 Пароль и телефон скрыты по политике конфиденциальности: поля начинаются
   // пустыми — админ может только ЗАДАТЬ новые значения, не видя текущих.
+  // 🔑 Ключ доступа админу виден всегда — он подставляется в поле редактирования.
   const startEditing = (company: Company) => {
     setEditingCompany(company.id);
     setEditingName(company.name);
     setEditingPhone('');
     setEditingPassword('');
-    setEditingAccessKey('');
+    setEditingAccessKey(company.accessKey || '');
   };
 
   const cancelEditing = (_companyId: number) => {
@@ -900,9 +901,25 @@ export default function CompanyManagement() {
                         {editingAccessKey.length}/30 цифр {editingAccessKey.length === 30 ? '✓' : '— нужно ровно 30'}
                       </p>
                     </>
+                  ) : company.accessKey ? (
+                    <div className="flex items-center gap-2">
+                      <code
+                        className="flex-1 font-mono text-sm bg-white px-3 py-2 rounded border border-purple-200 text-gray-800 tracking-wider break-all select-all"
+                        style={{ userSelect: 'all' }}
+                      >
+                        {company.accessKey.replace(/(\d{6})(?=\d)/g, '$1 ')}
+                      </code>
+                      <button
+                        onClick={() => handleCopyToClipboard(company.accessKey, `key-${company.id}`)}
+                        className="px-2.5 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors shrink-0"
+                        title="Скопировать ключ"
+                      >
+                        {copiedField === `key-${company.id}` ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                      </button>
+                    </div>
                   ) : (
                     <code className="block font-mono text-sm bg-white px-3 py-2 rounded border border-purple-200 text-gray-500 select-none">
-                      •••••• •••••• •••••• •••••• •••••• <span className="text-xs">(скрыт — доступен только компании)</span>
+                      •••••• •••••• •••••• •••••• ••••••
                     </code>
                   )}
                 </div>

@@ -481,7 +481,9 @@ export default function LoginScreen() {
                 <ActivityIndicator color={colors.primary} />
               </View>
             ) : (
-              <ScrollView style={{ maxHeight: '82%' }} showsVerticalScrollIndicator>
+              // flex:1 в фиксированном по высоте sheet — иначе на вебе ScrollView
+              // не получает ограничение высоты и текст «зависает» без прокрутки.
+              <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 8 }} showsVerticalScrollIndicator>
                 <Text style={[styles.policyBody, { color: colors.text }]}>{policyText}</Text>
               </ScrollView>
             )}
@@ -573,7 +575,10 @@ const styles = StyleSheet.create({
   policyOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
   policySheet: {
     borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    padding: 20, paddingBottom: 28, maxHeight: '90%',
+    padding: 20, paddingBottom: 28,
+    // Фиксированная высота (не maxHeight): даёт ScrollView внутри реальную
+    // границу — прокрутка текста работает и на native, и в веб-сборке.
+    height: '85%',
   },
   policyHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   policyTitle: { fontSize: 17, fontWeight: '700' },

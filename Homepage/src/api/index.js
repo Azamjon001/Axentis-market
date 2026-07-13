@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE_URL } from '../config';
 import { ENDPOINTS } from '../constants/Api';
@@ -195,18 +196,61 @@ export const submitReview = async (data) => {
   return mapReview(res.data);
 };
 
+// Собирает multipart-форму с одним изображением кросс-платформенно.
+// Native (iOS/Android): FormData принимает { uri, name, type } — RN сам
+// сериализует файл и подставит boundary. Web: браузерный FormData принимает
+// только Blob/File, поэтому data:/blob:-URI сначала превращается в Blob.
+export const buildImageFormData = async (field, uri, fallbackName = `photo_${Date.now()}.jpg`) => {
+  const rawName = uri.split('/').pop() || fallbackName;
+  const name = rawName.includes('.') ? rawName : fallbackName;
+  const ext = (name.split('.').pop() || 'jpg').toLowerCase();
+  const type =
+    ext === 'png' ? 'image/png' :
+    ext === 'webp' ? 'image/webp' :
+    ext === 'heic' || ext === 'heif' ? 'image/heic' : 'image/jpeg';
+  const form = new FormData();
+  if (Platform.OS === 'web') {
+    const blob = await (await fetch(uri)).blob();
+    form.append(field, new File([blob], name, { type: blob.type || type }));
+  } else {
+    form.append(field, { uri, name, type });
+  }
+  return form;
+};
+
+// POST multipart-формы. Content-Type НЕ выставляется вручную: и браузер, и
+// нативный сетевой слой RN сами добавляют "multipart/form-data; boundary=…" —
+// заголовок без boundary ломает разбор формы на сервере.
+export const postFormData = async (endpoint, form, timeoutMs = 30000) => {
+  const token = await AsyncStorage.getItem('userToken');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: 'POST',
+      body: form,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      signal: controller.signal,
+    });
+    let data = null;
+    try { data = await res.json(); } catch { /* пустой/не-JSON ответ */ }
+    if (!res.ok) {
+      const err = new Error(data?.error || `Upload failed (${res.status})`);
+      err.status = res.status;
+      err.response = { data };
+      throw err;
+    }
+    return data;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 // Загрузка одного фото отзыва (multipart) → возвращает URL на сервере.
 export const uploadReviewImage = async (uri) => {
-  const name = uri.split('/').pop() || `review_${Date.now()}.jpg`;
-  const ext = (name.split('.').pop() || 'jpg').toLowerCase();
-  const type = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-  const form = new FormData();
-  form.append('image', { uri, name, type });
-  const res = await api.post(ENDPOINTS.reviewUploadImage, form, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-    timeout: 30000,
-  });
-  return res.data?.url;
+  const form = await buildImageFormData('image', uri, `review_${Date.now()}.jpg`);
+  const data = await postFormData(ENDPOINTS.reviewUploadImage, form);
+  return data?.url;
 };
 
 export const voteReview = async (reviewId, phone, voteType) => {
