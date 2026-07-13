@@ -272,6 +272,7 @@ func Setup(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 		{
 			users.POST("/check-unique", handlers.CheckUserUnique(db))
 			users.GET("/count", handlers.GetUsersCount(db))
+			users.DELETE("", middleware.RequireAdmin(cfg), handlers.DeleteAllUsers(db)) // 🗑️ Опасная зона админки
 			users.GET("/:phone", handlers.GetUserByPhone(db))
 			// Old cart/likes routes removed - use /api/cart and /api/favorites instead
 			users.POST("/:phone/avatar", middleware.RequireSelfPhone("phone"), handlers.UploadUserAvatar(db))

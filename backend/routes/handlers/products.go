@@ -111,23 +111,54 @@ func GetProducts(db *sql.DB) gin.HandlerFunc {
 					  AND (c.mode = 'public' OR c.mode IS NULL)`
 				args := []interface{}{}
 				// Компания подходит, если обслуживает регион покупателя ЛЮБЫМ из способов:
-				// текстовое название области (reverse-геокодинг) ИЛИ зона, нарисованная
-				// админом, внутри которой находится точка покупателя.
+				// текстовое название области (reverse-геокодинг / ручной выбор),
+				// зона админа по имени/ID, родительская зона или область,
+				// которой принадлежит зона (ExpandBuyerRegion).
 				regionConds := []string{}
+				seenNames := map[string]bool{}
 				addNameCond := func(name string) {
+					name = strings.TrimSpace(name)
+					if name == "" || seenNames[strings.ToLower(name)] {
+						return
+					}
+					seenNames[strings.ToLower(name)] = true
 					args = append(args, name)
 					n := len(args)
 					regionConds = append(regionConds, fmt.Sprintf("(c.region = $%d OR c.service_regions @> to_jsonb($%d::text))", n, n))
 				}
+				seenZoneIDs := map[int64]bool{}
+				addZoneIDCond := func(id int64) {
+					if seenZoneIDs[id] {
+						return
+					}
+					seenZoneIDs[id] = true
+					args = append(args, id)
+					regionConds = append(regionConds, fmt.Sprintf("c.region_id = $%d", len(args)))
+				}
 				if region != "" {
-					addNameCond(region)
+					// Ручной выбор/reverse-геокод: разворачиваем название в зоны
+					// админа (ru/uz, с родителями) и текстовую область — иначе
+					// покупатель из «Карасу» не видел компании, обслуживающие
+					// «Андижанскую область», и наоборот.
+					zoneIDs, names := ExpandBuyerRegion(db, region)
+					for _, n := range names {
+						addNameCond(n)
+					}
+					for _, id := range zoneIDs {
+						addZoneIDCond(id)
+					}
 				}
 				for _, m := range matchedRegions {
-					args = append(args, m.ID)
-					regionConds = append(regionConds, fmt.Sprintf("c.region_id = $%d", len(args)))
+					addZoneIDCond(m.ID)
 					addNameCond(m.Name)
 					if m.NameUz != "" && m.NameUz != m.Name {
 						addNameCond(m.NameUz)
+					}
+					// Зона → текстовая область («Карасу» → «Андижанская область»):
+					// GPS-покупатель видит компании с областным выбором, даже если
+					// reverse-геокодинг не сработал.
+					if oblast := matchOblastName(m.Name); oblast != "" {
+						addNameCond(oblast)
 					}
 				}
 				if len(regionConds) > 0 {

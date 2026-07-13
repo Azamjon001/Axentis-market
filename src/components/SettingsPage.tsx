@@ -105,9 +105,10 @@ export default function SettingsPage({
   const loadProfilePhoto = async () => {
     if (!userPhone) return;
     try {
-      const response = await api.get(`/users/${userPhone}/profile`);
-      if (response.data.avatar_url) {
-        setProfilePhoto(getImageUrl(response.data.avatar_url) || '');
+      const profile: any = await api.users.getProfile(userPhone);
+      const url = profile?.avatarUrl || profile?.avatar_url;
+      if (url) {
+        setProfilePhoto(getImageUrl(url) || '');
       }
     } catch (error) {
       console.error('Error loading profile photo:', error);
@@ -128,22 +129,14 @@ export default function SettingsPage({
     const file = e.target.files?.[0];
     if (file && userPhone) {
       try {
-        const formData = new FormData();
-        formData.append('avatar', file);
-
-        const response = await api.post(`/users/${userPhone}/avatar`, formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        });
-
-        if (response.data.success && response.data.avatar_url) {
-          setProfilePhoto(getImageUrl(response.data.avatar_url) || '');
+        const response: any = await api.users.uploadAvatar(userPhone, file);
+        if (response?.success && response?.avatar_url) {
+          setProfilePhoto(getImageUrl(response.avatar_url) || '');
           alert('Фото профиля обновлено!');
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error uploading avatar:', error);
-        alert('Ошибка при загрузке фото');
+        alert('Ошибка при загрузке фото: ' + (error?.message || 'попробуйте снова'));
       }
     }
   };

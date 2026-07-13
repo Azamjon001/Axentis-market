@@ -58,7 +58,9 @@ export default function PolicyModal({ audience, open, onClose, language = 'ru' }
             <X className="w-4 h-4" />
           </button>
         </div>
-        <div className="overflow-y-auto p-5">
+        {/* flex-1 + min-h-0: без них flex-контейнер не даёт блоку сжаться и
+            прокрутка не работает — текст «зависает» на первой странице. */}
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5">
           {loading ? (
             <div className="flex justify-center py-10">
               <div className="w-7 h-7 border-4 border-purple-500 border-t-transparent rounded-full animate-spin" />
