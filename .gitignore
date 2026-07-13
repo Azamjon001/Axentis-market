@@ -19,3 +19,9 @@ backend/.env.local
 *.log
 backend/azaton-backend
 backend/main
+
+# Загруженные пользователями файлы (создаются сервером в рантайме)
+backend/uploads/
+
+# Python bytecode кэш скиллов
+__pycache__/
