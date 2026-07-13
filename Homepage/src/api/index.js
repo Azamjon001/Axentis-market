@@ -566,6 +566,18 @@ export const resolveDeliveryZones = async (lat, lng) => {
   return Array.isArray(res.data?.matched) ? res.data.matched : [];
 };
 
+// ─── Политика конфиденциальности ─────────────────────────────────────────────
+export const getPolicy = async (audience = 'customer') => {
+  const res = await api.get(ENDPOINTS.policy(audience));
+  return res.data;
+};
+
+// Фиксируем принятие политики (subject — телефон покупателя)
+export const acceptPolicy = async (audience, subject) => {
+  const res = await api.post(ENDPOINTS.policyAccept(audience), { subject });
+  return res.data;
+};
+
 export const createReturn = async (data) => {
   // data: { orderId, companyId, customerPhone, reason, refundAmount }
   const res = await api.post(ENDPOINTS.returns, data);

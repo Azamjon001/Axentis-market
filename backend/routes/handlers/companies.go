@@ -20,10 +20,9 @@ import (
 func GetCompanies(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// SECURITY: credential fields (password, access key, private code) are
-		// only included for the platform admin. This endpoint is public — the
+		// returned only to the company itself. This endpoint is public — the
 		// storefronts use it to list shops — so leaking them here would hand
 		// out every seller's login to anyone.
-		admin := isAdmin(c)
 
 		// Для админ панели показываем все компании, для пользователей - только approved
 		query := `
@@ -82,13 +81,13 @@ func GetCompanies(db *sql.DB) gin.HandlerFunc {
 				"isVerified":      comp.IsVerified,
 			}
 
-			// Expose the readable password for the admin panel ONLY (plus each
-			// company's own row, which the seller settings panel reads for its
-			// private code). We surface password_plain (kept in sync on
-			// create/update); if it is empty but the stored hash is still legacy
-			// plaintext (not a bcrypt "$2..." hash), fall back to it. The bcrypt
-			// hash itself is never exposed.
-			if admin || (ctxRole(c) == "company" && ctxCompanyID(c) == comp.ID) {
+			// 🔒 Учётные данные (пароль, ключ доступа, приватный код) видит ТОЛЬКО
+			// сама компания в своей строке (панель настроек продавца читает свой
+			// private code). Админ их НЕ получает — по политике конфиденциальности
+			// платформа имеет доступ к аналитике и заказам компаний, но не к их
+			// логинам и кодам. Админ может лишь ЗАДАТЬ новые значения через
+			// редактирование. Bcrypt-хэш не отдаётся никому.
+			if ctxRole(c) == "company" && ctxCompanyID(c) == comp.ID {
 				if comp.PasswordPlain != "" {
 					company["password"] = comp.PasswordPlain
 				} else if comp.PasswordHash != "" && !strings.HasPrefix(comp.PasswordHash, "$2") {

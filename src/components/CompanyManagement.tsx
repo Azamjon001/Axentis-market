@@ -23,8 +23,6 @@ export default function CompanyManagement() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [hiddenPasswords, setHiddenPasswords] = useState<{ [key: number]: boolean }>({});
-  const [showAccessKeys, setShowAccessKeys] = useState<{ [key: number]: boolean }>({});
   const [editingCompany, setEditingCompany] = useState<number | null>(null);
   const [editingName, setEditingName] = useState('');
   const [editingPhone, setEditingPhone] = useState('');
@@ -94,12 +92,14 @@ export default function CompanyManagement() {
     }
   };
 
+  // 🔒 Учётные данные скрыты по политике конфиденциальности: поля начинаются
+  // пустыми — админ может только ЗАДАТЬ новые значения, не видя текущих.
   const startEditing = (company: Company) => {
     setEditingCompany(company.id);
     setEditingName(company.name);
-    setEditingPhone(company.phone);
+    setEditingPhone('');
     setEditingPassword('');
-    setEditingAccessKey(company.accessKey || '');
+    setEditingAccessKey('');
   };
 
   const cancelEditing = (_companyId: number) => {
@@ -115,12 +115,17 @@ export default function CompanyManagement() {
       alert('❌ Ключ доступа должен содержать ровно 30 цифр (без букв и символов)');
       return;
     }
+    if (editingPhone && (editingPhone.length !== 9 || /\D/.test(editingPhone))) {
+      alert('❌ Телефон должен содержать ровно 9 цифр');
+      return;
+    }
     try {
+      // Пустые поля бэкенд не трогает — обновляется только то, что введено заново.
       await api.companies.update(companyId.toString(), {
         name: editingName,
-        phone: editingPhone,
+        phone: editingPhone || undefined,
         password: editingPassword || undefined,
-        access_key: editingAccessKey
+        access_key: editingAccessKey || undefined
       });
 
       alert('✅ Компания успешно обновлена!');
@@ -277,20 +282,6 @@ export default function CompanyManagement() {
       key += chars.charAt(Math.floor(Math.random() * chars.length));
     }
     setNewCompany({ ...newCompany, access_key: key });
-  };
-
-  const togglePasswordVisibility = (companyId: number) => {
-    setHiddenPasswords(prev => ({
-      ...prev,
-      [companyId]: !prev[companyId]
-    }));
-  };
-
-  const toggleAccessKeyVisibility = (companyId: number) => {
-    setShowAccessKeys(prev => ({
-      ...prev,
-      [companyId]: !prev[companyId]
-    }));
   };
 
   // � Функция переключения доставки для компании
@@ -817,37 +808,36 @@ export default function CompanyManagement() {
                 )}
               </div>
 
-              {/* Телефон */}
+              {/* Телефон — логин компании скрыт по политике конфиденциальности */}
               <div className="flex items-center gap-3 bg-gray-50 p-3 rounded-lg">
                 <Phone className="w-5 h-5 text-gray-600" />
                 <div className="flex-1">
-                  <p className="text-xs text-gray-500">Телефон (9 цифр)</p>
+                  <p className="text-xs text-gray-500">Телефон (логин)</p>
                   {editingCompany === company.id ? (
-                    <input
-                      type="text"
-                      value={editingPhone}
-                      onChange={(e) => {
-                        const value = e.target.value.replace(/\D/g, '').slice(0, 9);
-                        setEditingPhone(value);
-                      }}
-                      className="w-full px-3 py-2 border border-purple-300 rounded focus:outline-none focus:border-purple-500"
-                      maxLength={9}
-                    />
+                    <>
+                      <input
+                        type="text"
+                        value={editingPhone}
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/\D/g, '').slice(0, 9);
+                          setEditingPhone(value);
+                        }}
+                        className="w-full px-3 py-2 border border-purple-300 rounded focus:outline-none focus:border-purple-500"
+                        maxLength={9}
+                        placeholder="Новый телефон (9 цифр) — оставьте пустым, чтобы не менять"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Текущий номер скрыт. Заполните, только если нужно заменить.</p>
+                    </>
                   ) : (
-                    <p className="font-medium">{company.phone}</p>
+                    <p className="font-medium font-mono tracking-wider" title="Скрыт по политике конфиденциальности">
+                      ••• •• ••{(company.phone || '').slice(-2) || '••'}
+                    </p>
                   )}
                 </div>
-                {editingCompany !== company.id && (
-                  <button
-                    onClick={() => handleCopyToClipboard(company.phone, `phone-${company.id}`)}
-                    className="px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors text-xs flex items-center gap-1"
-                  >
-                    {copiedField === `phone-${company.id}` ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                  </button>
-                )}
+                <Lock className="w-4 h-4 text-gray-400" aria-label="Скрыто" />
               </div>
 
-              {/* Пароль */}
+              {/* Пароль — никогда не показывается, можно только задать новый */}
               <div className="flex items-center gap-3 bg-gradient-to-r from-gray-50 to-gray-100 p-3 rounded-lg border border-gray-200">
                 <Lock className="w-5 h-5 text-gray-600" />
                 <div className="flex-1">
@@ -858,47 +848,13 @@ export default function CompanyManagement() {
                       value={editingPassword}
                       onChange={(e) => setEditingPassword(e.target.value)}
                       className="w-full px-3 py-2 border border-purple-300 rounded focus:outline-none focus:border-purple-500 font-mono"
-                      placeholder="Введите новый пароль..."
+                      placeholder="Новый пароль — оставьте пустым, чтобы не менять"
                       autoComplete="new-password"
                     />
                   ) : (
-                    <code
-                      className="block font-mono text-sm break-all bg-white px-3 py-2 rounded border border-gray-200 cursor-pointer hover:bg-gray-50 transition-colors"
-                      style={{ userSelect: 'text' }}
-                      onClick={() => {
-                        const pwd = company.password;
-                        if (pwd && !pwd.startsWith('$2')) handleCopyToClipboard(pwd, `pwd-${company.id}`);
-                      }}
-                      title="Нажмите для копирования"
-                    >
-                      {hiddenPasswords[company.id]
-                        ? '••••••••'
-                        : (company.password
-                            ? company.password.startsWith('$2')
-                              ? '🔒 зашифрован — пересохраните пароль'
-                              : company.password
-                            : '(не задан — нажмите редактировать)')}
+                    <code className="block font-mono text-sm bg-white px-3 py-2 rounded border border-gray-200 text-gray-500 select-none">
+                      •••••••• <span className="text-xs">(скрыт — доступен только компании)</span>
                     </code>
-                  )}
-                </div>
-                <div className="flex flex-col items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={() => togglePasswordVisibility(company.id)}
-                    className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                    title={hiddenPasswords[company.id] ? 'Показать' : 'Скрыть'}
-                  >
-                    {hiddenPasswords[company.id] ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                  </button>
-                  {editingCompany !== company.id && !hiddenPasswords[company.id] && company.password && !company.password.startsWith('$2') && (
-                    <button
-                      type="button"
-                      onClick={() => handleCopyToClipboard(company.password || '', `pwd-${company.id}`)}
-                      className="p-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors text-xs"
-                      title="Копировать"
-                    >
-                      {copiedField === `pwd-${company.id}` ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                    </button>
                   )}
                 </div>
               </div>
@@ -945,46 +901,9 @@ export default function CompanyManagement() {
                       </p>
                     </>
                   ) : (
-                    <>
-                      <code
-                        className={`block font-mono text-sm break-all bg-white px-3 py-2 rounded border select-all cursor-pointer hover:bg-purple-50 transition-colors ${
-                          company.accessKey?.length === 30 && /^\d+$/.test(company.accessKey)
-                            ? 'border-purple-200'
-                            : 'border-red-300 bg-red-50'
-                        }`}
-                        onClick={() => handleCopyToClipboard(company.accessKey, `key-${company.id}`)}
-                        title="Нажмите для копирования"
-                        style={{ userSelect: 'text' }}
-                      >
-                        {company.accessKey || '(не задан)'}
-                      </code>
-                      {company.accessKey && (company.accessKey.length !== 30 || !/^\d+$/.test(company.accessKey)) && (
-                        <p className="text-xs text-red-500 mt-1">
-                          ⚠ {company.accessKey.length} символов{/[^\d]/.test(company.accessKey) ? ', содержит не-цифры' : ''} — нажмите «Редактировать» и исправьте до 30 цифр
-                        </p>
-                      )}
-                    </>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  {editingCompany !== company.id && (
-                    <button
-                      onClick={() => handleCopyToClipboard(company.accessKey, `key-${company.id}`)}
-                      className="px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-xs flex items-center gap-1.5 font-medium shadow-sm"
-                      title="Копировать ключ"
-                    >
-                      {copiedField === `key-${company.id}` ? (
-                        <>
-                          <Check className="w-3.5 h-3.5" />
-                          <span>✓</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3.5 h-3.5" />
-                          <span>Копия</span>
-                        </>
-                      )}
-                    </button>
+                    <code className="block font-mono text-sm bg-white px-3 py-2 rounded border border-purple-200 text-gray-500 select-none">
+                      •••••• •••••• •••••• •••••• •••••• <span className="text-xs">(скрыт — доступен только компании)</span>
+                    </code>
                   )}
                 </div>
               </div>
@@ -1036,25 +955,13 @@ export default function CompanyManagement() {
                   </button>
                 </div>
 
-                {/* Код компании для приватного режима */}
-                {company.mode === 'private' && company.privateCode && (
+                {/* Код приватного режима скрыт — виден только самой компании в её настройках */}
+                {company.mode === 'private' && (
                   <div className="mt-3 pt-3 border-t border-purple-200">
                     <p className="text-xs text-gray-600 mb-1">Код доступа компании</p>
-                    <div className="flex items-center gap-2">
-                      <code className="flex-1 bg-white px-3 py-2 rounded border border-purple-300 font-mono text-lg font-bold text-purple-900">
-                        {company.privateCode}
-                      </code>
-                      <button
-                        onClick={() => handleCopyId(company.privateCode || '')}
-                        className="bg-purple-600 text-white px-3 py-2 rounded hover:bg-purple-700 transition-colors text-xs font-medium flex items-center gap-1"
-                      >
-                        <Copy className="w-3 h-3" />
-                        Копировать
-                      </button>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-2">
-                      💡 Покупатели вводят этот код при регистрации для доступа к товарам компании
-                    </p>
+                    <code className="block bg-white px-3 py-2 rounded border border-purple-300 font-mono text-sm text-gray-500 select-none">
+                      •••••• <span className="text-xs">(скрыт — компания видит его в своих настройках)</span>
+                    </code>
                   </div>
                 )}
               </div>

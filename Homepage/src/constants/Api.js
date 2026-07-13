@@ -79,4 +79,7 @@ export const ENDPOINTS = {
   // 🗺️ Зоны доставки, нарисованные админом
   regions: '/regions',
   regionsResolve: '/regions/resolve',
+  // 📜 Политика конфиденциальности
+  policy: (audience) => `/policies/${audience}`,
+  policyAccept: (audience) => `/policies/${audience}/accept`,
 };
