@@ -36,11 +36,12 @@ interface LikesPageProps {
   onNavigateTo?: (page: 'home' | 'cart' | 'settings') => void;
 }
 
-export default function LikesPage({ 
+export default function LikesPage({
   likedProductIds,
   setLikedProductIds,
   cart,
   setCart, // ✅ Принимаем setCart
+  onBackToHome, // кнопка «На главную» в пустом состоянии
   onNavigateTo,
   userPhone,
   viewingImage,
@@ -308,11 +309,14 @@ export default function LikesPage({
 
       {/* Image Viewer Modal */}
       {viewingImage && (() => {
-        const product = products.find(p => 
-          p.images && p.images.some(img => img.url === viewingImage.url)
+        // Изображения товара могут быть строками или объектами {url, name}
+        const imgUrl = (img: string | { url: string }) => (typeof img === 'string' ? img : img?.url);
+        const product = products.find(p =>
+          p.images && p.images.some(img => imgUrl(img as any) === viewingImage.url)
         );
         const allImages = product?.images || [viewingImage];
-        const currentImage = allImages[viewingImageIndex % allImages.length] || viewingImage;
+        const rawImage = allImages[viewingImageIndex % allImages.length] || viewingImage;
+        const currentImage = typeof rawImage === 'string' ? { url: rawImage, name: viewingImage.name } : rawImage;
         
         return (
           <div 

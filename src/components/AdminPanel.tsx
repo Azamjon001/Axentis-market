@@ -261,16 +261,19 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
   const hasChanges = JSON.stringify(companyData) !== JSON.stringify(originalCompanyData);
 
   const clearAllData = async (type: 'users' | 'all') => {
-    const confirmMessage = 
+    const confirmMessage =
       type === 'users' ? 'Удалить всех пользователей?' :
-      'Удалить ВСЕ данные пользователей? Это действие нельзя отменить!';
-    
+      'Удалить ВСЕ данные пользователей (аккаунты, корзины, избранное, адреса)? Это действие нельзя отменить!';
+
     if (!confirm(confirmMessage)) return;
+    // Двойное подтверждение — операция необратима
+    if (!confirm('Вы уверены? Восстановить данные будет невозможно.')) return;
 
     try {
-      await deleteAllUsers();
+      const res = await api.users.purge(type);
       await loadStats();
-      alert('Данные упешно удалены!');
+      const total = res?.deleted ? Object.values(res.deleted as Record<string, number>).reduce((s, n) => s + n, 0) : 0;
+      alert(`✅ Данные удалены (записей: ${total})`);
     } catch (error) {
       console.error('Error clearing data:', error);
       alert('Ошибка при удалении данных');
@@ -285,7 +288,7 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
     try {
       console.log('📡 [Admin] Отправка команды перезагрузки...');
       
-      await broadcastReload('Админ');
+      await broadcastReload();
       
       alert('✅ Команда перезагрузки отправлена!\n\nВсе устройства будут перезагружены через 2 секунды.\n\nВаше устройство тоже будет перезагружено.');
       

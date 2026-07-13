@@ -256,10 +256,10 @@ function AppContent() {
               try { await api.auth.loginUser(session.userData.phone); } catch (e) { console.warn('Silent re-login failed:', e); }
             }
             
-            // Восстанавливаем company_id если есть
+            // company_id приватного режима уже восстановлен внутри pendingUser
+            // (setPendingUser выше) — отдельного состояния для него нет.
             if (session.userData.companyId) {
-              console.log('🔒 [App] Restoring private company ID:', session.userData.companyId);
-              setPrivateCompanyId(session.userData.companyId);
+              console.log('🔒 [App] Restored private company ID:', session.userData.companyId);
             }
             
             // Load user likes AND cart from backend API when restoring customer session,
@@ -357,14 +357,15 @@ function AppContent() {
         const defaultKey = generateKey();
         
         try {
+          // Бэкенд ждёт camelCase `accessKey` — снейк-кейс молча игнорировался,
+          // и в консоль печатался ключ, которого на сервере не существовало.
           const company = await api.auth.registerCompany({
             name: 'Главная компания',
             phone: '909383572',
             password: '24067',
             mode: 'public',
             description: '',
-            access_key: defaultKey,
-            referral_code: ''
+            accessKey: defaultKey
           });
           
           // 🔒 БЕЗОПАСНОСТЬ: Данные компании показываются только ОДИН РАЗ при создании
@@ -387,10 +388,9 @@ function AppContent() {
               console.log('%c║                  🔐 ДАННЫЕ КОМПАНИИ                              ║', 'color: #2196F3; font-weight: bold;');
               console.log('%c╚══════════════════════════════════════════════════════════════════╝', 'color: #2196F3; font-weight: bold;');
               console.log(`\n%c🏢 Название: ${firstCompany.name}`, 'color: #9C27B0; font-size: 14px;');
-              console.log(`%c📱 Телефон: ${firstCompany.phone}`, 'color: #4CAF50; font-size: 14px;');
-              console.log(`%c🔒 Пароль: ${firstCompany.password}`, 'color: #4CAF50; font-size: 14px;');
-              console.log(`%c🔑 Ключ доступа: ${firstCompany.access_key}`, 'color: #FF9800; font-size: 16px; font-weight: bold;');
-              console.log('\n%c💡 Для входа в компанию введите телефон, пароль, затем этот ключ', 'color: #2196F3; font-size: 12px;');
+              // 🔒 Пароль и ключ доступа скрыты по политике конфиденциальности —
+              // сервер их больше не отдаёт; при утере задайте новые в админ-панели.
+              console.log('%c🔑 Учётные данные скрыты (задать новые можно в админ-панели)', 'color: #FF9800; font-size: 13px;');
               console.log('\n');
             }
           } else {
@@ -886,16 +886,9 @@ function AppContent() {
               />
             </React.Suspense>
           )}
-          {currentPage === 'payment' && (
-            <React.Suspense fallback={<LoadingScreen />}>
-              <PaymentPage
-                onBackToHome={() => setCurrentPage('home')}
-                onLogout={handleLogout}
-                userName={pendingUser ? `${pendingUser.firstName} ${pendingUser.lastName}` : undefined}
-                userPhone={pendingUser?.phone}
-              />
-            </React.Suspense>
-          )}
+          {/* Страница оплаты живёт внутри HomePage (checkout-флоу) — отдельного
+              маршрута 'payment' нет: сюда никто не навигировал, а неполные
+              пропсы роняли компонент. */}
           {currentPage === 'courierLogin' && (
             <CourierLoginPage
               onLogin={(data) => {

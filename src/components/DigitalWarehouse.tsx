@@ -805,8 +805,8 @@ export const DigitalWarehouse: React.FC<DigitalWarehouseProps> = ({ companyId })
       return;
     }
     setAddModalVariants(prev => [...prev, ...rows]);
+    // Пустой smartColors сворачивает блок умного добавления — отдельного флага нет
     setSmartColors([]);
-    setSmartMode(false);
   };
 
   const handleAddProduct = async () => {

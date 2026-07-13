@@ -105,9 +105,10 @@ export default function SettingsPage({
   const loadProfilePhoto = async () => {
     if (!userPhone) return;
     try {
-      const response = await api.get(`/users/${userPhone}/profile`);
-      if (response.data.avatar_url) {
-        setProfilePhoto(getImageUrl(response.data.avatar_url) || '');
+      // api.users.getProfile — обёртка apiCall (у api нет axios-методов get/post)
+      const profile = await api.users.getProfile(userPhone);
+      if (profile?.avatar_url) {
+        setProfilePhoto(getImageUrl(profile.avatar_url) || '');
       }
     } catch (error) {
       console.error('Error loading profile photo:', error);
@@ -128,18 +129,22 @@ export default function SettingsPage({
     const file = e.target.files?.[0];
     if (file && userPhone) {
       try {
+        // multipart-загрузка напрямую (apiCall сериализует JSON, поэтому fetch):
+        // Content-Type не указываем — браузер сам поставит boundary.
         const formData = new FormData();
         formData.append('avatar', file);
-
-        const response = await api.post(`/users/${userPhone}/avatar`, formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
+        const token = api.getAuthToken();
+        const response = await fetch(`${api.baseURL}/api/users/${userPhone}/avatar`, {
+          method: 'POST',
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          body: formData,
         });
-
-        if (response.data.success && response.data.avatar_url) {
-          setProfilePhoto(getImageUrl(response.data.avatar_url) || '');
+        const data = await response.json();
+        if (response.ok && data.avatar_url) {
+          setProfilePhoto(getImageUrl(data.avatar_url) || '');
           alert('Фото профиля обновлено!');
+        } else {
+          throw new Error(data.error || 'upload failed');
         }
       } catch (error) {
         console.error('Error uploading avatar:', error);

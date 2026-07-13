@@ -2,15 +2,17 @@ import { useState } from 'react';
 import { Key, ArrowLeft } from 'lucide-react';
 
 interface CompanyKeyVerificationProps {
-  onVerify: (key: string) => boolean;
+  // Проверка ключа идёт на сервере — обработчик асинхронный
+  onVerify: (key: string) => boolean | Promise<boolean>;
   onBack: () => void;
 }
 
 export default function CompanyKeyVerification({ onVerify, onBack }: CompanyKeyVerificationProps) {
   const [key, setKey] = useState('');
   const [error, setError] = useState('');
+  const [checking, setChecking] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -19,9 +21,16 @@ export default function CompanyKeyVerification({ onVerify, onBack }: CompanyKeyV
       return;
     }
 
-    const success = onVerify(key);
-    if (!success) {
-      setError('Неверный ключ доступа');
+    // Раньше Promise считался truthy-«успехом», и «Неверный ключ доступа»
+    // не показывался никогда — обязательно ждём реальный результат.
+    setChecking(true);
+    try {
+      const success = await onVerify(key);
+      if (!success) {
+        setError('Неверный ключ доступа');
+      }
+    } finally {
+      setChecking(false);
     }
   };
 
@@ -72,9 +81,10 @@ export default function CompanyKeyVerification({ onVerify, onBack }: CompanyKeyV
 
             <button
               type="submit"
-              className="w-full bg-amber-600 text-white py-3 rounded-lg hover:bg-amber-700 transition-colors"
+              disabled={checking}
+              className="w-full bg-amber-600 text-white py-3 rounded-lg hover:bg-amber-700 transition-colors disabled:opacity-50"
             >
-              Подтвердить
+              {checking ? 'Проверка...' : 'Подтвердить'}
             </button>
           </form>
         </div>

@@ -654,10 +654,11 @@ export default function AdminAnalyticsPanel() {
             </div>
           )}
           
-          {/* Period Selector */}
+          {/* Period Selector — только периоды, которые панель реально фильтрует */}
           <CompactPeriodSelector
             value={timePeriod}
             onChange={setTimePeriod}
+            options={['day', 'yesterday', 'week', 'month', 'year', 'all'] as const}
           />
         </div>
       </div>
