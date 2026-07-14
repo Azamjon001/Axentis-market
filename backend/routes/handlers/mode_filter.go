@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 )
@@ -55,4 +56,21 @@ func isPrivateRequest(c *gin.Context) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// mayAccessPrivateCompany сообщает, вправе ли вызывающий видеть данные закрытой
+// компании: это платформенный админ, сама компания или запрос из её закрытого
+// приложения (mode=private&privateCompanyId=<этот id>). Используется, чтобы
+// закрыть прямой доступ по ID к приватным товарам/компаниям, минуя листинги.
+func mayAccessPrivateCompany(c *gin.Context, companyID int64) bool {
+	if isAdmin(c) {
+		return true
+	}
+	if ctxRole(c) == "company" && ctxCompanyID(c) == companyID {
+		return true
+	}
+	if pcid, ok := isPrivateRequest(c); ok && pcid == strconv.FormatInt(companyID, 10) {
+		return true
+	}
+	return false
 }

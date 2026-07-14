@@ -451,6 +451,14 @@ func GetProductByID(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		// 🔐 Прямой доступ по ID к товару закрытой компании — только своим.
+		// Публичный/чужой клиент не должен видеть приватный товар даже по ссылке.
+		var compMode string
+		if db.QueryRow(`SELECT COALESCE(mode, 'public') FROM companies WHERE id = $1`, p.CompanyID).Scan(&compMode); compMode == "private" && !mayAccessPrivateCompany(c, p.CompanyID) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+			return
+		}
+
 		product := map[string]interface{}{
 			"id":        p.ID,
 			"article":   fmt.Sprintf("%09d", 100000000+p.ID), // 🔖 уникальный артикул

@@ -24,14 +24,27 @@ func GetCompanies(db *sql.DB) gin.HandlerFunc {
 		// storefronts use it to list shops — so leaking them here would hand
 		// out every seller's login to anyone.
 
-		// Для админ панели показываем все компании, для пользователей - только approved
+		// Для админ-панели показываем все компании; обычным клиентам — только
+		// одобренные и включённые магазины, с изоляцией режима. Раньше фильтра
+		// не было вовсе: публичный список магазинов отдавал ВСЕ компании —
+		// приватные (закрытые), а также pending/blocked/rejected — кому угодно.
+		where := ""
+		args := []interface{}{}
+		if !isAdmin(c) {
+			conds := []string{
+				"status = 'approved'",
+				"COALESCE(is_enabled, TRUE) = TRUE",
+				modeCondition(c, "companies", &args),
+			}
+			where = " WHERE " + strings.Join(conds, " AND ")
+		}
 		query := `
 			SELECT id, name, phone, password_hash, COALESCE(password_plain, ''), access_key, mode, private_code, status, logo_url, address, description, products_description, latitude, longitude, delivery_enabled, is_enabled, COALESCE(platform_commission_percent, 3), COALESCE(is_verified, FALSE)
-			FROM companies
+			FROM companies` + where + `
 			ORDER BY created_at DESC
 		`
 
-		rows, err := db.Query(query)
+		rows, err := db.Query(query, args...)
 
 		if err != nil {
 			log.Printf("❌ GetCompanies: Failed to query companies: %v", err)
@@ -231,6 +244,13 @@ func GetCompany(db *sql.DB) gin.HandlerFunc {
 			&company.PlatformCommission, &company.IsVerified)
 
 		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Company not found"})
+			return
+		}
+
+		// 🔐 Прямой доступ по ID к закрытой компании — только своим (админ,
+		// сама компания, её закрытое приложение). Для остальных её как бы нет.
+		if company.Mode == "private" && !mayAccessPrivateCompany(c, company.ID) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Company not found"})
 			return
 		}
