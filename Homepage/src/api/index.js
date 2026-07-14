@@ -10,9 +10,54 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+// 🔐 Контекст маркетплейса (публичный ↔ закрытый).
+// Закрытое (B2B) приложение — это то же приложение, вошедшее под пользователем
+// с mode='private' и закреплённой компанией. Чтобы КАЖДЫЙ листинг (каталог,
+// поиск, подсказки, категории, реклама, кампании, рекомендации, «ближайший
+// магазин») показывал строго товары этой компании и ничего чужого, режим
+// прокидывается централизованно во все GET-запросы — точно так же, как
+// бэкенд фильтрует эти же эндпоинты. Публичные клиенты параметры не шлют и
+// видят только публичные компании.
+let __marketplaceContext = null; // { mode:'private', privateCompanyId } | null
+let __contextHydrated = false;
+
+export const setApiMarketplaceContext = (user) => {
+  __contextHydrated = true;
+  if (user?.mode === 'private' && user?.privateCompanyId) {
+    __marketplaceContext = { mode: 'private', privateCompanyId: user.privateCompanyId };
+  } else {
+    __marketplaceContext = null;
+  }
+};
+
+// Ленивая гидратация из хранилища на холодный старт — на случай, если запрос
+// уйдёт раньше, чем AuthContext успеет вызвать setApiMarketplaceContext.
+const hydrateContextFromStorage = async () => {
+  if (__contextHydrated) return;
+  try {
+    const raw = await AsyncStorage.getItem('currentUser');
+    if (raw) setApiMarketplaceContext(JSON.parse(raw));
+    else __contextHydrated = true;
+  } catch {
+    __contextHydrated = true;
+  }
+};
+
 api.interceptors.request.use(async (config) => {
   const token = await AsyncStorage.getItem('userToken');
   if (token) config.headers.Authorization = `Bearer ${token}`;
+
+  const method = (config.method || 'get').toLowerCase();
+  if (method === 'get') {
+    await hydrateContextFromStorage();
+    if (__marketplaceContext) {
+      config.params = { ...(config.params || {}) };
+      if (config.params.mode == null) config.params.mode = __marketplaceContext.mode;
+      if (config.params.privateCompanyId == null) {
+        config.params.privateCompanyId = __marketplaceContext.privateCompanyId;
+      }
+    }
+  }
   return config;
 });
 

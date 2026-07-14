@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { loginUser, registerUser, getUserProfile } from '../api';
+import { loginUser, registerUser, getUserProfile, setApiMarketplaceContext } from '../api';
 
 const AuthContext = createContext({});
 
@@ -11,6 +11,13 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     restoreSession();
   }, []);
+
+  // 🔐 Держим контекст маркетплейса в API-слое в актуальном состоянии: при входе
+  // в закрытую компанию все запросы автоматически изолируются на её товары, при
+  // выходе — возвращаются в публичный режим.
+  useEffect(() => {
+    setApiMarketplaceContext(user);
+  }, [user]);
 
   const restoreSession = async () => {
     try {

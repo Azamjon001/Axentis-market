@@ -1064,7 +1064,12 @@ func GetNearestCompany(db *sql.DB) gin.HandlerFunc {
 		`
 
 		args := []interface{}{lat, lng}
-		argCounter := 3
+
+		// 🔐 Изоляция режимов: закрытые компании не должны находиться как
+		// «ближайший магазин» в публичных клиентах, а закрытому приложению —
+		// только его компания.
+		query += " AND " + modeCondition(c, "companies", &args)
+		argCounter := len(args) + 1
 
 		// Фильтр по району (если указан)
 		if district != "" {

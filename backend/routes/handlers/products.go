@@ -1026,24 +1026,31 @@ func GetSimilarProducts(db *sql.DB) gin.HandlerFunc {
 
 		whereClause := strings.Join(conditions, " OR ")
 
+		// 🔐 Изоляция режимов: похожие товары — только из компаний того же режима
+		// (публичные для публичных клиентов, закрытая — только своя).
+		modeCond := modeCondition(c, "c", &args)
+		catPlaceholder := len(args) + 1
+		limitPlaceholder := len(args) + 2
+
 		query := fmt.Sprintf(`
-			SELECT 
+			SELECT
 				p.id, p.company_id, p.name, p.quantity, p.price, p.markup_percent,
 				p.selling_price, p.markup_amount, p.barcode, p.barid, p.category, p.images,
-				p.description, p.color, p.size, p.brand, p.has_color_options, p.available_for_customers, p.sold_count, 
+				p.description, p.color, p.size, p.brand, p.has_color_options, p.available_for_customers, p.sold_count,
 				p.created_at, p.updated_at,
 				c.name as company_name
 			FROM products p
 			LEFT JOIN companies c ON p.company_id = c.id
-			WHERE p.id != $1 
+			WHERE p.id != $1
 			  AND p.available_for_customers = true
+			  AND %s
 			  AND (%s)
-			ORDER BY 
+			ORDER BY
 				CASE WHEN p.category = $%d THEN 1 ELSE 2 END,
 				p.sold_count DESC,
 				p.created_at DESC
 			LIMIT $%d
-		`, whereClause, argIndex, argIndex+1)
+		`, modeCond, whereClause, catPlaceholder, limitPlaceholder)
 
 		// Добавляем категорию и лимит в аргументы
 		categoryValue := ""

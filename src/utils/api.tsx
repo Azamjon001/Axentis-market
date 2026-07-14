@@ -56,6 +56,27 @@ interface ApiOptions extends RequestInit {
   requiresAuth?: boolean;
 }
 
+// 🔐 Контекст маркетплейса (публичный ↔ закрытый) — единый механизм с
+// приложением и бэкендом. Закрытая витрина/компания видит только товары своей
+// компании, публичные клиенты — только публичные. Читаем сохранённую сессию:
+// у покупателя приватной компании это privateCompanyId, у самой компании —
+// companyId; режим включается только при mode='private'.
+function getMarketplaceContext(): { mode: string; privateCompanyId: string } | null {
+  try {
+    const raw = localStorage.getItem('userSession');
+    if (!raw) return null;
+    const session = JSON.parse(raw);
+    const u = session?.userData || session;
+    const companyId = u?.privateCompanyId ?? u?.companyId;
+    if (u?.mode === 'private' && companyId) {
+      return { mode: 'private', privateCompanyId: String(companyId) };
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 async function apiCall(
   endpoint: string,
   options: ApiOptions = {}
@@ -81,7 +102,23 @@ async function apiCall(
   }
 
   try {
-    const url = `${API_BASE}${endpoint}`;
+    let url = `${API_BASE}${endpoint}`;
+    // 🔐 Прокидываем режим маркетплейса во все GET-листинги (каталог, поиск,
+    // категории, реклама, кампании, рекомендации и т.п.), не перетирая уже
+    // заданные параметры. Бэкенд применяет фильтр только к публичным лентам —
+    // панель компании/админа (по companyId) остаётся нетронутой.
+    const method = (fetchOptions.method || 'GET').toUpperCase();
+    if (method === 'GET') {
+      const ctx = getMarketplaceContext();
+      if (ctx) {
+        const extra: string[] = [];
+        if (!/[?&]mode=/.test(endpoint)) extra.push(`mode=${encodeURIComponent(ctx.mode)}`);
+        if (!/[?&]privateCompanyId=/.test(endpoint)) {
+          extra.push(`privateCompanyId=${encodeURIComponent(ctx.privateCompanyId)}`);
+        }
+        if (extra.length) url += (url.includes('?') ? '&' : '?') + extra.join('&');
+      }
+    }
     console.log(`🌐 [API] ${fetchOptions.method || 'GET'} ${url}`);
     
     const response = await fetch(url, {
