@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { motion } from 'motion/react';
 import { Receipt, Save, X, TrendingDown, Plus, Trash2, Calendar, Clock, DollarSign, Edit2, Percent, AlertCircle, ChevronRight } from 'lucide-react';
 import { getCurrentLanguage, useTranslation, type Language } from '../utils/translations';
 import { getAuthToken } from '../utils/api';
@@ -316,22 +317,30 @@ export default function ExpensesManager({ companyId, onCustomExpensesUpdate }: E
     const typeLabel = TYPE_LABELS[type];
     const isEditing = editingId === expense.id;
 
-    return (
-      <div key={expense.id} className={`group bg-gradient-to-br ${colors.lightBg} ${colors.darkBg} border-2 ${colors.border} ${colors.darkBorder} rounded-2xl p-5 shadow-lg hover:shadow-xl transition-all duration-300 relative`}>
-        {/* Action buttons */}
-        <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          {!isEditing && (
-            <>
-              <button onClick={() => handleStartEdit(expense)} className="p-2 bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-200 transition-colors">
-                <Edit2 className="w-4 h-4" />
-              </button>
-              <button onClick={() => handleDelete(expense.id)} className="p-2 bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-200 transition-colors">
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </>
-          )}
-        </div>
+    // Компактный акцент по типу расхода — без громоздких градиентных карточек
+    const accent = type === 'percentage' ? '#A78BFA' : type === 'one_time' ? '#FB923C' : '#38BDF8';
+    const RowIcon = type === 'percentage' ? Percent : type === 'one_time' ? AlertCircle : Receipt;
+    const mainValue = type === 'percentage'
+      ? `${expense.percentage_value || 0}%`
+      : type === 'one_time'
+        ? formatPrice(expense.amount || 0)
+        : `${formatPrice(expense.monthly_amount || 0)}`;
+    const secondary = type === 'percentage'
+      ? (language === 'uz' ? 'davr daromadidan' : 'от выручки периода')
+      : type === 'one_time'
+        ? (expense.expense_date ? new Date(expense.expense_date).toLocaleDateString(language === 'uz' ? 'uz-UZ' : 'ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }) : '—')
+        : `${language === 'uz' ? 'kuniga' : 'в день'} ${formatPrice(getDailyRate(expense.monthly_amount || 0))}`;
 
+    return (
+      <motion.div
+        key={expense.id}
+        layout
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ type: 'spring', stiffness: 320, damping: 28 }}
+        className="relative rounded-xl"
+        style={{ background: 'var(--ax-card)', border: '1px solid var(--ax-border)', padding: isEditing ? 14 : '10px 12px' }}
+      >
         {isEditing ? (
           <div className="space-y-3">
             <input
@@ -360,113 +369,37 @@ export default function ExpensesManager({ companyId, onCustomExpensesUpdate }: E
             </div>
           </div>
         ) : (
-          <>
-            {/* Header: icon + name + type badge */}
-            <div className="flex items-start gap-3 mb-4 pr-16">
-              <div className={`bg-gradient-to-br ${colors.gradient} p-3 rounded-xl shadow-md shrink-0`}>
-                {type === 'percentage' ? <Percent className="w-6 h-6 text-white" /> :
-                 type === 'one_time'   ? <AlertCircle className="w-6 h-6 text-white" /> :
-                                         <Receipt className="w-6 h-6 text-white" />}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className={`text-lg font-semibold ${colors.text} ${colors.darkText} truncate`} title={expense.expense_name}>
+          <div className="flex items-center gap-3">
+            <span style={{ width: 34, height: 34, borderRadius: 10, background: `${accent}1F`, color: accent, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <RowIcon className="w-4 h-4" />
+            </span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="truncate font-semibold" style={{ color: 'var(--ax-text)', fontSize: 14 }} title={expense.expense_name}>
                   {expense.expense_name}
-                </div>
-                <span className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full mt-1 ${typeLabel.color}`}>
+                </span>
+                <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 8, background: `${accent}1A`, color: accent, flexShrink: 0 }}>
                   {language === 'uz' ? typeLabel.uz : typeLabel.ru}
                 </span>
               </div>
-            </div>
-
-            {/* Amount display per type */}
-            {type === 'monthly' && (
-              <>
-                <div className="mb-3">
-                  <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    <DollarSign className="w-3 h-3" />
-                    {language === 'uz' ? 'Oylik summa' : 'Сумма в месяц'}
-                  </div>
-                  <div className={`text-2xl font-bold ${colors.text} ${colors.darkText}`}>
-                    {formatPrice(expense.monthly_amount || 0)}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 mb-2 bg-white/60 dark:bg-gray-800/40 rounded-lg px-3 py-2">
-                  <Clock className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-                  <span className="text-sm text-gray-600 dark:text-gray-400">{language === 'uz' ? 'Kuniga' : 'В день'}:</span>
-                  <span className="text-sm font-bold text-gray-800 dark:text-gray-200">
-                    {formatPrice(getDailyRate(expense.monthly_amount || 0))}
-                  </span>
-                </div>
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg px-3 py-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-red-600 dark:text-red-400 font-medium">
-                      {language === 'uz' ? `${currentDay} kunga yig'ildi` : `Накоплено за ${currentDay} дней`}
-                    </span>
-                    <span className="text-lg font-bold text-red-700 dark:text-red-300">
-                      {formatPrice(getAccumulatedThisMonth(expense.monthly_amount || 0))}
-                    </span>
-                  </div>
-                  <div className="w-full bg-red-100 dark:bg-red-900/40 rounded-full h-1.5 mt-1.5">
-                    <div className="bg-red-500 h-1.5 rounded-full" style={{ width: `${progressPercent}%` }} />
-                  </div>
-                </div>
-              </>
-            )}
-
-            {type === 'percentage' && (
-              <>
-                <div className="mb-3">
-                  <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    <Percent className="w-3 h-3" />
-                    {language === 'uz' ? 'Foiz stavkasi' : 'Процентная ставка'}
-                  </div>
-                  <div className={`text-3xl font-bold ${colors.text} ${colors.darkText}`}>
-                    {expense.percentage_value || 0}%
-                  </div>
-                </div>
-                <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-700 rounded-lg px-3 py-2 text-xs text-purple-700 dark:text-purple-300">
-                  {language === 'uz'
-                    ? 'Tanlangan davr daromadidan hisoblanadi'
-                    : 'Рассчитывается от выручки выбранного периода'}
-                </div>
-              </>
-            )}
-
-            {type === 'one_time' && (
-              <>
-                <div className="mb-3">
-                  <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 mb-1">
-                    <DollarSign className="w-3 h-3" />
-                    {language === 'uz' ? 'Summa' : 'Сумма'}
-                  </div>
-                  <div className={`text-2xl font-bold ${colors.text} ${colors.darkText}`}>
-                    {formatPrice(expense.amount || 0)}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-700 rounded-lg px-3 py-2">
-                  <Calendar className="w-4 h-4 text-orange-600 dark:text-orange-400 shrink-0" />
-                  <div>
-                    <div className="text-xs text-orange-600 dark:text-orange-400 font-medium">
-                      {language === 'uz' ? 'Sana' : 'Дата расхода'}
-                    </div>
-                    <div className="text-sm font-bold text-orange-800 dark:text-orange-200">
-                      {expense.expense_date
-                        ? new Date(expense.expense_date).toLocaleDateString(language === 'uz' ? 'uz-UZ' : 'ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
-                        : '—'}
-                    </div>
-                  </div>
-                </div>
-              </>
-            )}
-
-            {expense.description && (
-              <div className={`text-sm ${colors.textLight} ${colors.darkTextLight} mt-3 truncate`} title={expense.description}>
-                {expense.description}
+              <div className="truncate" style={{ fontSize: 11, color: 'var(--ax-text-3)', marginTop: 2 }}>
+                {secondary}{expense.description ? ` · ${expense.description}` : ''}
               </div>
-            )}
-          </>
+            </div>
+            <div className="text-right shrink-0">
+              <div style={{ fontSize: 15, fontWeight: 800, color: 'var(--ax-text)', whiteSpace: 'nowrap' }}>{mainValue}</div>
+            </div>
+            <div className="flex gap-1 shrink-0">
+              <button onClick={() => handleStartEdit(expense)} className="p-1.5 rounded-lg transition-colors" style={{ background: 'rgba(56,189,248,0.12)', color: '#38BDF8' }} title={t.save}>
+                <Edit2 className="w-3.5 h-3.5" />
+              </button>
+              <button onClick={() => handleDelete(expense.id)} className="p-1.5 rounded-lg transition-colors" style={{ background: 'rgba(248,113,113,0.12)', color: '#F87171' }} title={t.cancel}>
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
         )}
-      </div>
+      </motion.div>
     );
   };
 
@@ -594,7 +527,7 @@ export default function ExpensesManager({ companyId, onCustomExpensesUpdate }: E
                 <Clock className="w-4 h-4" />
                 {language === 'uz' ? 'Oylik xarajatlar' : 'Ежемесячные расходы'}
               </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="flex flex-col gap-2">
                 {monthlyExpenses.map((e, i) => renderCard(e, i))}
               </div>
             </div>
@@ -607,7 +540,7 @@ export default function ExpensesManager({ companyId, onCustomExpensesUpdate }: E
                 <Percent className="w-4 h-4" />
                 {language === 'uz' ? 'Foizli xarajatlar' : 'Процентные расходы'}
               </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="flex flex-col gap-2">
                 {percentageExpenses.map((e, i) => renderCard(e, monthlyExpenses.length + i))}
               </div>
             </div>
