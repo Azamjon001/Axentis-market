@@ -25,6 +25,10 @@ func GetFrequentlyBoughtWith(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		// 🔐 Изоляция режимов: сопутствующие товары берём только из компаний того
+		// же режима (публичные — для публичных клиентов, закрытая — для своей).
+		args := []interface{}{productID}
+		modeCond := modeCondition(c, "c", &args)
 		rows, err := db.Query(`
 			WITH orders_with_product AS (
 				SELECT id FROM orders
@@ -64,10 +68,11 @@ func GetFrequentlyBoughtWith(db *sql.DB) gin.HandlerFunc {
 			JOIN   products p ON p.id = oi.pid::bigint
 			LEFT JOIN companies c ON c.id = p.company_id
 			WHERE  p.available_for_customers = TRUE
+			  AND  `+modeCond+`
 			GROUP BY p.id, p.name, p.selling_price, p.price, p.images, p.sold_count, c.name
 			ORDER BY co_count DESC, sold_count DESC
 			LIMIT 8
-		`, productID, productID)
+		`, args...)
 		if err != nil {
 			log.Printf("❌ FrequentlyBoughtWith: %v", err)
 			c.JSON(http.StatusOK, []interface{}{})
@@ -297,22 +302,28 @@ func GetPersonalizedFeed(db *sql.DB) gin.HandlerFunc {
 		limit := 40
 
 		if phone == "" {
-			// Гость — просто популярные
+			// Гость — просто популярные (с изоляцией режима).
+			argsG := []interface{}{}
+			modeCondG := modeCondition(c, "c", &argsG)
+			argsG = append(argsG, limit)
 			rows, _ := db.Query(`
 				SELECT p.id, p.name,
 				       COALESCE(NULLIF((SELECT MIN(pv.selling_price) FROM product_variants pv WHERE pv.product_id = p.id AND pv.selling_price > 0),0), NULLIF(p.selling_price,0), p.price) AS price,
 				       p.images, COALESCE(p.sold_count,0), p.category, COALESCE(c.name,'') AS company_name
 				FROM products p
 				LEFT JOIN companies c ON c.id = p.company_id
-				WHERE p.available_for_customers = TRUE AND (c.mode = 'public' OR c.mode IS NULL)
+				WHERE p.available_for_customers = TRUE AND `+modeCondG+`
 				ORDER BY sold_count DESC, p.created_at DESC
-				LIMIT $1
-			`, limit)
+				LIMIT $`+strconv.Itoa(len(argsG))+`
+			`, argsG...)
 			c.JSON(http.StatusOK, scanProductRows(rows))
 			return
 		}
 
 		// Извлекаем категории и бренды из истории заказов
+		args := []interface{}{phone}
+		modeCond := modeCondition(c, "c", &args)
+		args = append(args, limit)
 		rows, err := db.Query(`
 			WITH user_history AS (
 				SELECT elem->>'productId' AS pid
@@ -337,13 +348,13 @@ func GetPersonalizedFeed(db *sql.DB) gin.HandlerFunc {
 			FROM products p
 			LEFT JOIN companies c ON c.id = p.company_id
 			WHERE p.available_for_customers = TRUE
-			  AND (c.mode = 'public' OR c.mode IS NULL)
+			  AND `+modeCond+`
 			  AND p.id NOT IN (
 			      SELECT DISTINCT h.pid::bigint FROM user_history h WHERE h.pid ~ '^[0-9]+$'
 			  )
 			ORDER BY relevance DESC, p.sold_count DESC, p.created_at DESC
-			LIMIT $2
-		`, phone, limit)
+			LIMIT $`+strconv.Itoa(len(args))+`
+		`, args...)
 		if err != nil {
 			log.Printf("❌ PersonalizedFeed: %v", err)
 			c.JSON(http.StatusOK, []interface{}{})

@@ -105,10 +105,10 @@ export default function SettingsPage({
   const loadProfilePhoto = async () => {
     if (!userPhone) return;
     try {
-      // api.users.getProfile — обёртка apiCall (у api нет axios-методов get/post)
-      const profile = await api.users.getProfile(userPhone);
-      if (profile?.avatar_url) {
-        setProfilePhoto(getImageUrl(profile.avatar_url) || '');
+      const profile: any = await api.users.getProfile(userPhone);
+      const url = profile?.avatarUrl || profile?.avatar_url;
+      if (url) {
+        setProfilePhoto(getImageUrl(url) || '');
       }
     } catch (error) {
       console.error('Error loading profile photo:', error);
@@ -129,26 +129,16 @@ export default function SettingsPage({
     const file = e.target.files?.[0];
     if (file && userPhone) {
       try {
-        // multipart-загрузка напрямую (apiCall сериализует JSON, поэтому fetch):
-        // Content-Type не указываем — браузер сам поставит boundary.
-        const formData = new FormData();
-        formData.append('avatar', file);
-        const token = api.getAuthToken();
-        const response = await fetch(`${api.baseURL}/api/users/${userPhone}/avatar`, {
-          method: 'POST',
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-          body: formData,
-        });
-        const data = await response.json();
-        if (response.ok && data.avatar_url) {
-          setProfilePhoto(getImageUrl(data.avatar_url) || '');
+        const response: any = await api.users.uploadAvatar(userPhone, file);
+        if (response?.success && response?.avatar_url) {
+          setProfilePhoto(getImageUrl(response.avatar_url) || '');
           alert('Фото профиля обновлено!');
         } else {
           throw new Error(data.error || 'upload failed');
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error uploading avatar:', error);
-        alert('Ошибка при загрузке фото');
+        alert('Ошибка при загрузке фото: ' + (error?.message || 'попробуйте снова'));
       }
     }
   };

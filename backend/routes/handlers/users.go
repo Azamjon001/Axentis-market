@@ -396,19 +396,15 @@ func GetUserDefaultDeliveryAddress(db *sql.DB) gin.HandlerFunc {
 	}
 }
 
-// PurgeUsers — POST /users/purge {scope: "users"|"all"} (только админ).
-// «Опасная зона» админ-панели: удаление всех зарегистрированных покупателей.
-//   scope=users — только аккаунты покупателей;
-//   scope=all   — аккаунты + их пользовательские данные (корзины, избранное,
-//                 уведомления, адреса). Заказы и продажи НЕ трогаем — это
-//                 финансовая история компаний.
-func PurgeUsers(db *sql.DB) gin.HandlerFunc {
+// DeleteAllUsers — DELETE /users?scope=users|all (только админ).
+// «Опасная зона» админ-панели. scope=users удаляет аккаунты покупателей
+// (заказы и продажи компаний сохраняются для отчётности); scope=all
+// дополнительно очищает все связанные с покупателями данные.
+func DeleteAllUsers(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var req struct {
-			Scope string `json:"scope"`
-		}
-		if err := c.ShouldBindJSON(&req); err != nil || (req.Scope != "users" && req.Scope != "all") {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "scope must be users or all"})
+		scope := c.DefaultQuery("scope", "users")
+		if scope != "users" && scope != "all" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "scope must be users|all"})
 			return
 		}
 
@@ -419,38 +415,35 @@ func PurgeUsers(db *sql.DB) gin.HandlerFunc {
 		}
 		defer tx.Rollback()
 
-		deleted := map[string]int64{}
-		exec := func(table, query string) {
-			res, execErr := tx.Exec(query)
-			if execErr != nil {
-				log.Printf("⚠️ PurgeUsers %s: %v", table, execErr)
-				return
+		// Личные данные покупателей — чистятся в обоих режимах, чтобы не было
+		// осиротевших строк по несуществующим телефонам.
+		personal := []string{
+			"cart_items", "user_favorites", "notifications", "payment_cards",
+			"user_delivery_addresses", "loyalty_transactions", "loyalty_accounts",
+			"company_subscribers", "stock_notifications", "review_votes",
+		}
+		// Публичный контент и история активности — только при полной очистке.
+		if scope == "all" {
+			personal = append(personal, "reviews", "product_questions", "company_ratings", "product_views", "promo_code_uses", "complaints")
+		}
+		for _, table := range personal {
+			if _, err := tx.Exec("DELETE FROM " + table); err != nil {
+				log.Printf("⚠️ DeleteAllUsers: %s: %v", table, err)
 			}
-			n, _ := res.RowsAffected()
-			deleted[table] = n
 		}
 
-		if req.Scope == "all" {
-			exec("cart_items", `DELETE FROM cart_items`)
-			exec("user_favorites", `DELETE FROM user_favorites`)
-			exec("notifications", `DELETE FROM notifications`)
-			exec("user_delivery_addresses", `DELETE FROM user_delivery_addresses`)
-			exec("subscriptions", `DELETE FROM subscriptions`)
-		}
 		res, err := tx.Exec(`DELETE FROM users`)
 		if err != nil {
-			log.Printf("❌ PurgeUsers users: %v", err)
+			log.Printf("❌ DeleteAllUsers: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete users"})
 			return
 		}
-		n, _ := res.RowsAffected()
-		deleted["users"] = n
-
 		if err := tx.Commit(); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to commit"})
 			return
 		}
-		log.Printf("🗑️ PurgeUsers (scope=%s): %v", req.Scope, deleted)
-		c.JSON(http.StatusOK, gin.H{"success": true, "deleted": deleted})
+		n, _ := res.RowsAffected()
+		log.Printf("🗑️ Admin deleted all users (scope=%s, %d accounts)", scope, n)
+		c.JSON(http.StatusOK, gin.H{"success": true, "deleted": n, "scope": scope})
 	}
 }

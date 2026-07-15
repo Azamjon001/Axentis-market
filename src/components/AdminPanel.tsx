@@ -1,5 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, LogOut, Users, Trash2, Building2, Save, RefreshCw, Eye, EyeOff, CreditCard, Megaphone, Menu, X, Copy, Check, Package, Bell, BarChart3, Tag, Ticket, Truck, MessageSquare, Globe, Film, Flag } from 'lucide-react';
+import {
+  Shield, LogOut, Users, Trash2, Building2, Save, RefreshCw, Eye, EyeOff,
+  CreditCard, Megaphone, Menu, X, Copy, Check, Package, Bell, BarChart3,
+  Tag, Ticket, Truck, MessageSquare, Globe, Film, Flag, LayoutDashboard,
+  ScrollText, Landmark, KeyRound, Phone, Lock, AlertTriangle,
+} from 'lucide-react';
 import api from '../utils/api';
 // ⚡ Каждый раздел админки — ленивый чанк: панель открывается быстро, код
 // раздела подгружается по клику на пункт меню.
@@ -39,18 +44,114 @@ interface AdminPanelProps {
   onLogout: () => void;
 }
 
+type AdminTab =
+  | 'overview' | 'analytics' | 'companies' | 'payment' | 'history' | 'ads'
+  | 'categories' | 'notifications' | 'companyMessages' | 'discounts'
+  | 'referrals' | 'promo' | 'dashboard' | 'complaints' | 'couriers' | 'chat'
+  | 'regions' | 'decorationVideos' | 'security' | 'policies' | 'payouts';
+
+// 🧭 Навигация как данные: группы разделов с уникальными иконками.
+// Одна точка правды для сайдбара и заголовка страницы.
+interface NavItem {
+  tab: AdminTab;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  labelUz?: string;
+}
+interface NavGroup {
+  title: string;
+  titleUz?: string;
+  items: NavItem[];
+}
+
+const NAV_GROUPS: NavGroup[] = [
+  {
+    title: 'Платформа',
+    titleUz: 'Platforma',
+    items: [
+      { tab: 'overview', icon: LayoutDashboard, label: 'Обзор', labelUz: 'Umumiy' },
+      { tab: 'dashboard', icon: BarChart3, label: 'Дашборд платформы', labelUz: 'Platforma' },
+      { tab: 'analytics', icon: BarChart3, label: 'Аналитика', labelUz: 'Analitika' },
+      { tab: 'companies', icon: Building2, label: 'Компании', labelUz: 'Kompaniyalar' },
+      { tab: 'couriers', icon: Truck, label: 'Курьеры', labelUz: 'Kuryerlar' },
+      { tab: 'referrals', icon: Ticket, label: 'Реферальные агенты', labelUz: 'Referal agentlar' },
+    ],
+  },
+  {
+    title: 'Финансы',
+    titleUz: 'Moliya',
+    items: [
+      { tab: 'payment', icon: CreditCard, label: 'Оплата', labelUz: 'Toʻlov' },
+      { tab: 'payouts', icon: Landmark, label: 'Выплаты компаниям', labelUz: 'Pul yechish' },
+      { tab: 'discounts', icon: Tag, label: 'Модерация скидок', labelUz: 'Chegirmalar' },
+      { tab: 'promo', icon: Ticket, label: 'Промокоды', labelUz: 'Promokodlar' },
+    ],
+  },
+  {
+    title: 'Контент',
+    titleUz: 'Kontent',
+    items: [
+      { tab: 'categories', icon: Package, label: 'Категории', labelUz: 'Kategoriyalar' },
+      { tab: 'ads', icon: Megaphone, label: 'Реклама', labelUz: 'Reklama' },
+      { tab: 'decorationVideos', icon: Film, label: 'Видео-декорации', labelUz: 'Video-bezaklar' },
+      { tab: 'regions', icon: Globe, label: 'Регионы', labelUz: 'Regionlar' },
+    ],
+  },
+  {
+    title: 'Коммуникации',
+    titleUz: 'Aloqa',
+    items: [
+      { tab: 'notifications', icon: Bell, label: 'Уведомления', labelUz: 'Bildirishnomalar' },
+      { tab: 'companyMessages', icon: MessageSquare, label: 'Сообщения компаниям', labelUz: 'Xabarlar' },
+      { tab: 'chat', icon: Users, label: 'Общий чат', labelUz: 'Umumiy chat' },
+      { tab: 'complaints', icon: Flag, label: 'Жалобы', labelUz: 'Shikoyatlar' },
+    ],
+  },
+  {
+    title: 'Система',
+    titleUz: 'Tizim',
+    items: [
+      { tab: 'security', icon: Shield, label: 'Безопасность', labelUz: 'Xavfsizlik' },
+      { tab: 'policies', icon: ScrollText, label: 'Политика конфиденциальности', labelUz: 'Maxfiylik siyosati' },
+    ],
+  },
+];
+
+// Заголовки страниц (включая разделы вне меню, например history)
+const TAB_TITLES: Record<AdminTab, { ru: string; uz: string }> = {
+  overview: { ru: 'Обзор', uz: 'Umumiy koʻrinish' },
+  dashboard: { ru: 'Дашборд платформы', uz: 'Platforma' },
+  analytics: { ru: 'Аналитика платформы', uz: 'Platforma analitikasi' },
+  companies: { ru: 'Компании', uz: 'Kompaniyalar' },
+  couriers: { ru: 'Курьеры', uz: 'Kuryerlar' },
+  referrals: { ru: 'Реферальные агенты', uz: 'Referal agentlar' },
+  payment: { ru: 'Настройки оплаты', uz: 'Toʻlov sozlamalari' },
+  history: { ru: 'История платежей', uz: 'Toʻlovlar tarixi' },
+  payouts: { ru: 'Выплаты компаниям', uz: 'Pul yechish' },
+  discounts: { ru: 'Модерация скидок', uz: 'Chegirmalar moderatsiyasi' },
+  promo: { ru: 'Промокоды', uz: 'Promokodlar' },
+  categories: { ru: 'Категории товаров', uz: 'Mahsulot kategoriyalari' },
+  ads: { ru: 'Управление рекламой', uz: 'Reklama boshqaruvi' },
+  decorationVideos: { ru: 'Видео-декорации', uz: 'Video-bezaklar' },
+  regions: { ru: 'Регионы доставки', uz: 'Yetkazib berish regionlari' },
+  notifications: { ru: 'Уведомления', uz: 'Bildirishnomalar' },
+  companyMessages: { ru: 'Сообщения компаниям', uz: 'Kompaniyalarga xabarlar' },
+  chat: { ru: 'Общий чат', uz: 'Umumiy chat' },
+  complaints: { ru: 'Жалобы', uz: 'Shikoyatlar' },
+  security: { ru: 'Безопасность', uz: 'Xavfsizlik' },
+  policies: { ru: 'Политика конфиденциальности', uz: 'Maxfiylik siyosati' },
+};
+
 export default function AdminPanel({ onLogout }: AdminPanelProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'analytics' | 'companies' | 'payment' | 'history' | 'ads' | 'categories' | 'notifications' | 'companyMessages' | 'discounts' | 'referrals' | 'promo' | 'dashboard' | 'complaints' | 'couriers' | 'chat' | 'regions' | 'decorationVideos' | 'security' | 'policies' | 'payouts'>('overview');
+  const [activeTab, setActiveTab] = useState<AdminTab>('overview');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false); // 📱 Для мобильной версии
-  
-  // 🌍 Система локализации для админа (заблокирована на русском)
-  const [language, setLanguage] = useState<Language>(getCurrentLanguage());
-  const t = useTranslation(language);
-  
-  const [stats, setStats] = useState({
-    users: 0
-  });
-  const [loading, setLoading] = useState(true);
+
+  // 🌍 Система локализации для админа
+  const [language] = useState<Language>(getCurrentLanguage());
+  useTranslation(language);
+
+  const [stats, setStats] = useState({ users: 0 });
+  const [, setLoading] = useState(true);
   const [companyData, setCompanyData] = useState({
     name: '',
     phone: '',
@@ -63,31 +164,36 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
     password: '',
     access_key: ''
   });
+  // 🔑 Текущий 30-значный ключ главной компании — всегда виден админу.
+  const [currentAccessKey, setCurrentAccessKey] = useState('');
   const [saving, setSaving] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [showAccessKey, setShowAccessKey] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  // 🌑 Админ-панель всегда в тёмной теме — принудительно включаем dark на время
+  // жизни компонента и восстанавливаем прежнее состояние при выходе.
+  useEffect(() => {
+    const root = document.documentElement;
+    const hadDark = root.classList.contains('dark');
+    root.classList.add('dark');
+    return () => {
+      if (!hadDark) root.classList.remove('dark');
+    };
+  }, []);
 
   useEffect(() => {
     loadData();
-    
+
     // 🔄 Auto-refresh every 10 seconds
-    console.log('🔄 [Admin] Setting up auto-refresh every 10 seconds');
     const intervalId = setInterval(() => {
-      console.log('🔄 [Admin] Auto-refreshing data...');
       loadData();
-    }, 10000); // 10 seconds
-    
-    // Cleanup on unmount
-    return () => {
-      console.log('🛑 [Admin] Stopping auto-refresh');
-      clearInterval(intervalId);
-    };
+    }, 10000);
+
+    return () => clearInterval(intervalId);
   }, []);
 
   // 🔄 HISTORY API HANDLER
   useEffect(() => {
-    // Initial state setup - preserve page: 'admin' context
     const currentState = window.history.state || {};
     window.history.replaceState({ ...currentState, tab: 'overview', page: 'admin' }, '', '#overview');
 
@@ -95,7 +201,6 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
       if (event.state && event.state.tab) {
         setActiveTab(event.state.tab);
       } else {
-        // Fallback to default
         setActiveTab('overview');
       }
     };
@@ -104,13 +209,10 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // Custom Navigation Handler
-  const handleNavigate = (tab: typeof activeTab) => {
-    // ИСПРАВЛЕНИЕ: Убрал проверку чтобы не требовался двойной клик
-    // Include page: 'admin' so App.tsx knows where we are
+  const handleNavigate = (tab: AdminTab) => {
     window.history.pushState({ tab: tab, page: 'admin' }, '', `#${tab}`);
     setActiveTab(tab);
-    setIsSidebarOpen(false); // Закрываем sidebar на мобильных
+    setIsSidebarOpen(false);
     window.scrollTo(0, 0);
   };
 
@@ -119,7 +221,6 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
       await Promise.all([loadStats(), loadCompanyData()]);
     } catch (error) {
       console.error('Error loading admin data:', error);
-      alert('Ошибка загрузки данных админа');
     } finally {
       setLoading(false);
     }
@@ -127,11 +228,8 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
 
   const loadStats = async () => {
     try {
-      // ✅ Используем API client вместо прямого fetch
       const data = await api.users.count();
-      setStats({
-        users: data.count || 0
-      });
+      setStats({ users: data.count || 0 });
     } catch (error) {
       console.error('Error loading stats:', error);
       setStats({ users: 0 });
@@ -140,9 +238,7 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
 
   const handleCopyToClipboard = async (text: string, fieldName: string) => {
     try {
-      // 📍 Проверяем наличие Clipboard API
       if (!navigator.clipboard) {
-        // Fallback для старых браузеров
         const textArea = document.createElement('textarea');
         textArea.value = text;
         textArea.style.position = 'fixed';
@@ -151,35 +247,26 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
         textArea.select();
         const successful = document.execCommand('copy');
         document.body.removeChild(textArea);
-        
-        if (!successful) {
-          throw new Error('execCommand failed');
-        }
+        if (!successful) throw new Error('execCommand failed');
       } else {
         await navigator.clipboard.writeText(text);
       }
-      
       setCopiedField(fieldName);
       setTimeout(() => setCopiedField(null), 2000);
-      console.log(`✅ Скопировано: ${text}`);
     } catch (err) {
       console.error('Ошибка копирования:', err);
-      // Показываем более информативное сообщение
-      alert(`Не удалось скопировать. \n\nКлюч доступа: ${text}\n\nСкопируйте вручную.`);
+      alert(`Не удалось скопировать.\n\n${text}\n\nСкопируйте вручную.`);
     }
   };
 
   const loadCompanyData = async () => {
     try {
-      console.log('🏢 Loading company data...');
-      // Получаем первую компанию из списка
       const companies = await api.companies.list();
       const company = companies && companies.length > 0 ? companies[0] : null;
-      
+
       if (company) {
-        console.log('✅ Company data loaded:', company);
-        // 🔒 Учётные данные не подгружаются: поля пустые и служат только
-        // для установки НОВЫХ значений (политика конфиденциальности).
+        // Пароль и телефон не подгружаются (задаются заново при замене),
+        // а 30-значный ключ доступа админу виден всегда.
         const data = {
           name: company.name || '',
           phone: '',
@@ -188,17 +275,13 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
         };
         setCompanyData(data);
         setOriginalCompanyData(data);
+        setCurrentAccessKey(company.accessKey || '');
       } else {
         throw new Error('No companies found');
       }
     } catch (error) {
       console.warn('⚠️ Error in loadCompanyData (fallback to defaults):', error);
-      const defaultData = {
-        name: 'Главная компания',
-        phone: '',
-        password: '',
-        access_key: ''
-      };
+      const defaultData = { name: 'Главная компания', phone: '', password: '', access_key: '' };
       setCompanyData(defaultData);
       setOriginalCompanyData(defaultData);
     }
@@ -206,14 +289,11 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
 
   const handleSaveCompany = async () => {
     try {
-      // Валидация
       if (!companyData.name.trim()) {
         alert('Введите название компании');
         return;
       }
-      
-      // 🔒 Учётные данные скрыты и не подгружаются — поля заполняются только
-      // для ЗАМЕНЫ. Пустое поле означает «оставить как есть».
+
       const phoneDigits = companyData.phone.replace(/\s/g, '');
       if (phoneDigits && (phoneDigits.length !== 9 || !/^\d+$/.test(phoneDigits))) {
         alert('Номер телефона должен содержать 9 цифр');
@@ -227,7 +307,6 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
 
       setSaving(true);
 
-      // Получаем первую компанию и обновляем её
       const companies = await api.companies.list();
       if (companies && companies.length > 0) {
         const companyId = companies[0].id;
@@ -240,11 +319,9 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
       } else {
         throw new Error('No company found to update');
       }
-      
+
       setOriginalCompanyData(companyData);
       alert('✅ Данные компании успешно обновлены!');
-      
-      // Перезагрузить данные
       await loadCompanyData();
     } catch (error) {
       console.error('Error saving company:', error);
@@ -263,20 +340,19 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
   const clearAllData = async (type: 'users' | 'all') => {
     const confirmMessage =
       type === 'users' ? 'Удалить всех пользователей?' :
-      'Удалить ВСЕ данные пользователей (аккаунты, корзины, избранное, адреса)? Это действие нельзя отменить!';
+      'Удалить ВСЕ данные пользователей? Это действие нельзя отменить!';
 
     if (!confirm(confirmMessage)) return;
     // Двойное подтверждение — операция необратима
     if (!confirm('Вы уверены? Восстановить данные будет невозможно.')) return;
 
     try {
-      const res = await api.users.purge(type);
+      const res: any = await api.users.deleteAll(type);
       await loadStats();
-      const total = res?.deleted ? Object.values(res.deleted as Record<string, number>).reduce((s, n) => s + n, 0) : 0;
-      alert(`✅ Данные удалены (записей: ${total})`);
-    } catch (error) {
+      alert(`✅ Удалено аккаунтов: ${res?.deleted ?? 0}`);
+    } catch (error: any) {
       console.error('Error clearing data:', error);
-      alert('Ошибка при удалении данных');
+      alert('Ошибка при удалении данных: ' + (error?.message || ''));
     }
   };
 
@@ -286,13 +362,8 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
     }
 
     try {
-      console.log('📡 [Admin] Отправка команды перезагрузки...');
-      
-      await broadcastReload();
-      
+      await broadcastReload('Админ');
       alert('✅ Команда перезагрузки отправлена!\n\nВсе устройства будут перезагружены через 2 секунды.\n\nВаше устройство тоже будет перезагружено.');
-      
-      // Перезагружаем также админ панель через 2 секунды
       setTimeout(() => {
         window.location.reload();
       }, 2000);
@@ -302,333 +373,107 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
     }
   };
 
+  const uz = language === 'uz';
+  const pageTitle = TAB_TITLES[activeTab] ? (uz ? TAB_TITLES[activeTab].uz : TAB_TITLES[activeTab].ru) : '';
+
   return (
-    <div className="min-h-screen bg-gray-50 flex">
+    <div className="min-h-screen flex text-[15px]" style={{ background: 'var(--ax-bg)' }}>
       {/* 📱 Overlay для мобильных (при открытом sidebar) */}
       {isSidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-black bg-opacity-50 z-20 lg:hidden"
+        <div
+          className="fixed inset-0 bg-black/55 backdrop-blur-[2px] z-20 lg:hidden"
           onClick={() => setIsSidebarOpen(false)}
         />
       )}
 
-      {/* Sidebar слева - РЕСПОНСИВНЫЙ */}
+      {/* Sidebar */}
       <aside className={`
-        w-64 bg-[#13132A] text-white shadow-xl border-r border-white/10 
-        fixed h-full z-30 transition-transform duration-300 flex flex-col
+        w-72 bg-[#12122B] text-white fixed h-full z-30 flex flex-col
+        border-r border-white/[0.06] transition-transform duration-300
         lg:translate-x-0
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
-        <div className="p-6">
-          <div className="flex items-center justify-between mb-8">
-            <div className="flex items-center gap-3">
-              <Shield className="w-8 h-8" />
-              <div>
-                <h1 className="text-xl font-bold">Админ Панель</h1>
-                <p className="text-gray-400 text-xs">Панель управления платформой</p>
-              </div>
+        {/* Бренд */}
+        <div className="px-5 pt-6 pb-4 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#7C5CF0] to-[#5B3FD4] flex items-center justify-center shadow-lg shadow-purple-950/50 shrink-0">
+              <Shield className="w-5 h-5 text-white" />
+            </span>
+            <div className="min-w-0">
+              <h1 className="text-[15px] font-bold leading-tight truncate">Axentis Market</h1>
+              <p className="text-[11px] text-white/40 leading-tight">Панель администратора</p>
             </div>
-            {/* Кнопка закрытия для мобильных */}
-            <button
-              onClick={() => setIsSidebarOpen(false)}
-              className="lg:hidden p-1 hover:bg-white/20 rounded-lg transition"
-            >
-              <X className="w-5 h-5" />
-            </button>
           </div>
+          <button
+            onClick={() => setIsSidebarOpen(false)}
+            className="lg:hidden p-2 -mr-1 text-white/60 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+            aria-label="Закрыть меню"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
-        {/* Navigation - with flex-1 to take available space */}
-        <nav className="flex-1 overflow-y-auto px-6 space-y-2 pb-4">
-            <button
-              onClick={() => handleNavigate('overview')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ${
-                activeTab === 'overview'
-                  ? 'bg-[#7C5CF0] text-white shadow-lg shadow-purple-900/40'
-                  : 'text-gray-300 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <Shield className="w-5 h-5" />
-              <span className="font-medium">Обзор</span>
-            </button>
+        {/* Навигация по группам */}
+        <nav className="flex-1 overflow-y-auto px-3 pb-4 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.15)_transparent]">
+          {NAV_GROUPS.map((group) => (
+            <div key={group.title} className="mt-4 first:mt-1">
+              <p className="px-3 mb-1.5 text-[10.5px] font-bold uppercase tracking-[0.12em] text-white/30 select-none">
+                {uz && group.titleUz ? group.titleUz : group.title}
+              </p>
+              <div className="space-y-0.5">
+                {group.items.map(({ tab, icon: Icon, label, labelUz }) => {
+                  const active = activeTab === tab;
+                  return (
+                    <button
+                      key={tab}
+                      onClick={() => handleNavigate(tab)}
+                      aria-current={active ? 'page' : undefined}
+                      className={`relative w-full flex items-center gap-3 pl-3.5 pr-3 py-2.5 rounded-lg text-left transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#9F87F5] ${
+                        active
+                          ? 'bg-[#7C5CF0]/[0.16] text-white'
+                          : 'text-white/60 hover:bg-white/[0.06] hover:text-white'
+                      }`}
+                    >
+                      {/* активный индикатор */}
+                      <span className={`absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full transition-opacity ${active ? 'bg-[#9F87F5] opacity-100' : 'opacity-0'}`} />
+                      <Icon className={`w-[18px] h-[18px] shrink-0 ${active ? 'text-[#B7A5F8]' : ''}`} />
+                      <span className={`text-[13.5px] leading-snug ${active ? 'font-semibold' : 'font-medium'}`}>
+                        {uz && labelUz ? labelUz : label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </nav>
 
-            <button
-              onClick={() => handleNavigate('dashboard')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ${
-                activeTab === 'dashboard'
-                  ? 'bg-[#7C5CF0] text-white shadow-lg shadow-purple-900/40'
-                  : 'text-gray-300 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <BarChart3 className="w-5 h-5" />
-              <span className="font-medium">{language === 'uz' ? 'Platforma' : 'Дашборд платформы'}</span>
-            </button>
-
-            <button
-              onClick={() => handleNavigate('complaints')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ${
-                activeTab === 'complaints'
-                  ? 'bg-[#7C5CF0] text-white shadow-lg shadow-purple-900/40'
-                  : 'text-gray-300 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <Flag className="w-5 h-5" />
-              <span className="font-medium">{language === 'uz' ? 'Shikoyatlar' : 'Жалобы'}</span>
-            </button>
-
-            <button
-              onClick={() => handleNavigate('analytics')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ${
-                activeTab === 'analytics'
-                  ? 'bg-[#7C5CF0] text-white shadow-lg shadow-purple-900/40'
-                  : 'text-gray-300 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <BarChart3 className="w-5 h-5" />
-              <span className="font-medium">Аналитика</span>
-            </button>
-
-            <button
-              onClick={() => handleNavigate('companies')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ${
-                activeTab === 'companies'
-                  ? 'bg-[#7C5CF0] text-white shadow-lg shadow-purple-900/40'
-                  : 'text-gray-300 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <Building2 className="w-5 h-5" />
-              <span className="font-medium">Компании</span>
-            </button>
-
-            <button
-              onClick={() => handleNavigate('payment')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ${
-                activeTab === 'payment'
-                  ? 'bg-[#7C5CF0] text-white shadow-lg shadow-purple-900/40'
-                  : 'text-gray-300 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <CreditCard className="w-5 h-5" />
-              <span className="font-medium">Оплата</span>
-            </button>
-
-            <button
-              onClick={() => handleNavigate('ads')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ${
-                activeTab === 'ads'
-                  ? 'bg-[#7C5CF0] text-white shadow-lg shadow-purple-900/40'
-                  : 'text-gray-300 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <Megaphone className="w-5 h-5" />
-              <span className="font-medium">Реклама</span>
-            </button>
-
-            <button
-              onClick={() => handleNavigate('categories')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ${
-                activeTab === 'categories'
-                  ? 'bg-[#7C5CF0] text-white shadow-lg shadow-purple-900/40'
-                  : 'text-gray-300 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <Package className="w-5 h-5" />
-              <span className="font-medium">Категории</span>
-            </button>
-
-            <button
-              onClick={() => handleNavigate('notifications')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ${
-                activeTab === 'notifications'
-                  ? 'bg-[#7C5CF0] text-white shadow-lg shadow-purple-900/40'
-                  : 'text-gray-300 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <Bell className="w-5 h-5" />
-              <span className="font-medium">Уведомления</span>
-            </button>
-
-            <button
-              onClick={() => handleNavigate('companyMessages')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ${
-                activeTab === 'companyMessages'
-                  ? 'bg-[#7C5CF0] text-white shadow-lg shadow-purple-900/40'
-                  : 'text-gray-300 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <Building2 className="w-5 h-5" />
-              <span className="font-medium">Сообщения компаниям</span>
-            </button>
-
-            <button
-              onClick={() => handleNavigate('chat')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ${
-                activeTab === 'chat'
-                  ? 'bg-[#7C5CF0] text-white shadow-lg shadow-purple-900/40'
-                  : 'text-gray-300 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <MessageSquare className="w-5 h-5" />
-              <span className="font-medium">{language === 'uz' ? 'Umumiy chat' : 'Общий чат'}</span>
-            </button>
-
-            <button
-              onClick={() => handleNavigate('regions')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ${
-                activeTab === 'regions'
-                  ? 'bg-[#7C5CF0] text-white shadow-lg shadow-purple-900/40'
-                  : 'text-gray-300 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <Globe className="w-5 h-5" />
-              <span className="font-medium">{language === 'uz' ? 'Regionlar' : 'Регионы'}</span>
-            </button>
-
-            <button
-              onClick={() => handleNavigate('decorationVideos')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ${
-                activeTab === 'decorationVideos'
-                  ? 'bg-[#7C5CF0] text-white shadow-lg shadow-purple-900/40'
-                  : 'text-gray-300 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <Film className="w-5 h-5" />
-              <span className="font-medium">{language === 'uz' ? 'Video-bezaklar' : 'Видео-декорации'}</span>
-            </button>
-
-            <button
-              onClick={() => handleNavigate('discounts')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ${
-                activeTab === 'discounts'
-                  ? 'bg-[#7C5CF0] text-white shadow-lg shadow-purple-900/40'
-                  : 'text-gray-300 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <Tag className="w-5 h-5" />
-              <span className="font-medium">Модерация скидок</span>
-            </button>
-
-            <button
-              onClick={() => handleNavigate('promo')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ${
-                activeTab === 'promo'
-                  ? 'bg-[#7C5CF0] text-white shadow-lg shadow-purple-900/40'
-                  : 'text-gray-300 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <Tag className="w-5 h-5" />
-              <span className="font-medium">{language === 'uz' ? 'Promokodlar' : 'Промокоды'}</span>
-            </button>
-
-            <button
-              onClick={() => handleNavigate('referrals')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ${
-                activeTab === 'referrals'
-                  ? 'bg-[#7C5CF0] text-white shadow-lg shadow-purple-900/40'
-                  : 'text-gray-300 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <Ticket className="w-5 h-5" />
-              <span className="font-medium">Реферальные агенты</span>
-            </button>
-
-            <button
-              onClick={() => handleNavigate('couriers')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ${
-                activeTab === 'couriers'
-                  ? 'bg-[#7C5CF0] text-white shadow-lg shadow-purple-900/40'
-                  : 'text-gray-300 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <Truck className="w-5 h-5" />
-              <span className="font-medium">Курьеры</span>
-            </button>
-
-            <button
-              onClick={() => handleNavigate('security')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ${
-                activeTab === 'security'
-                  ? 'bg-[#7C5CF0] text-white shadow-lg shadow-purple-900/40'
-                  : 'text-gray-300 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <Shield className="w-5 h-5" />
-              <span className="font-medium">Безопасность</span>
-            </button>
-
-            <button
-              onClick={() => handleNavigate('policies')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ${
-                activeTab === 'policies'
-                  ? 'bg-[#7C5CF0] text-white shadow-lg shadow-purple-900/40'
-                  : 'text-gray-300 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <Shield className="w-5 h-5" />
-              <span className="font-medium">{language === 'uz' ? 'Maxfiylik siyosati' : 'Политика конфиденциальности'}</span>
-            </button>
-
-            <button
-              onClick={() => handleNavigate('payouts')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-300 ${
-                activeTab === 'payouts'
-                  ? 'bg-[#7C5CF0] text-white shadow-lg shadow-purple-900/40'
-                  : 'text-gray-300 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <CreditCard className="w-5 h-5" />
-              <span className="font-medium">{language === 'uz' ? 'Toʻlovlar (pul yechish)' : 'Выплаты компаниям'}</span>
-            </button>
-          </nav>
-
-        {/* Logout Button - using relative positioning at bottom */}
-        <div className="p-6 border-t border-white/20">
+        {/* Выход */}
+        <div className="p-3 border-t border-white/[0.06] shrink-0">
           <button
             onClick={onLogout}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
+            className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-white/60 hover:bg-red-500/15 hover:text-red-300 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
           >
-            <LogOut className="w-5 h-5" />
-            <span className="font-medium">Выход</span>
+            <LogOut className="w-[18px] h-[18px]" />
+            <span className="text-[13.5px] font-medium">Выход</span>
           </button>
         </div>
       </aside>
 
-      {/* Main Content - РЕСПОНСИВНЫЙ */}
-      <main className="flex-1 lg:ml-64">
-        {/* Header с гамбургером */}
-        <header className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-10">
-          <div className="px-4 lg:px-8 py-4 flex items-center gap-4">
-            {/* 📱 Кнопка гамбургера (только на мобильных) */}
+      {/* Main Content */}
+      <main className="flex-1 lg:ml-72 min-w-0">
+        {/* Header */}
+        <header className="bg-white/90 backdrop-blur border-b border-gray-200/80 sticky top-0 z-10">
+          <div className="px-4 lg:px-8 h-16 flex items-center gap-3">
             <button
               onClick={() => setIsSidebarOpen(true)}
-              className="lg:hidden p-2 hover:bg-gray-100 rounded-lg transition"
+              className="lg:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              aria-label="Открыть меню"
             >
-              <Menu className="w-6 h-6 text-gray-600" />
+              <Menu className="w-5 h-5 text-gray-600" />
             </button>
 
-            <h1 className="text-xl lg:text-2xl font-bold text-gray-800">
-              {activeTab === 'overview' && 'Обзор'}
-              {activeTab === 'analytics' && 'Аналитика платформы'}
-              {activeTab === 'companies' && 'Компании'}
-              {activeTab === 'payment' && 'Настройки оплаты'}
-              {activeTab === 'history' && 'История платежей'}
-              {activeTab === 'ads' && 'Управление рекламой'}
-              {activeTab === 'categories' && 'Категории товаров'}
-              {activeTab === 'notifications' && 'Уведомления'}
-              {activeTab === 'companyMessages' && 'Сообщения компаниям'}
-              {activeTab === 'chat' && (language === 'uz' ? 'Umumiy chat' : 'Общий чат')}
-              {activeTab === 'regions' && (language === 'uz' ? 'Yetkazib berish regionlari' : 'Регионы доставки')}
-              {activeTab === 'decorationVideos' && (language === 'uz' ? 'Video-bezaklar' : 'Видео-декорации')}
-              {activeTab === 'discounts' && 'Модерация скидок'}
-              {activeTab === 'promo' && (language === 'uz' ? 'Promokodlar' : 'Промокоды')}
-              {activeTab === 'dashboard' && (language === 'uz' ? 'Platforma' : 'Дашборд платформы')}
-              {activeTab === 'complaints' && (language === 'uz' ? 'Shikoyatlar' : 'Жалобы')}
-              {activeTab === 'referrals' && 'Реферальные агенты'}
-              {activeTab === 'couriers' && (language === 'uz' ? 'Kuryerlar' : 'Курьеры')}
-              {activeTab === 'security' && (language === 'uz' ? 'Xavfsizlik' : 'Безопасность')}
-              {activeTab === 'policies' && (language === 'uz' ? 'Maxfiylik siyosati' : 'Политика конфиденциальности')}
-              {activeTab === 'payouts' && (language === 'uz' ? 'Toʻlovlar (pul yechish)' : 'Выплаты компаниям')}
-            </h1>
+            <h1 className="text-[17px] lg:text-lg font-bold text-gray-900 truncate">{pageTitle}</h1>
 
             {/* 🔍 Глобальный поиск по платформе */}
             <div className="ml-auto hidden md:block w-full max-w-md">
@@ -640,184 +485,205 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
         </header>
 
         {/* Контент панелей */}
-        <div className="p-4 lg:p-8">{/* Tab Content */}
+        <div className="p-4 lg:p-8 max-w-[1400px]">
           <React.Suspense fallback={<AdminTabLoading />}>
           {activeTab === 'overview' ? (
-            <>
+            <div className="space-y-6">
               {/* Stats */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                <div className="bg-white rounded-lg shadow-sm p-6">
-                  <div className="flex items-center gap-3 mb-2">
-                    <Users className="w-6 h-6 text-blue-600" />
-                    <div className="text-gray-600">Пользователи</div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                <div className="bg-white rounded-2xl border border-gray-200/80 p-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[13px] font-medium text-gray-500 mb-1">Пользователи</p>
+                      <p className="text-[28px] font-bold text-gray-900 leading-none tabular-nums">{stats.users}</p>
+                    </div>
+                    <span className="w-11 h-11 rounded-xl bg-blue-50 flex items-center justify-center">
+                      <Users className="w-5 h-5 text-blue-600" />
+                    </span>
                   </div>
-                  <div className="text-3xl text-blue-600">{stats.users}</div>
                 </div>
+                <button
+                  onClick={() => handleNavigate('dashboard')}
+                  className="bg-white rounded-2xl border border-gray-200/80 p-5 text-left hover:border-[#7C5CF0]/50 hover:shadow-sm transition-all cursor-pointer group"
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[13px] font-medium text-gray-500 mb-1">Финансы и заказы</p>
+                      <p className="text-[15px] font-semibold text-gray-900 group-hover:text-[#6D4FE0]">Дашборд платформы →</p>
+                    </div>
+                    <span className="w-11 h-11 rounded-xl bg-purple-50 flex items-center justify-center">
+                      <BarChart3 className="w-5 h-5 text-[#7C5CF0]" />
+                    </span>
+                  </div>
+                </button>
+                <button
+                  onClick={() => handleNavigate('payouts')}
+                  className="bg-white rounded-2xl border border-gray-200/80 p-5 text-left hover:border-emerald-400/60 hover:shadow-sm transition-all cursor-pointer group"
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[13px] font-medium text-gray-500 mb-1">Заявки на вывод средств</p>
+                      <p className="text-[15px] font-semibold text-gray-900 group-hover:text-emerald-700">Выплаты компаниям →</p>
+                    </div>
+                    <span className="w-11 h-11 rounded-xl bg-emerald-50 flex items-center justify-center">
+                      <Landmark className="w-5 h-5 text-emerald-600" />
+                    </span>
+                  </div>
+                </button>
               </div>
 
               {/* Company Settings */}
-              <div className="bg-white rounded-lg shadow-sm p-6 mb-8">
-                <div className="flex items-center gap-3 mb-6">
-                  <Building2 className="w-6 h-6 text-purple-600" />
-                  <h2 className="text-purple-900">Настройки главной компании</h2>
+              <section className="bg-white rounded-2xl border border-gray-200/80 overflow-hidden">
+                <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100">
+                  <span className="w-9 h-9 rounded-xl bg-purple-50 flex items-center justify-center">
+                    <Building2 className="w-[18px] h-[18px] text-[#7C5CF0]" />
+                  </span>
+                  <div>
+                    <h2 className="text-[15px] font-bold text-gray-900 leading-tight">Главная компания</h2>
+                    <p className="text-[12.5px] text-gray-500 leading-tight">Учётные данные для входа продавца</p>
+                  </div>
                 </div>
 
-                <div className="space-y-4">
+                <div className="p-6 space-y-5">
+                  {/* 🔑 Текущий ключ доступа — всегда виден */}
+                  <div className="rounded-xl border-2 border-[#7C5CF0]/25 bg-gradient-to-r from-purple-50/70 to-indigo-50/70 p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <KeyRound className="w-4 h-4 text-[#7C5CF0]" />
+                      <p className="text-[13px] font-semibold text-gray-800">Ключ доступа (30 цифр)</p>
+                    </div>
+                    {currentAccessKey ? (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <code
+                          className="flex-1 min-w-[240px] font-mono text-[14px] font-semibold tracking-[0.08em] text-gray-900 bg-white rounded-lg border border-purple-200 px-3.5 py-2.5 break-all select-all"
+                          style={{ userSelect: 'all' }}
+                        >
+                          {currentAccessKey.replace(/(\d{6})(?=\d)/g, '$1 ')}
+                        </code>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyToClipboard(currentAccessKey, 'current_key')}
+                          className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-lg bg-[#7C5CF0] text-white text-[13px] font-semibold hover:bg-[#6D4FE0] transition-colors cursor-pointer"
+                        >
+                          {copiedField === 'current_key' ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                          {copiedField === 'current_key' ? 'Скопировано' : 'Копировать'}
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="text-[13px] text-gray-500">Ключ ещё не задан — установите его в поле ниже.</p>
+                    )}
+                  </div>
+
                   {/* Company Name */}
                   <div>
-                    <label className="block text-sm text-gray-600 mb-2">
+                    <label className="block text-[13px] font-medium text-gray-700 mb-1.5">
                       Название компании
                     </label>
                     <input
                       type="text"
                       value={companyData.name}
                       onChange={(e) => setCompanyData({ ...companyData, name: e.target.value })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-purple-500"
+                      className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-[14px] focus:outline-none focus:border-[#7C5CF0] focus:ring-2 focus:ring-[#7C5CF0]/15 transition-shadow"
                       placeholder="Главная Компания"
                     />
                   </div>
 
                   {/* Phone */}
                   <div>
-                    <label className="block text-sm text-gray-600 mb-2">
-                      Номер телефона (9 цифр)
+                    <label className="flex items-center gap-1.5 text-[13px] font-medium text-gray-700 mb-1.5">
+                      <Phone className="w-3.5 h-3.5 text-gray-400" /> Новый телефон (9 цифр)
                     </label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={companyData.phone}
-                        onChange={(e) => {
-                          const value = e.target.value.replace(/\D/g, '').slice(0, 9);
-                          setCompanyData({ ...companyData, phone: value });
-                        }}
-                        className="w-full px-4 py-2 pr-20 border border-gray-300 rounded-lg focus:outline-none focus:border-purple-500"
-                        placeholder="909383572"
-                        maxLength={9}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => handleCopyToClipboard(companyData.phone, 'phone')}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors text-xs flex items-center gap-1"
-                      >
-                        {copiedField === 'phone' ? (
-                          <><Check className="w-3 h-3" /> Скопировано</>
-                        ) : (
-                          <><Copy className="w-3 h-3" /> Копировать</>
-                        )}
-                      </button>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      🔒 Текущий номер скрыт. Заполните, только чтобы заменить ({companyData.phone.length}/9)
+                    <input
+                      type="text"
+                      value={companyData.phone}
+                      onChange={(e) => {
+                        const value = e.target.value.replace(/\D/g, '').slice(0, 9);
+                        setCompanyData({ ...companyData, phone: value });
+                      }}
+                      className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl text-[14px] focus:outline-none focus:border-[#7C5CF0] focus:ring-2 focus:ring-[#7C5CF0]/15 transition-shadow"
+                      placeholder="Оставьте пустым, чтобы не менять"
+                      maxLength={9}
+                    />
+                    <p className="text-[12px] text-gray-500 mt-1">
+                      Текущий номер скрыт политикой конфиденциальности ({companyData.phone.length}/9)
                     </p>
                   </div>
 
                   {/* Password */}
                   <div>
-                    <label className="block text-sm text-gray-600 mb-2">
-                      Пароль
+                    <label className="flex items-center gap-1.5 text-[13px] font-medium text-gray-700 mb-1.5">
+                      <Lock className="w-3.5 h-3.5 text-gray-400" /> Новый пароль
                     </label>
                     <div className="relative">
                       <input
                         type={showPassword ? 'text' : 'password'}
                         value={companyData.password}
                         onChange={(e) => setCompanyData({ ...companyData, password: e.target.value })}
-                        className="w-full px-4 py-2 pr-32 border border-gray-300 rounded-lg focus:outline-none focus:border-purple-500"
-                        placeholder="Введите пароль..."
+                        className="w-full px-3.5 py-2.5 pr-12 bg-white border border-gray-300 rounded-xl text-[14px] focus:outline-none focus:border-[#7C5CF0] focus:ring-2 focus:ring-[#7C5CF0]/15 transition-shadow"
+                        placeholder="Оставьте пустым, чтобы не менять"
+                        autoComplete="new-password"
                       />
-                      <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleCopyToClipboard(companyData.password, 'password')}
-                          className="px-2 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors text-xs flex items-center gap-1"
-                          disabled={!companyData.password}
-                        >
-                          {copiedField === 'password' ? (
-                            <Check className="w-3 h-3" />
-                          ) : (
-                            <Copy className="w-3 h-3" />
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword(!showPassword)}
-                          className="text-gray-500 hover:text-gray-700"
-                        >
-                          {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
+                        aria-label={showPassword ? 'Скрыть пароль' : 'Показать пароль'}
+                      >
+                        {showPassword ? <EyeOff className="w-[18px] h-[18px]" /> : <Eye className="w-[18px] h-[18px]" />}
+                      </button>
                     </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      🔒 Текущий пароль скрыт. Заполните, только чтобы заменить
-                    </p>
                   </div>
 
-                  {/* Access Key */}
+                  {/* Access Key (замена) */}
                   <div>
-                    <label className="block text-sm text-gray-600 mb-2">
-                      🔑 Ключ доступа (30 символов)
+                    <label className="flex items-center gap-1.5 text-[13px] font-medium text-gray-700 mb-1.5">
+                      <KeyRound className="w-3.5 h-3.5 text-gray-400" /> Новый ключ доступа (30 цифр)
                     </label>
-                    <div className="relative">
+                    <div className="flex gap-2">
                       <input
                         type="text"
                         value={companyData.access_key}
                         onChange={(e) => {
-                          const value = e.target.value.slice(0, 30);
+                          const value = e.target.value.replace(/\D/g, '').slice(0, 30);
                           setCompanyData({ ...companyData, access_key: value });
                         }}
-                        className="w-full px-4 py-2 pr-24 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-purple-500 font-mono text-sm select-all"
-                        placeholder="123456789012345678901234567890"
+                        className="flex-1 px-3.5 py-2.5 bg-white border border-gray-300 rounded-xl font-mono text-[13.5px] focus:outline-none focus:border-[#7C5CF0] focus:ring-2 focus:ring-[#7C5CF0]/15 transition-shadow"
+                        placeholder="Оставьте пустым, чтобы не менять"
                         maxLength={30}
-                        readOnly={false}
-                        style={{ userSelect: 'text' }}
                       />
-                      <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleCopyToClipboard(companyData.access_key, 'access_key')}
-                          className="px-3 py-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors text-xs flex items-center gap-1 font-medium"
-                          disabled={!companyData.access_key}
-                          title="Копировать ключ"
-                        >
-                          {copiedField === 'access_key' ? (
-                            <>
-                              <Check className="w-3 h-3" />
-                              <span>✅</span>
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="w-3 h-3" />
-                              <span>Копия</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          let key = '';
+                          for (let i = 0; i < 30; i++) key += Math.floor(Math.random() * 10);
+                          setCompanyData({ ...companyData, access_key: key });
+                        }}
+                        className="px-4 py-2.5 rounded-xl bg-gray-900 text-white text-[13px] font-semibold hover:bg-gray-700 transition-colors whitespace-nowrap cursor-pointer"
+                      >
+                        Сгенерировать
+                      </button>
                     </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      🔒 Текущий ключ скрыт. Заполните, только чтобы заменить ({companyData.access_key.length}/30 символов)
-                    </p>
+                    {companyData.access_key && (
+                      <p className={`text-[12px] mt-1 ${companyData.access_key.length === 30 ? 'text-emerald-600' : 'text-red-500'}`}>
+                        {companyData.access_key.length}/30 цифр {companyData.access_key.length === 30 ? '✓' : '— нужно ровно 30'}
+                      </p>
+                    )}
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center gap-3 pt-4">
+                  <div className="flex items-center gap-3 pt-1">
                     <button
                       onClick={handleSaveCompany}
                       disabled={!hasChanges || saving}
-                      className={`flex items-center gap-2 px-6 py-2 rounded-lg transition-colors ${
+                      className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-[14px] font-semibold transition-colors ${
                         hasChanges && !saving
-                          ? 'bg-purple-600 text-white hover:bg-purple-700'
-                          : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                          ? 'bg-[#7C5CF0] text-white hover:bg-[#6D4FE0] cursor-pointer'
+                          : 'bg-gray-100 text-gray-400 cursor-not-allowed'
                       }`}
                     >
                       {saving ? (
-                        <>
-                          <RefreshCw className="w-5 h-5 animate-spin" />
-                          Сохранение...
-                        </>
+                        <><RefreshCw className="w-4 h-4 animate-spin" /> Сохранение...</>
                       ) : (
-                        <>
-                          <Save className="w-5 h-5" />
-                          Сохранить изменения
-                        </>
+                        <><Save className="w-4 h-4" /> Сохранить изменения</>
                       )}
                     </button>
 
@@ -825,75 +691,65 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
                       <button
                         onClick={handleResetCompany}
                         disabled={saving}
-                        className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                        className="px-5 py-2.5 rounded-xl bg-white border border-gray-300 text-gray-700 text-[14px] font-medium hover:bg-gray-50 transition-colors cursor-pointer"
                       >
                         Отменить
                       </button>
                     )}
                   </div>
                 </div>
-
-                {/* Info */}
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mt-6">
-                  <h3 className="text-blue-900 mb-2">ℹ️ Важная информация</h3>
-                  <ul className="text-blue-800 text-sm space-y-1">
-                    <li>• После изменения данных все должны использовать новые данные для входа</li>
-                    <li>• Телефон: 9 цифр (без пробелов и спецсимволов)</li>
-                    <li>• Ключ доступа: строго 30 цифр</li>
-                    <li>• Пароль: может быть любой длины</li>
-                  </ul>
-                </div>
-              </div>
+              </section>
 
               {/* Danger Zone */}
-              <div className="bg-white rounded-lg shadow-sm p-6 border-2 border-red-200">
-                <h2 className="text-red-600 mb-6">Опасная зона</h2>
-                
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between p-4 bg-red-50 rounded-lg">
-                    <div>
-                      <div className="text-gray-900">Удалить всех пользователей</div>
-                      <div className="text-sm text-gray-600">Удалит всех зарегистрированных покупателей</div>
-                    </div>
-                    <button
-                      onClick={() => clearAllData('users')}
-                      className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      Удалить
-                    </button>
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 bg-red-100 rounded-lg border-2 border-red-300">
-                    <div>
-                      <div className="text-gray-900">Удалить ВСЕ данные пользователей</div>
-                      <div className="text-sm text-gray-600">Полная очистка системы (необратимо!)</div>
-                    </div>
-                    <button
-                      onClick={() => clearAllData('all')}
-                      className="flex items-center gap-2 bg-red-700 text-white px-4 py-2 rounded-lg hover:bg-red-800 transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                      Удалить всё
-                    </button>
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 bg-red-100 rounded-lg border-2 border-red-300">
-                    <div>
-                      <div className="text-gray-900">Перезагрузить ВСЕ устройства</div>
-                      <div className="text-sm text-gray-600">Перезагрузит все смартфоны, планшеты и компьютеры с открытым приложением</div>
-                    </div>
-                    <button
-                      onClick={handleReloadAllDevices}
-                      className="flex items-center gap-2 bg-red-700 text-white px-4 py-2 rounded-lg hover:bg-red-800 transition-colors"
-                    >
-                      <RefreshCw className="w-4 h-4" />
-                      Перезагрузить
-                    </button>
+              <section className="bg-white rounded-2xl border border-red-200 overflow-hidden">
+                <div className="flex items-center gap-3 px-6 py-4 border-b border-red-100 bg-red-50/60">
+                  <span className="w-9 h-9 rounded-xl bg-red-100 flex items-center justify-center">
+                    <AlertTriangle className="w-[18px] h-[18px] text-red-600" />
+                  </span>
+                  <div>
+                    <h2 className="text-[15px] font-bold text-red-700 leading-tight">Опасная зона</h2>
+                    <p className="text-[12.5px] text-red-500/80 leading-tight">Необратимые действия — будьте осторожны</p>
                   </div>
                 </div>
-              </div>
-            </>
+
+                <div className="p-6 space-y-3">
+                  {[
+                    {
+                      title: 'Удалить всех пользователей',
+                      desc: 'Удалит всех зарегистрированных покупателей',
+                      btn: 'Удалить', icon: Trash2,
+                      onClick: () => clearAllData('users'),
+                    },
+                    {
+                      title: 'Удалить ВСЕ данные пользователей',
+                      desc: 'Полная очистка системы (необратимо!)',
+                      btn: 'Удалить всё', icon: Trash2,
+                      onClick: () => clearAllData('all'),
+                    },
+                    {
+                      title: 'Перезагрузить ВСЕ устройства',
+                      desc: 'Перезагрузит все устройства с открытым приложением',
+                      btn: 'Перезагрузить', icon: RefreshCw,
+                      onClick: handleReloadAllDevices,
+                    },
+                  ].map((row) => (
+                    <div key={row.title} className="flex items-center justify-between gap-4 p-4 rounded-xl border border-red-100 bg-red-50/40">
+                      <div className="min-w-0">
+                        <p className="text-[14px] font-semibold text-gray-900">{row.title}</p>
+                        <p className="text-[12.5px] text-gray-500">{row.desc}</p>
+                      </div>
+                      <button
+                        onClick={row.onClick}
+                        className="flex items-center gap-1.5 shrink-0 px-4 py-2 rounded-lg bg-red-600 text-white text-[13px] font-semibold hover:bg-red-700 transition-colors cursor-pointer"
+                      >
+                        <row.icon className="w-4 h-4" />
+                        {row.btn}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </div>
           ) : activeTab === 'analytics' ? (
             <AdminAnalyticsPanel />
           ) : activeTab === 'companies' ? (

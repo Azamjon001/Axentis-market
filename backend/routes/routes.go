@@ -273,6 +273,7 @@ func Setup(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 			users.POST("/check-unique", handlers.CheckUserUnique(db))
 			users.POST("/purge", middleware.RequireAdmin(cfg), handlers.PurgeUsers(db)) // 🗑️ «Опасная зона» админ-панели
 			users.GET("/count", handlers.GetUsersCount(db))
+			users.DELETE("", middleware.RequireAdmin(cfg), handlers.DeleteAllUsers(db)) // 🗑️ Опасная зона админки
 			users.GET("/:phone", handlers.GetUserByPhone(db))
 			// Old cart/likes routes removed - use /api/cart and /api/favorites instead
 			users.POST("/:phone/avatar", middleware.RequireSelfPhone("phone"), handlers.UploadUserAvatar(db))
@@ -392,6 +393,7 @@ func Setup(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 			analytics.GET("/company/:companyId", middleware.RequireAdminOrOwnCompanyParam("companyId"), handlers.GetCompanyAnalytics(db))
 			analytics.GET("/company/:companyId/dashboard", middleware.RequireAdminOrOwnCompanyParam("companyId"), handlers.GetCompanyDashboard(db)) // 📊 Единый дашборд продавца
 			analytics.GET("/company/:companyId/inventory-insights", middleware.RequireAdminOrOwnCompanyParam("companyId"), handlers.GetInventoryInsights(db)) // 📦 Прогноз остатков + ABC-анализ
+			analytics.GET("/company/:companyId/profit", middleware.RequireAdminOrOwnCompanyParam("companyId"), handlers.GetCompanyProfit(db)) // 💰 Разложение прибыли (онлайн/офлайн)
 			analytics.GET("/revenue", middleware.RequireCompany(cfg), middleware.RequireCompanyScope("companyId"), handlers.GetRevenueAnalytics(db))
 			analytics.GET("/admin/overview", middleware.RequireAdmin(cfg), handlers.GetAdminOverview(db)) // 📊 Дашборд платформы
 		}

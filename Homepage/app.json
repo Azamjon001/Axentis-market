@@ -42,13 +42,14 @@
         "ACCESS_COARSE_LOCATION",
         "RECEIVE_BOOT_COMPLETED",
         "VIBRATE",
-        "POST_NOTIFICATIONS",
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION",
-        "RECEIVE_BOOT_COMPLETED",
-        "VIBRATE",
         "POST_NOTIFICATIONS"
-      ]
+      ],
+      "googleServicesFile": "./google-services.json"
+    },
+    "notification": {
+      "icon": "./assets/notification-icon.png",
+      "color": "#7B5CF0",
+      "androidMode": "default"
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -59,8 +60,9 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/icon.png",
-          "color": "#7B5CF0"
+          "icon": "./assets/notification-icon.png",
+          "color": "#7B5CF0",
+          "defaultChannel": "default"
         }
       ]
     ],
