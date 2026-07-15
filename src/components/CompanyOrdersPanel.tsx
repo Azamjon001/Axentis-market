@@ -383,182 +383,110 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
   // ── ORDER LIST PANEL ──────────────────────────────────────────────────────
   const orderListPanel = (
     <div className={responsive.spacing} style={{ minWidth: 0 }}>
-      {/* Header & Filters */}
-      <div className={`${responsive.card}`} style={{ background: 'var(--ax-card)', border: '1px solid rgba(255,255,255,0.07)' }}>
-        <div className="flex flex-col md:flex-row gap-4 justify-between items-center mb-4">
-          <h2 className={`${responsive.subheading} font-bold flex items-center ${responsive.gap}`} style={{ color: 'var(--ax-text)' }}>
-            <Receipt className={responsive.icon} style={{ color: 'var(--ax-primary)' }} />
-            {isMobile ? t.orders : t.customerOrders}
-            <span className={`${responsive.small} py-0.5 px-2.5 rounded-full font-semibold`} style={{ background: 'var(--ax-primary-pale)', color: 'var(--ax-primary)' }}>
-              {orders.length}
+      {/* ── НОВЫЙ КАРКАС: компактная шапка + строка-сводка + пилюли-статусы ── */}
+      <div style={{ position: 'sticky', top: 0, zIndex: 20, background: 'var(--ax-bg)', paddingBottom: 10, marginBottom: 4 }}>
+        {/* Row 1: заголовок + период + обновить */}
+        <div className="flex items-center justify-between gap-2" style={{ marginBottom: 12 }}>
+          <div className="flex items-center gap-2 min-w-0">
+            <span style={{ width: 34, height: 34, borderRadius: 10, background: 'var(--ax-primary-pale)', color: 'var(--ax-primary)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <Receipt className="w-4 h-4" />
             </span>
-          </h2>
-          <motion.button
-            whileHover={{ rotate: 90 }}
-            whileTap={{ scale: 0.9 }}
-            onClick={loadOrders}
-            className={`${responsive.buttonSmall} rounded-lg transition-colors`}
-            style={{ color: 'var(--ax-text-2)', background: 'rgba(255,255,255,0.05)' }}
-            title={t.refreshList}
-          >
-            <RefreshCw className={responsive.iconSmall} />
-          </motion.button>
-        </div>
-
-        {/* Period Selector */}
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4" style={{ color: 'var(--ax-text-2)' }} />
-            <span className={`${responsive.small} font-medium`} style={{ color: 'var(--ax-text-2)' }}>
-              {language === 'uz' ? 'Davr' : 'Период'}
+            <h2 className="font-bold truncate" style={{ color: 'var(--ax-text)', fontSize: isMobile ? 17 : 20 }}>
+              {isMobile ? t.orders : t.customerOrders}
+            </h2>
+            <span className="py-0.5 px-2 rounded-full font-semibold" style={{ background: 'var(--ax-primary-pale)', color: 'var(--ax-primary)', fontSize: 12, flexShrink: 0 }}>
+              {filteredOrders.length}
             </span>
           </div>
-          <CompactPeriodSelector value={periodFilter} onChange={setPeriodFilter} />
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <CompactPeriodSelector value={periodFilter} onChange={setPeriodFilter} />
+            <motion.button whileHover={{ rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={loadOrders}
+              className="rounded-lg" style={{ padding: 8, color: 'var(--ax-text-2)', background: 'rgba(255,255,255,0.05)', border: 'none', cursor: 'pointer' }} title={t.refreshList}>
+              <RefreshCw className="w-4 h-4" />
+            </motion.button>
+          </div>
         </div>
 
-        {/* Period Stats — профессиональные анимированные карточки */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 14 }}>
+        {/* Row 2: тонкая строка-сводка (компактные чипы вместо крупных карточек) */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
           {[
-            { icon: <Receipt size={16} />,   label: language === 'uz' ? 'Buyurtma' : 'Заказов',  value: `${filteredOrders.length}`,       accent: '#7C5CF0' },
-            { icon: <DollarSign size={16} />, label: language === 'uz' ? 'Daromad' : 'Выручка',   value: formatPrice(periodRevenue),        accent: '#38BDF8' },
-            { icon: <TrendingUp size={16} />, label: language === 'uz' ? 'Foyda' : 'Прибыль',     value: `+${formatPrice(periodProfit)}`,   accent: '#22C55E' },
+            { icon: <Receipt size={15} />,    label: language === 'uz' ? 'Buyurtma' : 'Заказов',  value: `${filteredOrders.length}`,     accent: '#7C5CF0' },
+            { icon: <DollarSign size={15} />, label: language === 'uz' ? 'Daromad' : 'Выручка',    value: formatPrice(periodRevenue),      accent: '#38BDF8' },
+            { icon: <TrendingUp size={15} />, label: language === 'uz' ? 'Foyda' : 'Прибыль',      value: `+${formatPrice(periodProfit)}`, accent: '#22C55E' },
           ].map((s, i) => (
-            <motion.div
-              key={i}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ type: 'spring', stiffness: 300, damping: 24, delay: i * 0.06 }}
-              style={{
-                background: `linear-gradient(160deg, ${s.accent}14, var(--ax-card) 60%)`,
-                border: `1px solid ${s.accent}33`, borderRadius: 14, padding: isMobile ? '10px 12px' : '13px 15px',
-                display: 'flex', flexDirection: 'column', gap: 8,
-              }}
-            >
-              <span style={{ width: 30, height: 30, borderRadius: 9, background: `${s.accent}1F`, color: s.accent, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{s.icon}</span>
-              <div>
-                <div style={{ fontSize: isMobile ? 15 : 17, fontWeight: 700, color: 'var(--ax-text)', lineHeight: 1.15, wordBreak: 'break-word' }}>{s.value}</div>
-                <div style={{ fontSize: 11, color: 'var(--ax-text-2)', marginTop: 2 }}>{s.label}</div>
+            <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
+              style={{ flex: '1 1 0', minWidth: 0, display: 'flex', alignItems: 'center', gap: 9, padding: '9px 11px', borderRadius: 12, background: 'var(--ax-card)', border: `1px solid ${s.accent}2A` }}>
+              <span style={{ width: 28, height: 28, borderRadius: 8, background: `${s.accent}1F`, color: s.accent, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{s.icon}</span>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: isMobile ? 13.5 : 15, fontWeight: 700, color: 'var(--ax-text)', lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.value}</div>
+                <div style={{ fontSize: 10.5, color: 'var(--ax-text-3)' }}>{s.label}</div>
               </div>
             </motion.div>
           ))}
         </div>
 
         {periodFilter === 'custom' && (
-          <div className="flex gap-2 mb-3">
-            <div className="flex-1">
-              <label className={`${responsive.small} block mb-1`} style={{ color: 'var(--ax-text-2)' }}>{language === 'uz' ? 'Boshidan' : 'С даты'}</label>
-              <input
-                type="date"
-                value={periodStartDate ? periodStartDate.toISOString().split('T')[0] : ''}
-                onChange={(e) => setPeriodStartDate(e.target.value ? new Date(e.target.value) : null)}
-                className={`w-full px-3 py-2 border border-gray-300 rounded-lg ${responsive.small} focus:outline-none focus:ring-2 focus:ring-blue-500`}
-              />
-            </div>
-            <div className="flex-1">
-              <label className={`${responsive.small} block mb-1`} style={{ color: 'var(--ax-text-2)' }}>{language === 'uz' ? 'Gacha' : 'По дату'}</label>
-              <input
-                type="date"
-                value={periodEndDate ? periodEndDate.toISOString().split('T')[0] : ''}
-                onChange={(e) => setPeriodEndDate(e.target.value ? new Date(e.target.value) : null)}
-                className={`w-full px-3 py-2 border border-gray-300 rounded-lg ${responsive.small} focus:outline-none focus:ring-2 focus:ring-blue-500`}
-              />
-            </div>
+          <div className="flex gap-2 mb-2.5">
+            {[[periodStartDate, setPeriodStartDate, language === 'uz' ? 'Boshidan' : 'С даты'], [periodEndDate, setPeriodEndDate, language === 'uz' ? 'Gacha' : 'По дату']].map(([val, setter, lbl]: any, i) => (
+              <input key={i} type="date"
+                value={val ? val.toISOString().split('T')[0] : ''}
+                onChange={(e) => setter(e.target.value ? new Date(e.target.value) : null)}
+                className="flex-1 px-3 py-2 rounded-lg text-sm focus:outline-none"
+                style={{ background: 'var(--ax-input)', border: '1px solid var(--ax-border)', color: 'var(--ax-text)', colorScheme: 'dark' }} />
+            ))}
           </div>
         )}
 
-        <div className="flex gap-3">
-          <div className="flex-1 relative">
-            <Search className={`absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 ${responsive.iconSmall}`} />
-            <input
-              type="text"
-              placeholder={isMobile ? t.searchDots : t.searchByCodeNamePhone}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className={`w-full pl-10 pr-4 ${isMobile ? 'py-2' : 'py-2.5'} rounded-lg focus:outline-none focus:ring-2 ${responsive.body}`}
-              style={{ background: 'var(--ax-input)', border: '1px solid var(--ax-border)', color: 'var(--ax-text)' }}
-            />
-          </div>
-
-          {/* Single filter button → dropdown */}
-          <div className="relative">
-            <button
-              onClick={() => setShowFilterDropdown(v => !v)}
-              className={`${responsive.buttonSmall} font-medium whitespace-nowrap flex items-center gap-1.5 transition-colors`}
-              style={{
-                borderRadius: 10,
-                background: statusFilter !== 'all' ? 'linear-gradient(135deg, #7C5CF0, #5B3DD4)' : 'rgba(255,255,255,0.05)',
-                color: statusFilter !== 'all' ? '#FFFFFF' : '#8B8BAA',
-                border: statusFilter !== 'all' ? 'none' : '1px solid rgba(255,255,255,0.07)',
-                minWidth: 100,
-              }}
-            >
-              <span>
-                {statusFilter === 'all' ? (language === 'uz' ? 'Filtr' : 'Фильтр')
-                 : statusFilter === 'pending' ? t.waitingOrders
-                 : statusFilter === 'confirmed' ? t.confirmedOrders
-                 : statusFilter === 'shipped' ? t.shippedOrders
-                 : t.cancelledOrders}
-              </span>
-              <span style={{ fontSize: 10 }}>▼</span>
-            </button>
-
-            {showFilterDropdown && (
-              <div
-                className="absolute right-0 mt-1 rounded-xl overflow-hidden z-50"
-                style={{
-                  background: 'var(--ax-card)',
-                  border: '1px solid rgba(255,255,255,0.1)',
-                  boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
-                  minWidth: 170,
-                  top: '100%',
-                }}
-              >
-                {/* Status options */}
-                <div style={{ padding: '8px 0' }}>
-                  <div style={{ padding: '4px 12px 6px', fontSize: 10, color: 'var(--ax-text-2)', fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase' }}>
-                    {language === 'uz' ? 'Holat' : 'Статус'}
-                  </div>
-                  {(['all', 'pending', 'confirmed', 'shipped', 'cancelled'] as const).map((f) => (
-                    <button
-                      key={f}
-                      onClick={() => { setStatusFilter(f); setShowFilterDropdown(false); }}
-                      className="w-full text-left flex items-center gap-2 transition-colors"
-                      style={{
-                        padding: '8px 14px',
-                        background: statusFilter === f ? 'rgba(124,92,240,0.2)' : 'transparent',
-                        color: statusFilter === f ? '#A78BFA' : 'var(--ax-text)',
-                        fontSize: 13,
-                        cursor: 'pointer',
-                        border: 'none',
-                      }}
-                    >
-                      {statusFilter === f && <span style={{ fontSize: 10 }}>✓</span>}
-                      {f === 'all' ? t.all
-                       : f === 'pending' ? t.waitingOrders
-                       : f === 'confirmed' ? t.confirmedOrders
-                       : f === 'shipped' ? t.shippedOrders
-                       : t.cancelledOrders}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
+        {/* Row 3: поиск */}
+        <div className="relative" style={{ marginBottom: 10 }}>
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: 'var(--ax-text-3)' }} />
+          <input type="text" placeholder={isMobile ? t.searchDots : t.searchByCodeNamePhone} value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full pl-10 pr-4 py-2.5 rounded-xl focus:outline-none"
+            style={{ background: 'var(--ax-input)', border: '1px solid var(--ax-border)', color: 'var(--ax-text)', fontSize: 14 }} />
         </div>
 
-        {/* Click outside to close dropdown */}
-        {showFilterDropdown && (
-          <div className="fixed inset-0 z-40" onClick={() => setShowFilterDropdown(false)} />
-        )}
+        {/* Row 4: статусы-пилюли (горизонтальная прокрутка) */}
+        <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2, scrollbarWidth: 'none' }}>
+          {([
+            { key: 'all',       label: t.all,             accent: '#7C5CF0' },
+            { key: 'pending',   label: t.waitingOrders,   accent: '#FBBF24' },
+            { key: 'confirmed', label: t.confirmedOrders, accent: '#60A5FA' },
+            { key: 'shipped',   label: t.shippedOrders,   accent: '#38BDF8' },
+            { key: 'cancelled', label: t.cancelledOrders, accent: '#F87171' },
+          ] as const).map((p) => {
+            const on = statusFilter === p.key;
+            return (
+              <motion.button key={p.key} whileTap={{ scale: 0.94 }} onClick={() => setStatusFilter(p.key)}
+                style={{
+                  flexShrink: 0, padding: '7px 14px', borderRadius: 999, fontSize: 13, fontWeight: on ? 700 : 500, cursor: 'pointer', whiteSpace: 'nowrap',
+                  background: on ? p.accent : 'var(--ax-card)',
+                  color: on ? '#fff' : 'var(--ax-text-2)',
+                  border: `1px solid ${on ? p.accent : 'var(--ax-border)'}`,
+                  boxShadow: on ? `0 4px 14px ${p.accent}55` : 'none',
+                }}>
+                {p.label}
+              </motion.button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Orders List */}
       <div className={responsive.spacing}>
         {filteredOrders.length === 0 ? (
-          <div className={`text-center ${isMobile ? 'py-8' : 'py-12'} ${responsive.card}`} style={{ background: 'var(--ax-card)', border: '1px solid rgba(255,255,255,0.07)' }}>
-            <Package className={`${responsive.iconLarge} mx-auto text-gray-300 mb-4`} />
-            <p className={`text-gray-500 ${responsive.body}`}>{t.ordersNotFound}</p>
-          </div>
+          <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}
+            style={{ background: 'var(--ax-card)', border: '1px dashed var(--ax-border)', borderRadius: 16, padding: '48px 24px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, minHeight: 260, justifyContent: 'center' }}>
+            <span style={{ width: 64, height: 64, borderRadius: 18, background: 'var(--ax-primary-pale)', color: 'var(--ax-primary)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Package className="w-8 h-8" />
+            </span>
+            <div>
+              <p style={{ color: 'var(--ax-text)', fontSize: 16, fontWeight: 600, margin: 0 }}>{t.ordersNotFound}</p>
+              <p style={{ color: 'var(--ax-text-3)', fontSize: 13, marginTop: 4 }}>
+                {language === 'uz' ? 'Ushbu davr yoki filtr uchun buyurtma yoʻq' : 'За этот период или фильтр заказов нет'}
+              </p>
+            </div>
+          </motion.div>
         ) : (
           filteredOrders.map((order) => {
             const isExpanded = expandedOrderId === order.id;
