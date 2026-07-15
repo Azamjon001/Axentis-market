@@ -311,8 +311,7 @@ export default function ExpensesManager({ companyId, onCustomExpensesUpdate }: E
     );
   };
 
-  const renderCard = (expense: CustomExpense, index: number) => {
-    const colors = cardColors[index % cardColors.length];
+  const renderCard = (expense: CustomExpense, _index: number) => {
     const type: ExpenseType = expense.expense_type || 'monthly';
     const typeLabel = TYPE_LABELS[type];
     const isEditing = editingId === expense.id;

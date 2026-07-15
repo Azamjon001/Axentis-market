@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { motion } from 'motion/react';
 import { Package, TrendingDown, DollarSign, ChevronDown, ChevronUp, Clock, Download } from 'lucide-react';
 import api from '../utils/api';
 import { downloadCSV } from '../utils/csv';
@@ -391,100 +392,35 @@ export default function PurchaseAnalytics({ companyId }: PurchaseAnalyticsProps)
         )}
       </div>
 
-      {/* Statistics Cards */}
+      {/* Statistics Cards — анимированные */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
-        {/* Закупок */}
-        <div
-          style={{
-            background: 'var(--ax-card)',
-            border: '1px solid rgba(255,255,255,0.07)',
-            borderRadius: 16,
-            padding: 20,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div
-              style={{
-                padding: 12,
-                background: 'rgba(124,92,240,0.15)',
-                borderRadius: 12,
-                flexShrink: 0,
-              }}
-            >
-              <Package style={{ width: 22, height: 22, color: '#7C5CF0' }} />
+        {[
+          { icon: <Package style={{ width: 22, height: 22 }} />,      label: language === 'uz' ? 'Xaridlar' : 'Закупок',    value: `${stats.totalPurchases}`, accent: '#7C5CF0', big: 30 },
+          { icon: <TrendingDown style={{ width: 22, height: 22 }} />, label: language === 'uz' ? 'Tovarlar' : 'Товаров',    value: `${stats.totalQuantity}`,  accent: '#22C55E', big: 30 },
+          { icon: <DollarSign style={{ width: 22, height: 22 }} />,   label: language === 'uz' ? 'Sarflangan' : 'Потрачено', value: `${stats.totalCost.toLocaleString()} ${language === 'uz' ? "so'm" : 'сум'}`, accent: '#EF4444', big: 22 },
+        ].map((c, i) => (
+          <motion.div
+            key={i}
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 24, delay: i * 0.06 }}
+            whileHover={{ y: -3 }}
+            style={{
+              background: `linear-gradient(160deg, ${c.accent}12, var(--ax-card) 62%)`,
+              border: `1px solid ${c.accent}2E`, borderRadius: 16, padding: 20,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div style={{ padding: 12, background: `${c.accent}22`, color: c.accent, borderRadius: 12, flexShrink: 0, display: 'inline-flex' }}>
+                {c.icon}
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <p style={{ fontSize: 13, color: '#8B8BAA', fontWeight: 500, margin: 0 }}>{c.label}</p>
+                <p style={{ fontSize: c.big, fontWeight: 700, color: c.accent, margin: 0, lineHeight: 1.1, wordBreak: 'break-word' }}>{c.value}</p>
+              </div>
             </div>
-            <div>
-              <p style={{ fontSize: 13, color: '#8B8BAA', fontWeight: 500, margin: 0 }}>
-                {language === 'uz' ? 'Xaridlar' : 'Закупок'}
-              </p>
-              <p style={{ fontSize: 30, fontWeight: 700, color: '#7C5CF0', margin: 0, lineHeight: 1.1 }}>
-                {stats.totalPurchases}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Товаров */}
-        <div
-          style={{
-            background: 'var(--ax-card)',
-            border: '1px solid rgba(255,255,255,0.07)',
-            borderRadius: 16,
-            padding: 20,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div
-              style={{
-                padding: 12,
-                background: 'rgba(34,197,94,0.12)',
-                borderRadius: 12,
-                flexShrink: 0,
-              }}
-            >
-              <TrendingDown style={{ width: 22, height: 22, color: '#22C55E' }} />
-            </div>
-            <div>
-              <p style={{ fontSize: 13, color: '#8B8BAA', fontWeight: 500, margin: 0 }}>
-                {language === 'uz' ? 'Tovarlar' : 'Товаров'}
-              </p>
-              <p style={{ fontSize: 30, fontWeight: 700, color: '#22C55E', margin: 0, lineHeight: 1.1 }}>
-                {stats.totalQuantity}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Потрачено */}
-        <div
-          style={{
-            background: 'var(--ax-card)',
-            border: '1px solid rgba(255,255,255,0.07)',
-            borderRadius: 16,
-            padding: 20,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div
-              style={{
-                padding: 12,
-                background: 'rgba(239,68,68,0.12)',
-                borderRadius: 12,
-                flexShrink: 0,
-              }}
-            >
-              <DollarSign style={{ width: 22, height: 22, color: '#EF4444' }} />
-            </div>
-            <div>
-              <p style={{ fontSize: 13, color: '#8B8BAA', fontWeight: 500, margin: 0 }}>
-                {language === 'uz' ? 'Sarflangan' : 'Потрачено'}
-              </p>
-              <p style={{ fontSize: 22, fontWeight: 700, color: '#EF4444', margin: 0, lineHeight: 1.1 }}>
-                {stats.totalCost.toLocaleString()} {language === 'uz' ? "so'm" : 'сум'}
-              </p>
-            </div>
-          </div>
-        </div>
+          </motion.div>
+        ))}
       </div>
 
       {purchases.length === 0 ? (
@@ -507,7 +443,10 @@ export default function PurchaseAnalytics({ companyId }: PurchaseAnalyticsProps)
       ) : (
         <>
           {/* Recent Purchases Table */}
-          <div
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ type: 'spring', stiffness: 260, damping: 26, delay: 0.1 }}
             style={{
               background: 'var(--ax-card)',
               border: '1px solid rgba(255,255,255,0.07)',
@@ -701,7 +640,7 @@ export default function PurchaseAnalytics({ companyId }: PurchaseAnalyticsProps)
                 </tbody>
               </table>
             </div>
-          </div>
+          </motion.div>
 
           {/* 📈 Динамика закупок — во всю ширину, точки по всему периоду */}
           <div

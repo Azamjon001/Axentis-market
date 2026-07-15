@@ -1,5 +1,5 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
 import { Search, Check, X, Clock, Package, Phone, User, Receipt, DollarSign, RefreshCw, Calendar, MapPin, Navigation, Truck, TrendingUp } from 'lucide-react';
 import api from '../utils/api';
 import { formatUzbekistanFullDateTime } from '../utils/uzbekTime';
