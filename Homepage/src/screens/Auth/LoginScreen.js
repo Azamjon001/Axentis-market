@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator,
-  Alert, Animated, Dimensions,
+  Alert, Animated, Dimensions, Modal,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import Constants from 'expo-constants';
@@ -12,7 +12,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { requestOtp, verifyPrivateCode } from '../../api';
+import { getPolicy, acceptPolicy } from '../../api';
 
 const { width } = Dimensions.get('window');
 
@@ -87,6 +87,27 @@ export default function LoginScreen() {
   const [regPassVisible, setRegPassVisible] = useState(false);
   const [regConfirmVisible, setRegConfirmVisible] = useState(false);
   const [regLoading, setRegLoading] = useState(false);
+  // 📜 Политика конфиденциальности: согласие обязательно для регистрации
+  const [policyAccepted, setPolicyAccepted] = useState(false);
+  const [policyVisible, setPolicyVisible] = useState(false);
+  const [policyText, setPolicyText] = useState('');
+  const [policyLoading, setPolicyLoading] = useState(false);
+  const { language } = useLanguage();
+
+  const openPolicy = async () => {
+    setPolicyVisible(true);
+    if (policyText) return;
+    setPolicyLoading(true);
+    try {
+      const p = await getPolicy('customer');
+      const text = language === 'uz' && p?.contentUz ? p.contentUz : p?.contentRu;
+      setPolicyText(text || '');
+    } catch {
+      setPolicyText(language === 'uz' ? 'Matnni yuklab boʻlmadi' : 'Не удалось загрузить текст');
+    } finally {
+      setPolicyLoading(false);
+    }
+  };
 
   const switchTab = (newTab) => {
     setTab(newTab);
@@ -121,7 +142,8 @@ export default function LoginScreen() {
     regSurname.trim().length >= 2 &&
     isRegPhoneValid &&
     regPassword.length >= 6 &&
-    regPassword === regConfirm;
+    regPassword === regConfirm &&
+    policyAccepted; // 📜 без согласия с политикой регистрация недоступна
 
   // Доп. параметры входа/регистрации для закрытой компании.
   const authExtra = () =>
@@ -234,7 +256,9 @@ export default function LoginScreen() {
     setRegLoading(true);
     try {
       const phone = getCleanPhone(regPhone);
-      await register(phone, regName.trim(), regSurname.trim(), regPassword, authExtra());
+      await register(phone, regName.trim(), regSurname.trim(), regPassword);
+      // 📜 Фиксируем принятие политики (документальное подтверждение согласия)
+      acceptPolicy('customer', phone).catch(() => { /* не критично */ });
     } catch (err) {
       const status = err?.response?.status;
       const serverMsg = err?.response?.data?.error;
@@ -610,6 +634,33 @@ export default function LoginScreen() {
                   <Text style={[styles.errorHint, { color: colors.error }]}>{t('passwordMismatch')}</Text>
                 )}
 
+                {/* 📜 Согласие с политикой конфиденциальности */}
+                <TouchableOpacity
+                  style={styles.policyRow}
+                  onPress={() => setPolicyAccepted(v => !v)}
+                  activeOpacity={0.8}
+                >
+                  <View style={[
+                    styles.policyCheckbox,
+                    {
+                      borderColor: policyAccepted ? colors.primary : colors.border,
+                      backgroundColor: policyAccepted ? colors.primary : 'transparent',
+                    },
+                  ]}>
+                    {policyAccepted && <Ionicons name="checkmark" size={14} color="#fff" />}
+                  </View>
+                  <Text style={[styles.policyText, { color: colors.textSecondary }]}>
+                    {language === 'uz' ? 'Men ' : 'Я принимаю '}
+                    <Text
+                      style={{ color: colors.primary, fontWeight: '600', textDecorationLine: 'underline' }}
+                      onPress={openPolicy}
+                    >
+                      {language === 'uz' ? 'maxfiylik siyosati' : 'политику конфиденциальности'}
+                    </Text>
+                    {language === 'uz' ? 'ni qabul qilaman' : ''}
+                  </Text>
+                </TouchableOpacity>
+
                 <TouchableOpacity
                   style={[styles.btn, { backgroundColor: isRegValid ? colors.primary : colors.border, marginTop: 8 }]}
                   onPress={handleRegister}
@@ -634,10 +685,49 @@ export default function LoginScreen() {
 
           <Text style={[styles.disclaimer, { color: colors.textMuted }]}>
             {t('terms')}{' '}
-            <Text style={{ color: colors.primary }}>{t('termsLink')}</Text>
+            <Text style={{ color: colors.primary }} onPress={openPolicy}>{t('termsLink')}</Text>
           </Text>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* 📜 Модал с текстом политики конфиденциальности */}
+      <Modal visible={policyVisible} animationType="slide" transparent onRequestClose={() => setPolicyVisible(false)}>
+        <View style={styles.policyOverlay}>
+          <View style={[styles.policySheet, { backgroundColor: colors.surface }]}>
+            <View style={styles.policyHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Ionicons name="shield-checkmark-outline" size={20} color={colors.primary} />
+                <Text style={[styles.policyTitle, { color: colors.text }]}>
+                  {language === 'uz' ? 'Maxfiylik siyosati' : 'Политика конфиденциальности'}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setPolicyVisible(false)}>
+                <Ionicons name="close" size={24} color={colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+            {policyLoading ? (
+              <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+                <ActivityIndicator color={colors.primary} />
+              </View>
+            ) : (
+              // flex:1 в фиксированном по высоте sheet — иначе на вебе ScrollView
+              // не получает ограничение высоты и текст «зависает» без прокрутки.
+              <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 8 }} showsVerticalScrollIndicator>
+                <Text style={[styles.policyBody, { color: colors.text }]}>{policyText}</Text>
+              </ScrollView>
+            )}
+            <TouchableOpacity
+              style={[styles.btn, { backgroundColor: colors.primary, marginTop: 12 }]}
+              onPress={() => { setPolicyAccepted(true); setPolicyVisible(false); }}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.btnText}>
+                {language === 'uz' ? 'Qabul qilaman' : 'Принимаю'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -719,4 +809,22 @@ const styles = StyleSheet.create({
   privateHint: { fontSize: 12, marginTop: -6, marginBottom: 8 },
   errorHint: { fontSize: 12, marginTop: -10, marginBottom: 10 },
   disclaimer: { textAlign: 'center', fontSize: 12, marginTop: 24, lineHeight: 18 },
+  // 📜 Политика конфиденциальности
+  policyRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: 2, marginBottom: 4 },
+  policyCheckbox: {
+    width: 20, height: 20, borderRadius: 6, borderWidth: 1.5,
+    alignItems: 'center', justifyContent: 'center', marginTop: 1,
+  },
+  policyText: { flex: 1, fontSize: 13, lineHeight: 19 },
+  policyOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
+  policySheet: {
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    padding: 20, paddingBottom: 28,
+    // Фиксированная высота (не maxHeight): даёт ScrollView внутри реальную
+    // границу — прокрутка текста работает и на native, и в веб-сборке.
+    height: '85%',
+  },
+  policyHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  policyTitle: { fontSize: 17, fontWeight: '700' },
+  policyBody: { fontSize: 13.5, lineHeight: 21 },
 });

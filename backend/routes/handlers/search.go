@@ -34,7 +34,10 @@ func SearchProducts(db *sql.DB) gin.HandlerFunc {
 		// категория прямо в поисковой выдаче.
 		filters := ""
 		args := []interface{}{q}
-		arg := 2
+		// 🔐 Изоляция режимов: публичный поиск — только публичные компании;
+		// закрытое приложение ищет строго среди товаров своей компании.
+		modeCond := modeCondition(c, "c", &args)
+		arg := len(args) + 1
 		addF := func(cond string, val interface{}) {
 			filters += " AND " + strings.Replace(cond, "?", "$"+strconv.Itoa(arg), 1)
 			args = append(args, val)
@@ -97,7 +100,7 @@ func SearchProducts(db *sql.DB) gin.HandlerFunc {
 			FROM products p
 			LEFT JOIN companies c ON p.company_id = c.id
 			WHERE p.available_for_customers = TRUE
-			  AND `+visibility+`
+			  AND `+modeCond+`
 			  AND p.name NOT LIKE '__CATEGORY_MARKER__%'
 			  AND (
 			        p.article = $1
@@ -163,12 +166,11 @@ func SuggestProducts(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		// Видимость: закрытые компании не должны светиться даже в подсказках
-		// (бренды/категории раньше не фильтровались по компании — утечка).
+		// 🔐 Изоляция режимов во всех ветках подсказок: раньше бренды и категории
+		// не фильтровались по режиму — названия брендов/категорий закрытых
+		// компаний утекали в публичное автодополнение.
 		args := []interface{}{q}
-		argN := 2
-		visibility := visibilityCond(c, "c", &args, &argN)
-
+		modeCond := modeCondition(c, "c", &args)
 		rows, err := db.Query(`
 			SELECT s.label, s.kind, SUM(s.weight) AS w
 			FROM (
@@ -176,7 +178,7 @@ func SuggestProducts(db *sql.DB) gin.HandlerFunc {
 				FROM products p
 				LEFT JOIN companies c ON p.company_id = c.id
 				WHERE p.available_for_customers = TRUE
-				  AND `+visibility+`
+				  AND `+modeCond+`
 				  AND p.name NOT LIKE '__CATEGORY_MARKER__%'
 				  AND (p.name ILIKE $1 || '%' OR p.name ILIKE '% ' || $1 || '%' OR word_similarity($1, p.name) > 0.4)
 				UNION ALL
@@ -184,14 +186,14 @@ func SuggestProducts(db *sql.DB) gin.HandlerFunc {
 				FROM products p
 				LEFT JOIN companies c ON p.company_id = c.id
 				WHERE COALESCE(p.brand, '') <> '' AND p.available_for_customers = TRUE
-				  AND `+visibility+`
+				  AND `+modeCond+`
 				  AND p.brand ILIKE $1 || '%'
 				UNION ALL
 				SELECT p.category AS label, 'category' AS kind, COALESCE(p.sold_count, 0) + 1 AS weight
 				FROM products p
 				LEFT JOIN companies c ON p.company_id = c.id
 				WHERE COALESCE(p.category, '') <> '' AND p.available_for_customers = TRUE
-				  AND `+visibility+`
+				  AND `+modeCond+`
 				  AND p.category ILIKE $1 || '%'
 			) s
 			GROUP BY s.label, s.kind

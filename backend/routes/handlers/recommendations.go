@@ -108,9 +108,10 @@ func GetRecentlyViewed(db *sql.DB) gin.HandlerFunc {
 		if v, err := strconv.Atoi(c.Query("limit")); err == nil && v > 0 && v <= 50 {
 			limit = v
 		}
+		// 🔐 Изоляция режимов: закрытому приложению показываем недавно
+		// просмотренные товары только его компании.
 		args := []interface{}{phone}
-		argN := 2
-		visibility := visibilityCond(c, "c", &args, &argN)
+		modeCond := modeCondition(c, "c", &args)
 		args = append(args, limit)
 		rows, err := db.Query(`
 			SELECT `+productCardSelect+`
@@ -118,9 +119,9 @@ func GetRecentlyViewed(db *sql.DB) gin.HandlerFunc {
 			JOIN products p ON p.id = vv.product_id
 			LEFT JOIN companies c ON c.id = p.company_id
 			WHERE vv.user_phone = $1 AND p.available_for_customers = true
-			  AND `+visibility+`
+			  AND `+modeCond+`
 			ORDER BY vv.last_viewed_at DESC
-			LIMIT $`+strconv.Itoa(argN)+`
+			LIMIT $`+strconv.Itoa(len(args))+`
 		`, args...)
 		if err != nil {
 			c.JSON(http.StatusOK, []interface{}{})
@@ -140,9 +141,10 @@ func GetRecommendations(db *sql.DB) gin.HandlerFunc {
 		if v, err := strconv.Atoi(c.Query("limit")); err == nil && v > 0 && v <= 50 {
 			limit = v
 		}
+		// 🔐 Изоляция режимов: в закрытом приложении рекомендуем только товары
+		// закреплённой компании; в публичных клиентах — только публичные.
 		args := []interface{}{phone}
-		argN := 2
-		visibility := visibilityCond(c, "c", &args, &argN)
+		modeCond := modeCondition(c, "c", &args)
 		args = append(args, limit)
 		rows, err := db.Query(`
 			WITH interests AS (
@@ -158,14 +160,14 @@ func GetRecommendations(db *sql.DB) gin.HandlerFunc {
 			FROM products p
 			LEFT JOIN companies c ON c.id = p.company_id
 			WHERE p.available_for_customers = true
-			  AND `+visibility+`
+			  AND `+modeCond+`
 			  AND (
 			      p.category IN (SELECT cat FROM interests WHERE cat <> '')
 			      OR COALESCE(p.brand,'') IN (SELECT brand FROM interests WHERE brand <> '')
 			  )
 			  AND p.id NOT IN (SELECT product_id FROM product_views WHERE user_phone = $1)
 			ORDER BY COALESCE(p.sold_count,0) DESC, p.created_at DESC
-			LIMIT $`+strconv.Itoa(argN)+`
+			LIMIT $`+strconv.Itoa(len(args))+`
 		`, args...)
 		if err != nil {
 			c.JSON(http.StatusOK, []interface{}{})

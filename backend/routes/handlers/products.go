@@ -116,11 +116,95 @@ func GetProducts(db *sql.DB) gin.HandlerFunc {
 				// компании ИЛИ регион из списка доставки service_regions). Если ни одна
 				// компания не выбрала регион покупателя — товаров не будет (как и задумано).
 				region := strings.TrimSpace(c.Query("region"))
-				log.Printf("🌐 GetProducts: Public mode, limit=%d offset=%d region=%q personalized=%v", limit, offset, region, phone != "")
-				query += " AND (c.mode = 'public' OR c.mode IS NULL)"
+				// 📍 Дополнительно: координаты покупателя. Точка сверяется с границами,
+				// нарисованными админом (таблица regions), — компания совпадает, если
+				// выбрала эту зону (region_id или её название в region/service_regions).
+				var matchedRegions []MatchedRegion
+				hasCoords := false
+				if latStr, lngStr := c.Query("lat"), c.Query("lng"); latStr != "" && lngStr != "" {
+					lat, errLat := strconv.ParseFloat(latStr, 64)
+					lng, errLng := strconv.ParseFloat(lngStr, 64)
+					if errLat == nil && errLng == nil {
+						hasCoords = true
+						matchedRegions = ResolveRegionsAtPoint(db, lat, lng)
+					}
+				}
+				log.Printf("🌐 GetProducts: Public mode, limit=%d offset=%d region=%q coords=%v matchedZones=%d", limit, offset, region, hasCoords, len(matchedRegions))
+				query := `
+					SELECT p.id, p.company_id, p.name, p.quantity, p.price, p.markup_percent,
+					       COALESCE(
+					           NULLIF((SELECT MIN(pv.selling_price) FROM product_variants pv WHERE pv.product_id = p.id AND pv.selling_price > 0), 0),
+					           NULLIF(p.selling_price, 0),
+					           p.price * (1.0 + COALESCE(p.markup_percent, 0) / 100.0)
+					       ) as selling_price,
+					       p.markup_amount, p.barcode, p.barid, p.category, p.images,
+					       p.description, p.color, p.size, p.brand, p.has_color_options, p.available_for_customers, p.sold_count, p.created_at, p.updated_at,
+					       c.name as company_name,
+					       COALESCE((SELECT AVG(cr.rating) FROM company_ratings cr WHERE cr.company_id = c.id), 0) as company_rating,
+					       ` + productLevelDiscountSubqueries + `,
+					       ` + promotedExpr + ` AS is_promoted
+					FROM products p
+					LEFT JOIN companies c ON p.company_id = c.id
+					WHERE p.available_for_customers = true
+					  AND (c.mode = 'public' OR c.mode IS NULL)`
+				args := []interface{}{}
+				// Компания подходит, если обслуживает регион покупателя ЛЮБЫМ из способов:
+				// текстовое название области (reverse-геокодинг / ручной выбор),
+				// зона админа по имени/ID, родительская зона или область,
+				// которой принадлежит зона (ExpandBuyerRegion).
+				regionConds := []string{}
+				seenNames := map[string]bool{}
+				addNameCond := func(name string) {
+					name = strings.TrimSpace(name)
+					if name == "" || seenNames[strings.ToLower(name)] {
+						return
+					}
+					seenNames[strings.ToLower(name)] = true
+					args = append(args, name)
+					n := len(args)
+					regionConds = append(regionConds, fmt.Sprintf("(c.region = $%d OR c.service_regions @> to_jsonb($%d::text))", n, n))
+				}
+				seenZoneIDs := map[int64]bool{}
+				addZoneIDCond := func(id int64) {
+					if seenZoneIDs[id] {
+						return
+					}
+					seenZoneIDs[id] = true
+					args = append(args, id)
+					regionConds = append(regionConds, fmt.Sprintf("c.region_id = $%d", len(args)))
+				}
 				if region != "" {
-					args = append(args, region)
-					query += fmt.Sprintf(" AND (c.region = $%d OR c.service_regions @> to_jsonb($%d::text))", len(args), len(args))
+					// Ручной выбор/reverse-геокод: разворачиваем название в зоны
+					// админа (ru/uz, с родителями) и текстовую область — иначе
+					// покупатель из «Карасу» не видел компании, обслуживающие
+					// «Андижанскую область», и наоборот.
+					zoneIDs, names := ExpandBuyerRegion(db, region)
+					for _, n := range names {
+						addNameCond(n)
+					}
+					for _, id := range zoneIDs {
+						addZoneIDCond(id)
+					}
+				}
+				for _, m := range matchedRegions {
+					addZoneIDCond(m.ID)
+					addNameCond(m.Name)
+					if m.NameUz != "" && m.NameUz != m.Name {
+						addNameCond(m.NameUz)
+					}
+					// Зона → текстовая область («Карасу» → «Андижанская область»):
+					// GPS-покупатель видит компании с областным выбором, даже если
+					// reverse-геокодинг не сработал.
+					if oblast := matchOblastName(m.Name); oblast != "" {
+						addNameCond(oblast)
+					}
+				}
+				if len(regionConds) > 0 {
+					query += " AND (" + strings.Join(regionConds, " OR ") + ")"
+				} else if hasCoords {
+					// Координаты переданы, но точка вне всех зон и области нет —
+					// строгая региональность: не показываем чужие товары.
+					query += " AND FALSE"
 				}
 			}
 
@@ -404,6 +488,14 @@ func GetProductByID(db *sql.DB) gin.HandlerFunc {
 		if err != nil {
 			log.Printf("❌ GetProductByID error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product"})
+			return
+		}
+
+		// 🔐 Прямой доступ по ID к товару закрытой компании — только своим.
+		// Публичный/чужой клиент не должен видеть приватный товар даже по ссылке.
+		var compMode string
+		if db.QueryRow(`SELECT COALESCE(mode, 'public') FROM companies WHERE id = $1`, p.CompanyID).Scan(&compMode); compMode == "private" && !mayAccessPrivateCompany(c, p.CompanyID) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
 			return
 		}
 
@@ -982,9 +1074,11 @@ func GetSimilarProducts(db *sql.DB) gin.HandlerFunc {
 
 		whereClause := strings.Join(conditions, " OR ")
 
-		// Видимость: товары закрытых компаний не подмешиваются публичным
-		// покупателям (и наоборот — закрытый режим видит только свою компанию).
-		visibility := visibilityCond(c, "c", &args, &argIndex)
+		// 🔐 Изоляция режимов: похожие товары — только из компаний того же режима
+		// (публичные для публичных клиентов, закрытая — только своя).
+		modeCond := modeCondition(c, "c", &args)
+		catPlaceholder := len(args) + 1
+		limitPlaceholder := len(args) + 2
 
 		query := fmt.Sprintf(`
 			SELECT
@@ -1004,7 +1098,7 @@ func GetSimilarProducts(db *sql.DB) gin.HandlerFunc {
 				p.sold_count DESC,
 				p.created_at DESC
 			LIMIT $%d
-		`, visibility, whereClause, argIndex, argIndex+1)
+		`, modeCond, whereClause, catPlaceholder, limitPlaceholder)
 
 		// Добавляем категорию и лимит в аргументы
 		categoryValue := ""

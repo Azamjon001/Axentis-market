@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { useQueryClient } from '@tanstack/react-query';
 import { invalidateCache } from '../utils/productsCache';
-import { Upload, Edit2, Trash2, Package, Plus, X, Check, Search, Download, Image as ImageIcon, ShoppingCart } from 'lucide-react';
+import { Upload, Edit2, Trash2, Package, Plus, X, Check, Search, Download, Image as ImageIcon, ShoppingCart, HelpCircle } from 'lucide-react';
 import api, { API_BASE, getImageUrl } from '../utils/api';
 import { useCompanyProducts, ramCache } from '../utils/cache';
 import ImageUploader from './ImageUploader';
@@ -71,6 +71,8 @@ export const DigitalWarehouse: React.FC<DigitalWarehouseProps> = ({ companyId })
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
+  // ❔ Краткая справка по импорту/добавлению — открывается по иконке вопроса
+  const [showImportHelp, setShowImportHelp] = useState(false);
   const [newProduct, setNewProduct] = useState({ name: '', category: '', price: 0 });
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -2339,18 +2341,44 @@ export const DigitalWarehouse: React.FC<DigitalWarehouseProps> = ({ companyId })
           )}
         </div>
 
-        {/* Help text */}
-        <div className="import-help-panel rounded-xl p-4 mb-6 border border-gray-200 dark:border-gray-700">
-          <p className="mb-2 text-gray-800 dark:text-gray-200">
-            <strong>{t.exampleLabel}</strong><br />
-            <code className="import-help-code text-gray-800 dark:text-gray-200 px-2 py-1 rounded">iPhone 14 | 5000000 | 10 | 15 | 1234567890 | 12345</code>
-          </p>
-          <p className="text-gray-600 dark:text-gray-400">
-            {t.maxQuantityInfo}<br />
-            {t.markupInfo}<br />
-            {t.baridInfo}<br />
-            {t.consoleDetails}
-          </p>
+        {/* ❔ Справка по импорту — компактная иконка вместо постоянного блока */}
+        <div className="relative flex justify-end mb-6">
+          <button
+            onClick={() => setShowImportHelp(prev => !prev)}
+            className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors"
+            style={{ color: 'var(--ax-text-2, #8B8BAA)', background: 'var(--ax-input, rgba(255,255,255,0.05))', border: '1px solid rgba(255,255,255,0.08)' }}
+            aria-expanded={showImportHelp}
+            aria-label={language === 'uz' ? 'Import boʻyicha yordam' : 'Справка по импорту'}
+          >
+            <HelpCircle className="w-4 h-4" />
+            {language === 'uz' ? 'Yordam' : 'Справка'}
+          </button>
+          {showImportHelp && (
+            <div
+              className="absolute bottom-full right-0 mb-2 w-80 max-w-[90vw] rounded-xl p-4 z-30 shadow-2xl"
+              style={{ background: 'var(--ax-card, #13132A)', border: '1px solid rgba(124,92,240,0.35)' }}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-bold" style={{ color: 'var(--ax-text, #fff)' }}>
+                  {language === 'uz' ? 'Qisqacha maʼlumot' : 'Краткая информация'}
+                </span>
+                <button onClick={() => setShowImportHelp(false)} aria-label="close" style={{ color: 'var(--ax-text-2, #8B8BAA)' }}>
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <p className="mb-2 text-xs" style={{ color: 'var(--ax-text, #E7E7F5)' }}>
+                <strong>{t.exampleLabel}</strong><br />
+                <code className="import-help-code px-2 py-1 rounded text-[11px] break-all" style={{ background: 'rgba(255,255,255,0.06)' }}>
+                  iPhone 14 | 5000000 | 10 | 15 | 1234567890 | 12345
+                </code>
+              </p>
+              <p className="text-xs leading-relaxed" style={{ color: 'var(--ax-text-2, #8B8BAA)' }}>
+                {t.maxQuantityInfo}<br />
+                {t.markupInfo}<br />
+                {t.baridInfo}
+              </p>
+            </div>
+          )}
         </div>
       </div>
 

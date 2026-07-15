@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Receipt, Save, X, TrendingDown, Plus, Trash2, Calendar, Clock, DollarSign, Edit2, Percent, AlertCircle } from 'lucide-react';
+import { Receipt, Save, X, TrendingDown, Plus, Trash2, Calendar, Clock, DollarSign, Edit2, Percent, AlertCircle, ChevronRight } from 'lucide-react';
 import { getCurrentLanguage, useTranslation, type Language } from '../utils/translations';
 import { getAuthToken } from '../utils/api';
 
@@ -51,6 +51,9 @@ export default function ExpensesManager({ companyId, onCustomExpensesUpdate }: E
   const [loadingCustom, setLoadingCustom] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  // 🔻 Разовые расходы не занимают место крупными карточками — открываются
+  // мини-панелью по кнопке
+  const [showOneTimePanel, setShowOneTimePanel] = useState(false);
 
   const emptyForm = {
     expense_name: '',
@@ -84,6 +87,11 @@ export default function ExpensesManager({ companyId, onCustomExpensesUpdate }: E
   const totalMonthlyFull = useMemo(() =>
     monthlyExpenses.reduce((sum, e) => sum + (e.monthly_amount || 0), 0),
     [monthlyExpenses]
+  );
+
+  const totalOneTime = useMemo(() =>
+    oneTimeExpenses.reduce((sum, e) => sum + (e.amount || 0), 0),
+    [oneTimeExpenses]
   );
 
   useEffect(() => { loadExpenses(); }, [companyId]);
@@ -605,18 +613,136 @@ export default function ExpensesManager({ companyId, onCustomExpensesUpdate }: E
             </div>
           )}
 
-          {/* One-time */}
+          {/* One-time: компактная кнопка вместо крупных карточек — детали в мини-панели */}
           {oneTimeExpenses.length > 0 && (
-            <div>
-              <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-                <AlertCircle className="w-4 h-4" />
-                {language === 'uz' ? 'Bir martalik xarajatlar' : 'Разовые расходы'}
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {oneTimeExpenses.map((e, i) => renderCard(e, monthlyExpenses.length + percentageExpenses.length + i))}
-              </div>
-            </div>
+            <button
+              onClick={() => setShowOneTimePanel(true)}
+              className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl border-2 border-orange-200 dark:border-orange-700 bg-orange-50 dark:bg-orange-900/20 hover:border-orange-400 dark:hover:border-orange-500 transition-colors text-left"
+            >
+              <span className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center shrink-0 shadow-md">
+                <AlertCircle className="w-5 h-5 text-white" />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block text-sm font-semibold text-gray-800 dark:text-gray-100">
+                  {language === 'uz' ? 'Bir martalik xarajatlar' : 'Разовые расходы'}
+                  <span className="ml-2 text-xs font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300">
+                    {oneTimeExpenses.length}
+                  </span>
+                </span>
+                <span className="block text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  {language === 'uz' ? 'Jami' : 'Всего'}: {formatPrice(totalOneTime)} · {language === 'uz' ? 'Batafsil koʻrish' : 'Нажмите, чтобы посмотреть детали'}
+                </span>
+              </span>
+              <ChevronRight className="w-5 h-5 text-orange-500 shrink-0" />
+            </button>
           )}
+        </div>
+      )}
+
+      {/* 🔻 Мини-панель: детали разовых расходов */}
+      {showOneTimePanel && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => { setShowOneTimePanel(false); setEditingId(null); }}>
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+            {/* Заголовок */}
+            <div className="flex items-center justify-between gap-3 p-5 border-b border-gray-200 dark:border-gray-700 shrink-0">
+              <div className="flex items-center gap-3">
+                <span className="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center shrink-0">
+                  <AlertCircle className="w-4 h-4 text-white" />
+                </span>
+                <div>
+                  <h3 className="text-base font-bold dark:text-white">
+                    {language === 'uz' ? 'Bir martalik xarajatlar' : 'Разовые расходы'}
+                  </h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {oneTimeExpenses.length} {language === 'uz' ? 'ta yozuv' : 'записей'} · {formatPrice(totalOneTime)}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => { setShowOneTimePanel(false); setEditingId(null); }}
+                className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                aria-label="close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Список разовых расходов */}
+            <div className="overflow-y-auto p-4 space-y-2">
+              {oneTimeExpenses.map((e) => (
+                <div key={e.id} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 p-3.5">
+                  {editingId === e.id ? (
+                    <div className="space-y-3">
+                      <input
+                        type="text"
+                        value={editForm.expense_name}
+                        onChange={ev => setEditForm({ ...editForm, expense_name: ev.target.value })}
+                        className="w-full px-3 py-2 border-2 border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white rounded-lg text-sm"
+                        placeholder={t.expenseName}
+                      />
+                      {renderAmountFields(editForm, setEditForm)}
+                      <input
+                        type="text"
+                        value={editForm.description}
+                        onChange={ev => setEditForm({ ...editForm, description: ev.target.value })}
+                        className="w-full px-3 py-2 border-2 border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white rounded-lg text-sm"
+                        placeholder={t.descriptionOptional}
+                      />
+                      <div className="flex gap-2">
+                        <button onClick={() => handleSaveEdit(e.id)} className="flex-1 flex items-center justify-center gap-1 bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 text-sm font-medium">
+                          <Save className="w-3 h-3" /> {t.save}
+                        </button>
+                        <button onClick={() => setEditingId(null)} className="flex-1 flex items-center justify-center gap-1 bg-gray-500 text-white px-3 py-2 rounded-lg hover:bg-gray-600 text-sm font-medium">
+                          <X className="w-3 h-3" /> {t.cancel}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate" title={e.expense_name}>
+                          {e.expense_name}
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          <Calendar className="w-3 h-3 shrink-0" />
+                          {e.expense_date
+                            ? new Date(e.expense_date).toLocaleDateString(language === 'uz' ? 'uz-UZ' : 'ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
+                            : '—'}
+                        </div>
+                        {e.description && (
+                          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 truncate" title={e.description}>{e.description}</div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-sm font-bold text-orange-600 dark:text-orange-400 whitespace-nowrap">
+                          {formatPrice(e.amount || 0)}
+                        </span>
+                        <button onClick={() => handleStartEdit(e)} className="p-1.5 bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-200 transition-colors" aria-label="edit">
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={() => handleDelete(e.id)} className="p-1.5 bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-200 transition-colors" aria-label="delete">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {oneTimeExpenses.length === 0 && (
+                <p className="text-center text-sm text-gray-500 dark:text-gray-400 py-6">
+                  {language === 'uz' ? 'Bir martalik xarajatlar yoʻq' : 'Разовых расходов нет'}
+                </p>
+              )}
+            </div>
+
+            {/* Итог */}
+            <div className="flex items-center justify-between gap-3 px-5 py-4 border-t border-gray-200 dark:border-gray-700 shrink-0">
+              <span className="text-sm font-medium text-gray-600 dark:text-gray-300">
+                {language === 'uz' ? 'Jami bir martalik' : 'Итого разовых'}
+              </span>
+              <span className="text-base font-bold text-orange-600 dark:text-orange-400">{formatPrice(totalOneTime)}</span>
+            </div>
+          </div>
         </div>
       )}
 

@@ -25,15 +25,10 @@ func GetFrequentlyBoughtWith(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
-		// Точное совпадение по элементам JSONB-массива (прежний LIKE по тексту
-		// давал ложные срабатывания: товар 12 «совпадал» со 120, а из-за
-		// приоритета AND/OR игнорировался фильтр статуса; вдобавок запросу
-		// передавалось два аргумента при одном плейсхолдере — Postgres такое
-		// отклонял, и ручка всегда возвращала пустой список).
+		// 🔐 Изоляция режимов: сопутствующие товары берём только из компаний того
+		// же режима (публичные — для публичных клиентов, закрытая — для своей).
 		args := []interface{}{productID}
-		argN := 2
-		visibility := visibilityCond(c, "c", &args, &argN)
-
+		modeCond := modeCondition(c, "c", &args)
 		rows, err := db.Query(`
 			WITH orders_with_product AS (
 				SELECT id, items FROM orders
@@ -65,7 +60,7 @@ func GetFrequentlyBoughtWith(db *sql.DB) gin.HandlerFunc {
 			JOIN   products p ON p.id = oi.pid::bigint
 			LEFT JOIN companies c ON c.id = p.company_id
 			WHERE  p.available_for_customers = TRUE
-			  AND  `+visibility+`
+			  AND  `+modeCond+`
 			GROUP BY p.id, p.name, p.selling_price, p.price, p.images, p.sold_count, c.name
 			ORDER BY co_count DESC, sold_count DESC
 			LIMIT 8
@@ -299,30 +294,28 @@ func GetPersonalizedFeed(db *sql.DB) gin.HandlerFunc {
 		limit := 40
 
 		if phone == "" {
-			// Гость — просто популярные
-			args := []interface{}{}
-			argN := 1
-			visibility := visibilityCond(c, "c", &args, &argN)
-			args = append(args, limit)
+			// Гость — просто популярные (с изоляцией режима).
+			argsG := []interface{}{}
+			modeCondG := modeCondition(c, "c", &argsG)
+			argsG = append(argsG, limit)
 			rows, _ := db.Query(`
 				SELECT p.id, p.name,
 				       COALESCE(NULLIF((SELECT MIN(pv.selling_price) FROM product_variants pv WHERE pv.product_id = p.id AND pv.selling_price > 0),0), NULLIF(p.selling_price,0), p.price) AS price,
 				       p.images, COALESCE(p.sold_count,0), p.category, COALESCE(c.name,'') AS company_name
 				FROM products p
 				LEFT JOIN companies c ON c.id = p.company_id
-				WHERE p.available_for_customers = TRUE AND `+visibility+`
+				WHERE p.available_for_customers = TRUE AND `+modeCondG+`
 				ORDER BY sold_count DESC, p.created_at DESC
-				LIMIT $`+strconv.Itoa(argN)+`
-			`, args...)
+				LIMIT $`+strconv.Itoa(len(argsG))+`
+			`, argsG...)
 			c.JSON(http.StatusOK, scanProductRows(rows))
 			return
 		}
 
 		// Извлекаем категории и бренды из истории заказов
-		feedArgs := []interface{}{phone}
-		feedArgN := 2
-		feedVisibility := visibilityCond(c, "c", &feedArgs, &feedArgN)
-		feedArgs = append(feedArgs, limit)
+		args := []interface{}{phone}
+		modeCond := modeCondition(c, "c", &args)
+		args = append(args, limit)
 		rows, err := db.Query(`
 			WITH user_history AS (
 				SELECT elem->>'productId' AS pid
@@ -347,13 +340,13 @@ func GetPersonalizedFeed(db *sql.DB) gin.HandlerFunc {
 			FROM products p
 			LEFT JOIN companies c ON c.id = p.company_id
 			WHERE p.available_for_customers = TRUE
-			  AND `+feedVisibility+`
+			  AND `+modeCond+`
 			  AND p.id NOT IN (
 			      SELECT DISTINCT h.pid::bigint FROM user_history h WHERE h.pid ~ '^[0-9]+$'
 			  )
 			ORDER BY relevance DESC, p.sold_count DESC, p.created_at DESC
-			LIMIT $`+strconv.Itoa(feedArgN)+`
-		`, feedArgs...)
+			LIMIT $`+strconv.Itoa(len(args))+`
+		`, args...)
 		if err != nil {
 			log.Printf("❌ PersonalizedFeed: %v", err)
 			c.JSON(http.StatusOK, []interface{}{})

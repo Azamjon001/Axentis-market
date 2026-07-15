@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { ChevronDown, ChevronUp, TrendingUp, AlertTriangle, Package } from 'lucide-react';
+import { ChevronDown, ChevronUp, TrendingUp, AlertTriangle, Package, Layers, Crown } from 'lucide-react';
 import { getCurrentLanguage, useTranslation, type Language } from '../utils/translations';
 
 interface Product {
@@ -32,6 +32,21 @@ interface SaleItem {
   quantity: number;
 }
 
+// 📦 Продажи в разрезе SKU-варианта (цвет/размер) конкретного товара
+interface VariantStat {
+  label: string;     // «Синий · 256 ГБ» или «Стандарт»
+  totalSold: number;
+  revenue: number;
+  profit: number;    // наценка: (цена продажи − закупка) × кол-во
+}
+
+interface TopProductEntry {
+  name: string;
+  totalSold: number;
+  revenue: number;
+  variants: VariantStat[];
+}
+
 interface AdvancedInsightsPanelProps {
   products: Product[];
   customerOrders: any[];
@@ -52,10 +67,12 @@ export default function AdvancedInsightsPanel({ products, customerOrders, salesH
   }, []);
 
   const [isOpen, setIsOpen] = useState(false);
-  const [topProducts, setTopProducts] = useState<Array<{ name: string; totalSold: number; revenue: number }>>([]);
+  const [topProducts, setTopProducts] = useState<TopProductEntry[]>([]);
   const [lowStockProducts, setLowStockProducts] = useState<Array<{ name: string; quantity: number; price: number; threshold: number }>>([]);
   const [rankingMode, setRankingMode] = useState<'quantity' | 'revenue' | 'expensive' | 'cheap' | 'leastSold'>('quantity'); // 🆕 Режим рейтинга
   const [topCount, setTopCount] = useState(20); // 🆕 TOP-20
+  // 🔎 Раскрытые товары: показываем SKU-варианты по кнопке «Подробнее»
+  const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     calculateTopProducts();
@@ -64,7 +81,34 @@ export default function AdvancedInsightsPanel({ products, customerOrders, salesH
 
   // 🏆 TOP 10 самых продаваемых товаров
   const calculateTopProducts = () => {
-    const salesMap = new Map<string, { name: string; totalSold: number; revenue: number }>(); // 🔥 Группируем по НАЗВАНИЮ, а не ID
+    // 🔥 Группируем по НАЗВАНИЮ, а не ID; внутри копим продажи по SKU-вариантам
+    const salesMap = new Map<string, { name: string; totalSold: number; revenue: number; variants: Map<string, VariantStat> }>();
+
+    // Подпись SKU-варианта из позиции заказа/чека: цвет · размер
+    const variantLabelOf = (item: any): string => {
+      const rawColor = String(item.color || item.selected_color || '').trim();
+      const rawSize = String(item.size || item.selected_size || '').trim();
+      const color = rawColor && !['любой', 'any', 'istalgan'].includes(rawColor.toLowerCase()) ? rawColor : '';
+      const parts = [color, rawSize].filter(Boolean);
+      return parts.length > 0 ? parts.join(' · ') : (language === 'uz' ? 'Standart' : 'Стандарт');
+    };
+
+    // Копим количество/выручку/прибыль по варианту внутри товара
+    const addVariantSale = (entry: { variants: Map<string, VariantStat> }, item: any, itemPrice: number, quantity: number) => {
+      const label = variantLabelOf(item);
+      const key = label.toLowerCase();
+      const basePrice = Number(item.price) || 0;
+      const sellingPrice = Number(item.price_with_markup || item.priceWithMarkup) || itemPrice || 0;
+      const profit = sellingPrice > basePrice && basePrice > 0 ? (sellingPrice - basePrice) * quantity : 0;
+      const v = entry.variants.get(key);
+      if (v) {
+        v.totalSold += quantity;
+        v.revenue += itemPrice * quantity;
+        v.profit += profit;
+      } else {
+        entry.variants.set(key, { label, totalSold: quantity, revenue: itemPrice * quantity, profit });
+      }
+    };
 
     console.log('\n' + '🏆'.repeat(40));
     console.log('🏆 [TOP Products] Начало подсчета TOP продаваемых товаров');
@@ -150,13 +194,16 @@ export default function AdvancedInsightsPanel({ products, customerOrders, salesH
         if (existing) {
           existing.totalSold += item.quantity;
           existing.revenue += itemRevenue;
+          addVariantSale(existing, item, itemPrice, item.quantity);
           console.log(`      ➕ ${finalProductName}: +${item.quantity} шт (всего: ${existing.totalSold} шт, выручка: ${existing.revenue.toLocaleString()} сум)`);
         } else {
           const newEntry = {
             name: finalProductName, // Сохраняем оригинальное название (с заглавными буквами)
             totalSold: item.quantity,
-            revenue: itemRevenue
+            revenue: itemRevenue,
+            variants: new Map<string, VariantStat>(),
           };
+          addVariantSale(newEntry, item, itemPrice, item.quantity);
           salesMap.set(normalizedName, newEntry);
           console.log(`      🆕 ${finalProductName}: ${item.quantity} шт (новый товар в топе, выручка: ${itemRevenue.toLocaleString()} сум)`);
         }
@@ -210,13 +257,16 @@ export default function AdvancedInsightsPanel({ products, customerOrders, salesH
         if (existing) {
           existing.totalSold += item.quantity;
           existing.revenue += itemRevenue;
+          addVariantSale(existing, item, itemPrice, item.quantity);
           console.log(`      ➕ ${finalProductName}: +${item.quantity} шт (всего: ${existing.totalSold} шт, выручка: ${existing.revenue.toLocaleString()} сум)`);
         } else {
           const newEntry = {
             name: finalProductName,
             totalSold: item.quantity,
-            revenue: itemRevenue
+            revenue: itemRevenue,
+            variants: new Map<string, VariantStat>(),
           };
+          addVariantSale(newEntry, item, itemPrice, item.quantity);
           salesMap.set(normalizedName, newEntry);
           console.log(`      🆕 ${finalProductName}: ${item.quantity} шт (новый товар в топе, выручка: ${itemRevenue.toLocaleString()} сум)`);
         }
@@ -229,14 +279,20 @@ export default function AdvancedInsightsPanel({ products, customerOrders, salesH
     // Так удалённые/несуществующие товары (например, старая кассовая продажа
     // давно удалённого товара) не засоряют рейтинг.
     const existingNames = new Set(products.map(p => p.name.toLowerCase().trim()));
-    const liveEntries = Array.from(salesMap.entries())
+    const liveEntries: TopProductEntry[] = Array.from(salesMap.entries())
       .filter(([key]) => existingNames.has(key))
-      .map(([, value]) => value);
+      .map(([, value]) => ({
+        name: value.name,
+        totalSold: value.totalSold,
+        revenue: value.revenue,
+        // SKU-варианты: самые прибыльные сверху
+        variants: Array.from(value.variants.values()).sort((a, b) => b.profit - a.profit || b.revenue - a.revenue),
+      }));
 
     console.log('📊 Из них есть на складе:', liveEntries.length);
 
     // ✅ Сортировка по выбранному режиму
-    let sorted: Array<{ name: string; totalSold: number; revenue: number }> = [];
+    let sorted: TopProductEntry[] = [];
 
     if (rankingMode === 'expensive' || rankingMode === 'cheap') {
       // 💰 Сортировка по цене
@@ -407,46 +463,117 @@ export default function AdvancedInsightsPanel({ products, customerOrders, salesH
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {topProducts.map((product, index) => (
-                    <div
-                      key={index}
-                      className="flex items-center justify-between p-3 rounded-lg transition-colors"
-                      style={{ background: 'var(--ax-input)' }}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-white ${
-                          index === 0 ? 'bg-yellow-500' :
-                          index === 1 ? 'bg-gray-400' :
-                          index === 2 ? 'bg-orange-600' :
-                          'bg-purple-500'
-                        }`}>
-                          {index + 1}
-                        </div>
-                        <div>
-                          <div style={{ fontWeight: 500, color: 'var(--ax-text)' }}>{product.name}</div>
-                          <div style={{ fontSize: 13, color: 'var(--ax-text-2)' }}>
-                            {rankingMode === 'quantity' ? (
-                              <>{t.revenue}: {formatPrice(product.revenue)}</>
-                            ) : (
-                              <>{t.productsSold}: {product.totalSold} {t.pcs}</>
-                            )}
+                  {topProducts.map((product, index) => {
+                    const productKey = product.name.toLowerCase().trim();
+                    const isExpanded = expandedProducts.has(productKey);
+                    const hasVariants = product.variants.length > 0;
+                    // Лучший по прибыли SKU (варианты уже отсортированы по прибыли)
+                    const bestProfit = hasVariants ? product.variants[0].profit : 0;
+                    return (
+                      <div
+                        key={index}
+                        className="rounded-lg overflow-hidden transition-colors"
+                        style={{ background: 'var(--ax-input)' }}
+                      >
+                        <div className="flex items-center justify-between p-3">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-white flex-shrink-0 ${
+                              index === 0 ? 'bg-yellow-500' :
+                              index === 1 ? 'bg-gray-400' :
+                              index === 2 ? 'bg-orange-600' :
+                              'bg-purple-500'
+                            }`}>
+                              {index + 1}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="truncate" style={{ fontWeight: 500, color: 'var(--ax-text)' }}>{product.name}</div>
+                              <div style={{ fontSize: 13, color: 'var(--ax-text-2)' }}>
+                                {rankingMode === 'quantity' ? (
+                                  <>{t.revenue}: {formatPrice(product.revenue)}</>
+                                ) : (
+                                  <>{t.productsSold}: {product.totalSold} {t.pcs}</>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-right flex-shrink-0 ml-2">
+                            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ax-primary)' }}>
+                              {rankingMode === 'quantity' ? (
+                                <>{product.totalSold} {t.pcs}</>
+                              ) : (
+                                <>{formatPrice(product.revenue)}</>
+                              )}
+                            </div>
+                            <div style={{ fontSize: 11, color: 'var(--ax-text-3)' }}>
+                              {rankingMode === 'quantity' ? t.productsSold : t.revenue}
+                            </div>
                           </div>
                         </div>
+
+                        {/* 🔎 «Подробнее»: продажи в разрезе SKU-вариантов */}
+                        {hasVariants && (
+                          <div className="px-3 pb-3">
+                            <button
+                              onClick={() => {
+                                setExpandedProducts(prev => {
+                                  const next = new Set(prev);
+                                  next.has(productKey) ? next.delete(productKey) : next.add(productKey);
+                                  return next;
+                                });
+                              }}
+                              className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded-lg active:scale-95 transition-transform"
+                              style={{ background: 'var(--ax-primary-pale)', border: '1px solid var(--ax-border)', color: 'var(--ax-primary)' }}
+                            >
+                              <Layers className="w-3.5 h-3.5" />
+                              {isExpanded
+                                ? (language === 'uz' ? 'Yashirish' : 'Скрыть')
+                                : `${language === 'uz' ? 'Batafsil' : 'Подробнее'} · ${product.variants.length} SKU`}
+                              {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                            </button>
+
+                            {isExpanded && (
+                              <div className="mt-2 rounded-lg p-2.5 space-y-1.5" style={{ background: 'var(--ax-card)', border: '1px solid var(--ax-border)' }}>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ax-text-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
+                                  {language === 'uz' ? 'SKU variantlari boʻyicha sotuvlar' : 'Продажи по SKU-вариантам'}
+                                </div>
+                                {product.variants.map((v, vi) => {
+                                  const isBest = v.profit > 0 && v.profit === bestProfit;
+                                  return (
+                                    <div key={vi} className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-md" style={isBest ? { background: 'var(--ax-primary-pale)' } : undefined}>
+                                      <div className="flex items-center gap-1.5 min-w-0">
+                                        {isBest && <Crown className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#F59E0B' }} />}
+                                        <span className="truncate" style={{ fontSize: 13, color: 'var(--ax-text)', fontWeight: isBest ? 600 : 400 }}>
+                                          {v.label}
+                                        </span>
+                                        {isBest && (
+                                          <span className="flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(245,158,11,0.16)', color: '#F59E0B' }}>
+                                            {language === 'uz' ? 'Eng foydali' : 'Самый прибыльный'}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-3 flex-shrink-0 text-right">
+                                        <span style={{ fontSize: 12, color: 'var(--ax-text-2)', whiteSpace: 'nowrap' }}>
+                                          {v.totalSold} {t.pcs}
+                                        </span>
+                                        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ax-text)', whiteSpace: 'nowrap' }}>
+                                          {formatPrice(v.revenue)}
+                                        </span>
+                                        {v.profit > 0 && (
+                                          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--ax-success, #22C55E)', whiteSpace: 'nowrap' }}>
+                                            +{formatPrice(v.profit)}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      <div className="text-right">
-                        <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ax-primary)' }}>
-                          {rankingMode === 'quantity' ? (
-                            <>{product.totalSold} {t.pcs}</>
-                          ) : (
-                            <>{formatPrice(product.revenue)}</>
-                          )}
-                        </div>
-                        <div style={{ fontSize: 11, color: 'var(--ax-text-3)' }}>
-                          {rankingMode === 'quantity' ? t.productsSold : t.revenue}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

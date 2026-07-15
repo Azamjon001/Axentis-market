@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { loginUser, registerUser, getUserProfile, verifyOtp, setPrivateScope } from '../api';
+import { loginUser, registerUser, getUserProfile, setApiMarketplaceContext } from '../api';
 
 const AuthContext = createContext({});
 
@@ -12,15 +12,12 @@ export const AuthProvider = ({ children }) => {
     restoreSession();
   }, []);
 
-  // Держим API-слой в курсе приватной области: когда пользователь привязан к
-  // закрытой компании, все запросы каталога автоматически скоупятся на неё.
-  const applyUser = async (userData) => {
-    setUser(userData);
-    setPrivateScope(userData?.mode === 'private' ? { privateCompanyId: userData.privateCompanyId } : null);
-    if (userData) {
-      await AsyncStorage.setItem('currentUser', JSON.stringify(userData));
-    }
-  };
+  // 🔐 Держим контекст маркетплейса в API-слое в актуальном состоянии: при входе
+  // в закрытую компанию все запросы автоматически изолируются на её товары, при
+  // выходе — возвращаются в публичный режим.
+  useEffect(() => {
+    setApiMarketplaceContext(user);
+  }, [user]);
 
   const restoreSession = async () => {
     try {

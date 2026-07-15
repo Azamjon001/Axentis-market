@@ -197,9 +197,63 @@ func GetInventoryInsights(db *sql.DB) gin.HandlerFunc {
 			abc = abc[:50]
 		}
 
+		// ── Лидеры продаж по количеству за 90 дней ─────────────────────────
+		// Топ-20 самых продаваемых товаров (в штуках), с выручкой для контекста.
+		type sellerRow struct {
+			ProductID int64   `json:"productId"`
+			Name      string  `json:"name"`
+			Units     int     `json:"units"`
+			Revenue   float64 `json:"revenue"`
+		}
+		sellers := []sellerRow{}
+		for pid, s := range sales90 {
+			if s.Units <= 0 {
+				continue
+			}
+			name, ok := nameByID[pid]
+			if !ok {
+				continue // товар удалён
+			}
+			sellers = append(sellers, sellerRow{
+				ProductID: pid, Name: name, Units: s.Units, Revenue: math.Round(s.Revenue),
+			})
+		}
+		sort.Slice(sellers, func(i, j int) bool { return sellers[i].Units > sellers[j].Units })
+		if len(sellers) > 20 {
+			sellers = sellers[:20]
+		}
+
+		// ── Товары с низким остатком ───────────────────────────────────────
+		// Все товары с остатком ≤ 5, отсортированы по возрастанию (сначала
+		// самые критичные). Скорость продаж берём из 30-дневных данных.
+		type lowStockRow struct {
+			ProductID  int64   `json:"productId"`
+			Name       string  `json:"name"`
+			Stock      int     `json:"stock"`
+			SoldPerDay float64 `json:"soldPerDay"`
+		}
+		const lowStockThreshold = 5
+		lowStock := []lowStockRow{}
+		for _, p := range products {
+			if p.Stock > lowStockThreshold {
+				continue
+			}
+			perDay := float64(sales30[p.ID].Units) / 30.0
+			lowStock = append(lowStock, lowStockRow{
+				ProductID: p.ID, Name: p.Name, Stock: p.Stock,
+				SoldPerDay: math.Round(perDay*100) / 100,
+			})
+		}
+		sort.Slice(lowStock, func(i, j int) bool { return lowStock[i].Stock < lowStock[j].Stock })
+		if len(lowStock) > 30 {
+			lowStock = lowStock[:30]
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"stockForecast":  forecast,
 			"abcAnalysis":    abc,
+			"topSellers":     sellers,
+			"lowStock":       lowStock,
 			"totalRevenue90": math.Round(totalRevenue),
 		})
 	}

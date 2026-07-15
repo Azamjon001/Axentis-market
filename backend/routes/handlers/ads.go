@@ -90,8 +90,14 @@ func GetApprovedAds(db *sql.DB) gin.HandlerFunc {
 			conditions = append(conditions, fmt.Sprintf("a.company_id = $%d", argCount))
 			args = append(args, companyID)
 			argCount++
+		} else {
+			// 🔐 Публичная лента баннеров: изоляция публичного/закрытого режима.
+			// Запрос по конкретной компании (панель) не трогаем — компания видит
+			// свои баннеры независимо от режима.
+			conditions = append(conditions, modeCondition(c, "c", &args))
+			argCount = len(args) + 1
 		}
-		
+
 		if len(conditions) > 0 {
 			query += " WHERE " + strings.Join(conditions, " AND ")
 		}

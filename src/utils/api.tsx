@@ -56,6 +56,27 @@ interface ApiOptions extends RequestInit {
   requiresAuth?: boolean;
 }
 
+// 🔐 Контекст маркетплейса (публичный ↔ закрытый) — единый механизм с
+// приложением и бэкендом. Закрытая витрина/компания видит только товары своей
+// компании, публичные клиенты — только публичные. Читаем сохранённую сессию:
+// у покупателя приватной компании это privateCompanyId, у самой компании —
+// companyId; режим включается только при mode='private'.
+function getMarketplaceContext(): { mode: string; privateCompanyId: string } | null {
+  try {
+    const raw = localStorage.getItem('userSession');
+    if (!raw) return null;
+    const session = JSON.parse(raw);
+    const u = session?.userData || session;
+    const companyId = u?.privateCompanyId ?? u?.companyId;
+    if (u?.mode === 'private' && companyId) {
+      return { mode: 'private', privateCompanyId: String(companyId) };
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 async function apiCall(
   endpoint: string,
   options: ApiOptions = {}
@@ -81,7 +102,23 @@ async function apiCall(
   }
 
   try {
-    const url = `${API_BASE}${endpoint}`;
+    let url = `${API_BASE}${endpoint}`;
+    // 🔐 Прокидываем режим маркетплейса во все GET-листинги (каталог, поиск,
+    // категории, реклама, кампании, рекомендации и т.п.), не перетирая уже
+    // заданные параметры. Бэкенд применяет фильтр только к публичным лентам —
+    // панель компании/админа (по companyId) остаётся нетронутой.
+    const method = (fetchOptions.method || 'GET').toUpperCase();
+    if (method === 'GET') {
+      const ctx = getMarketplaceContext();
+      if (ctx) {
+        const extra: string[] = [];
+        if (!/[?&]mode=/.test(endpoint)) extra.push(`mode=${encodeURIComponent(ctx.mode)}`);
+        if (!/[?&]privateCompanyId=/.test(endpoint)) {
+          extra.push(`privateCompanyId=${encodeURIComponent(ctx.privateCompanyId)}`);
+        }
+        if (extra.length) url += (url.includes('?') ? '&' : '?') + extra.join('&');
+      }
+    }
     console.log(`🌐 [API] ${fetchOptions.method || 'GET'} ${url}`);
     
     const response = await fetch(url, {
@@ -839,6 +876,28 @@ export const users = {
     return apiCall('/users/me');
   },
 
+  // 🗑️ Опасная зона (админ): удалить всех покупателей.
+  // scope 'users' — только аккаунты; 'all' — вместе с отзывами и активностью.
+  deleteAll: async (scope: 'users' | 'all' = 'users') => {
+    return apiCall(`/users?scope=${scope}`, { method: 'DELETE' });
+  },
+
+  // Get profile by phone (avatar, counters)
+  getProfile: async (phone: string) => {
+    return apiCall(`/users/${encodeURIComponent(phone)}/profile`);
+  },
+
+  // Upload avatar photo (multipart). apiCall не выставляет Content-Type для
+  // FormData — браузер сам подставит boundary.
+  uploadAvatar: async (phone: string, file: File) => {
+    const formData = new FormData();
+    formData.append('avatar', file);
+    return apiCall(`/users/${encodeURIComponent(phone)}/avatar`, {
+      method: 'POST',
+      body: formData,
+    });
+  },
+
   // Update own profile
   updateProfile: async (data: { name?: string; phone?: string; address?: string }) => {
     return apiCall('/users/me', {
@@ -1439,6 +1498,11 @@ export const analytics = {
     return apiCall(`/analytics/company/${companyId}/inventory-insights`);
   },
 
+  // 💰 Разложение прибыли: онлайн (заказы) / офлайн (касса) / итого + маржа
+  profit: async (companyId: string | number) => {
+    return apiCall(`/analytics/company/${companyId}/profit`);
+  },
+
   // Get top products
   topProducts: async (params?: { companyId?: string; limit?: number }) => {
     const query = new URLSearchParams(params as any).toString();
@@ -1932,8 +1996,43 @@ export const promotions = {
     apiCall(`/promotions/${id}`, { method: 'DELETE' }),
 };
 
+// ============================================================================
+// 💸 ВЫВОД СРЕДСТВ (онлайн-заработок компаний за вычетом комиссии платформы)
+// ============================================================================
+export const payouts = {
+  balance: (companyId: number) => apiCall(`/companies/${companyId}/payout-balance`),
+  list: (companyId: number) => apiCall(`/companies/${companyId}/payouts`),
+  create: (companyId: number, data: { cardNumber: string; cardHolder: string; amount: number }) =>
+    apiCall(`/companies/${companyId}/payouts`, { method: 'POST', body: JSON.stringify(data) }),
+  verifyCard: (cardNumber: string) =>
+    apiCall('/payouts/verify-card', { method: 'POST', body: JSON.stringify({ cardNumber }) }),
+  cancel: (id: number) => apiCall(`/payouts/${id}/cancel`, { method: 'PUT' }),
+  // Админ: очередь выплат и ручная обработка
+  listAll: (status?: string) => apiCall(`/payouts${status ? `?status=${status}` : ''}`),
+  updateStatus: (id: number, data: { status: string; providerRef?: string; failureReason?: string }) =>
+    apiCall(`/payouts/${id}/status`, { method: 'PUT', body: JSON.stringify(data) }),
+};
+
+// ============================================================================
+// 📜 ПОЛИТИКА КОНФИДЕНЦИАЛЬНОСТИ (customer | company)
+// ============================================================================
+export const policies = {
+  get: (audience: 'customer' | 'company') =>
+    apiCall(`/policies/${audience}`, { requiresAuth: false }),
+  update: (audience: 'customer' | 'company', data: { contentRu: string; contentUz: string }) =>
+    apiCall(`/policies/${audience}`, { method: 'PUT', body: JSON.stringify(data) }),
+  accept: (audience: 'customer' | 'company', subject: string) =>
+    apiCall(`/policies/${audience}/accept`, {
+      method: 'POST',
+      body: JSON.stringify({ subject }),
+      requiresAuth: false,
+    }),
+};
+
 export default {
   baseURL: API_BASE.replace('/api', ''), // 🔗 Base URL для прямых fetch запросов
+  policies, // 📜 Политика конфиденциальности
+  payouts, // 💸 Вывод средств компаний
   promotions, // 📢 Внутренняя реклама
   moderation, // 🛡️ Лента модерации
   complaints, // 🚩 Жалобы

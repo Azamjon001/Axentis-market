@@ -10,9 +10,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { API_BASE_URL } from '../../config';
 import { getImageUrl } from '../../utils/imageUrl';
-import { getLoyalty } from '../../api';
+import { getLoyalty, buildImageFormData, postFormData } from '../../api';
 import { Radius, Spacing } from '../../constants/theme';
 
 export default function ProfileScreen() {
@@ -46,22 +45,13 @@ export default function ProfileScreen() {
 
     setUploadingAvatar(true);
     try {
-      const formData = new FormData();
-      formData.append('avatar', {
-        uri: asset.uri,
-        type: asset.mimeType || 'image/jpeg',
-        name: 'avatar.jpg',
-      });
-      const res = await fetch(`${API_BASE_URL}/users/${user?.phone}/avatar`, {
-        method: 'POST',
-        body: formData,
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      if (res.ok) {
-        await refreshUser();
-      }
-    } catch {
-      Alert.alert(t('uploadError'), t('uploadFail'));
+      // Кросс-платформенная форма + токен авторизации: маршрут аватара защищён
+      // (RequireSelfPhone), без Bearer-токена сервер отвечает 401.
+      const formData = await buildImageFormData('avatar', asset.uri, 'avatar.jpg');
+      await postFormData(`/users/${encodeURIComponent(user?.phone || '')}/avatar`, formData);
+      await refreshUser();
+    } catch (err) {
+      Alert.alert(t('uploadError'), err?.response?.data?.error || t('uploadFail'));
     } finally {
       setUploadingAvatar(false);
     }

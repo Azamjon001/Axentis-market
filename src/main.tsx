@@ -3,6 +3,7 @@
   import App from "./App.tsx";
   import ErrorBoundary from "./components/ErrorBoundary.tsx";
   import "./index.css";
+  import "./tailwind.css";
   import "./dark-theme.css";
 
   createRoot(document.getElementById("root")!).render(
