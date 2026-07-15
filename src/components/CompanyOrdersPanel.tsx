@@ -1,5 +1,6 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
-import { Search, Check, X, Clock, Package, Phone, User, Receipt, DollarSign, RefreshCw, Calendar, MapPin, Navigation, Truck } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Search, Check, X, Clock, Package, Phone, User, Receipt, DollarSign, RefreshCw, Calendar, MapPin, Navigation, Truck, TrendingUp } from 'lucide-react';
 import api from '../utils/api';
 import { formatUzbekistanFullDateTime } from '../utils/uzbekTime';
 import { toast } from 'sonner@2.0.3';
@@ -374,7 +375,7 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12" style={{ border: '3px solid rgba(124,92,240,0.25)', borderTopColor: 'var(--ax-primary)' }}></div>
       </div>
     );
   }
@@ -386,19 +387,22 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
       <div className={`${responsive.card}`} style={{ background: 'var(--ax-card)', border: '1px solid rgba(255,255,255,0.07)' }}>
         <div className="flex flex-col md:flex-row gap-4 justify-between items-center mb-4">
           <h2 className={`${responsive.subheading} font-bold flex items-center ${responsive.gap}`} style={{ color: 'var(--ax-text)' }}>
-            <Receipt className={responsive.icon} />
+            <Receipt className={responsive.icon} style={{ color: 'var(--ax-primary)' }} />
             {isMobile ? t.orders : t.customerOrders}
-            <span className={`bg-blue-100 text-blue-800 ${responsive.small} py-0.5 px-2 rounded-full`}>
+            <span className={`${responsive.small} py-0.5 px-2.5 rounded-full font-semibold`} style={{ background: 'var(--ax-primary-pale)', color: 'var(--ax-primary)' }}>
               {orders.length}
             </span>
           </h2>
-          <button
+          <motion.button
+            whileHover={{ rotate: 90 }}
+            whileTap={{ scale: 0.9 }}
             onClick={loadOrders}
-            className={`${responsive.buttonSmall} hover:bg-gray-100 rounded-lg transition-colors text-gray-600`}
+            className={`${responsive.buttonSmall} rounded-lg transition-colors`}
+            style={{ color: 'var(--ax-text-2)', background: 'rgba(255,255,255,0.05)' }}
             title={t.refreshList}
           >
             <RefreshCw className={responsive.iconSmall} />
-          </button>
+          </motion.button>
         </div>
 
         {/* Period Selector */}
@@ -412,20 +416,31 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
           <CompactPeriodSelector value={periodFilter} onChange={setPeriodFilter} />
         </div>
 
-        {/* Period Stats */}
-        <div className="grid grid-cols-3 gap-2 mb-3">
-          <div className="bg-blue-50 rounded-lg p-2 text-center">
-            <div className={`font-bold text-blue-700 ${responsive.body}`}>{filteredOrders.length}</div>
-            <div className={`${responsive.small} text-blue-500`}>{language === 'uz' ? 'Buyurtma' : 'Заказов'}</div>
-          </div>
-          <div className="bg-indigo-50 rounded-lg p-2 text-center">
-            <div className={`font-bold text-indigo-700 ${responsive.body}`}>{formatPrice(periodRevenue)}</div>
-            <div className={`${responsive.small} text-indigo-500`}>{language === 'uz' ? 'Daromad' : 'Выручка'}</div>
-          </div>
-          <div className="bg-emerald-50 rounded-lg p-2 text-center">
-            <div className={`font-bold text-emerald-700 ${responsive.body}`}>+{formatPrice(periodProfit)}</div>
-            <div className={`${responsive.small} text-emerald-500`}>{language === 'uz' ? 'Foyda' : 'Прибыль'}</div>
-          </div>
+        {/* Period Stats — профессиональные анимированные карточки */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 14 }}>
+          {[
+            { icon: <Receipt size={16} />,   label: language === 'uz' ? 'Buyurtma' : 'Заказов',  value: `${filteredOrders.length}`,       accent: '#7C5CF0' },
+            { icon: <DollarSign size={16} />, label: language === 'uz' ? 'Daromad' : 'Выручка',   value: formatPrice(periodRevenue),        accent: '#38BDF8' },
+            { icon: <TrendingUp size={16} />, label: language === 'uz' ? 'Foyda' : 'Прибыль',     value: `+${formatPrice(periodProfit)}`,   accent: '#22C55E' },
+          ].map((s, i) => (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 24, delay: i * 0.06 }}
+              style={{
+                background: `linear-gradient(160deg, ${s.accent}14, var(--ax-card) 60%)`,
+                border: `1px solid ${s.accent}33`, borderRadius: 14, padding: isMobile ? '10px 12px' : '13px 15px',
+                display: 'flex', flexDirection: 'column', gap: 8,
+              }}
+            >
+              <span style={{ width: 30, height: 30, borderRadius: 9, background: `${s.accent}1F`, color: s.accent, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{s.icon}</span>
+              <div>
+                <div style={{ fontSize: isMobile ? 15 : 17, fontWeight: 700, color: 'var(--ax-text)', lineHeight: 1.15, wordBreak: 'break-word' }}>{s.value}</div>
+                <div style={{ fontSize: 11, color: 'var(--ax-text-2)', marginTop: 2 }}>{s.label}</div>
+              </div>
+            </motion.div>
+          ))}
         </div>
 
         {periodFilter === 'custom' && (
@@ -459,7 +474,8 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
               placeholder={isMobile ? t.searchDots : t.searchByCodeNamePhone}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className={`w-full pl-10 pr-4 ${isMobile ? 'py-2' : 'py-2.5'} border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${responsive.body}`}
+              className={`w-full pl-10 pr-4 ${isMobile ? 'py-2' : 'py-2.5'} rounded-lg focus:outline-none focus:ring-2 ${responsive.body}`}
+              style={{ background: 'var(--ax-input)', border: '1px solid var(--ax-border)', color: 'var(--ax-text)' }}
             />
           </div>
 
@@ -549,13 +565,17 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
             const hasDelivery = order.delivery_type === 'delivery' && (!!order.delivery_coordinates || !!order.delivery_address);
 
             return (
-              <div
+              <motion.div
                 key={order.id}
-                className={`${responsive.card} transition-all duration-200 overflow-hidden`}
+                layout
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ type: 'spring', stiffness: 320, damping: 28 }}
+                className={`${responsive.card} overflow-hidden`}
                 style={{
                   background: 'var(--ax-card)',
                   border: isExpanded ? '1px solid rgba(124,92,240,0.5)' : '1px solid rgba(255,255,255,0.07)',
-                  boxShadow: isExpanded ? '0 0 0 1px rgba(124,92,240,0.2)' : 'none',
+                  boxShadow: isExpanded ? '0 8px 30px rgba(124,92,240,0.14)' : 'none',
                 }}
               >
                 <div
@@ -720,7 +740,7 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
                             <button
                               onClick={(e) => handleCancelOrder(order.id, e)}
                               disabled={processingId === order.id}
-                              className={`flex items-center justify-center ${responsive.gap} ${responsive.button} bg-white border border-red-200 text-red-600 rounded-lg hover:bg-red-50 font-medium transition-colors disabled:opacity-50`}
+                              className={`flex items-center justify-center ${responsive.gap} ${responsive.button} rounded-lg font-medium transition-colors disabled:opacity-50 border border-red-500/30 text-red-400 hover:bg-red-500/10`}
                             >
                               <X className={responsive.iconSmall} />
                               {t.cancel}
@@ -741,7 +761,7 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
                             <button
                               onClick={(e) => handleCancelOrder(order.id, e)}
                               disabled={processingId === order.id}
-                              className={`flex items-center justify-center ${responsive.gap} ${responsive.button} bg-white border border-red-200 text-red-600 rounded-lg hover:bg-red-50 font-medium transition-colors disabled:opacity-50`}
+                              className={`flex items-center justify-center ${responsive.gap} ${responsive.button} rounded-lg font-medium transition-colors disabled:opacity-50 border border-red-500/30 text-red-400 hover:bg-red-500/10`}
                             >
                               <X className={responsive.iconSmall} />
                               {t.cancel}
@@ -777,7 +797,7 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
                     </div>
                   </div>
                 )}
-              </div>
+              </motion.div>
             );
           })
         )}
