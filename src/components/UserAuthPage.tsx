@@ -22,17 +22,15 @@ export default function UserAuthPage({ onLoginSuccess, isPrivateMode, onBack, on
   const [loginCompanyId, setLoginCompanyId] = useState('');
   const [loginError, setLoginError] = useState('');
   
-  // Register fields
+  // Register fields — только 4 поля: имя, телефон, пароль, подтверждение
   const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
   const [registerPhone, setRegisterPhone] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [registerCompanyId, setRegisterCompanyId] = useState('');
   const [registerError, setRegisterError] = useState('');
   const [loading, setLoading] = useState(false);
-  // 📜 Согласие с политикой конфиденциальности — обязательно при регистрации
-  const [policyAccepted, setPolicyAccepted] = useState(false);
+  // 📜 Ссылка на политику конфиденциальности (модалка)
   const [policyOpen, setPolicyOpen] = useState(false);
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
@@ -91,7 +89,7 @@ export default function UserAuthPage({ onLoginSuccess, isPrivateMode, onBack, on
     e.preventDefault();
     setRegisterError('');
 
-    if (!firstName || !lastName || !registerPassword || !confirmPassword || !registerPhone) {
+    if (!firstName.trim() || !registerPassword || !confirmPassword || !registerPhone) {
       setRegisterError('Пожалуйста, заполните все поля');
       return;
     }
@@ -111,11 +109,6 @@ export default function UserAuthPage({ onLoginSuccess, isPrivateMode, onBack, on
       return;
     }
 
-    if (!policyAccepted) {
-      setRegisterError('Для регистрации примите политику конфиденциальности');
-      return;
-    }
-
     setLoading(true);
 
     try {
@@ -125,7 +118,7 @@ export default function UserAuthPage({ onLoginSuccess, isPrivateMode, onBack, on
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           phone: registerPhone,
-          name: `${firstName} ${lastName}`,
+          name: firstName.trim(),
           password: registerPassword,
           mode: isPrivateMode ? 'private' : 'public',
           privateCode: isPrivateMode ? registerCompanyId : undefined
@@ -144,8 +137,8 @@ export default function UserAuthPage({ onLoginSuccess, isPrivateMode, onBack, on
       api.policies.accept('customer', registerPhone).catch(() => { /* не критично */ });
 
       onLoginSuccess({
-        firstName: firstName,
-        lastName: lastName,
+        firstName: firstName.trim(),
+        lastName: '',
         phone: registerPhone,
         id: data.user.id,
         mode: data.user.mode || (isPrivateMode ? 'private' : 'public'),
@@ -298,10 +291,10 @@ export default function UserAuthPage({ onLoginSuccess, isPrivateMode, onBack, on
             />
 
             <input
-              type="text"
-              value={lastName}
-              onChange={(e) => setLastName(e.target.value)}
-              placeholder="Фамилия"
+              type="tel"
+              value={registerPhone}
+              onChange={(e) => setRegisterPhone(e.target.value.replace(/\D/g, '').slice(0, 9))}
+              placeholder="Номер телефона"
               className="w-full bg-white/90 text-center py-4 px-4 rounded-xl placeholder-gray-400 text-gray-800 outline-none focus:ring-2 focus:ring-pink-300 transition-all shadow-sm"
             />
 
@@ -322,14 +315,6 @@ export default function UserAuthPage({ onLoginSuccess, isPrivateMode, onBack, on
               />
             </div>
 
-            <input
-              type="tel"
-              value={registerPhone}
-              onChange={(e) => setRegisterPhone(e.target.value.replace(/\D/g, '').slice(0, 9))}
-              placeholder="Номер телефона"
-              className="w-full bg-white/90 text-center py-4 px-4 rounded-xl placeholder-gray-400 text-gray-800 outline-none focus:ring-2 focus:ring-pink-300 transition-all shadow-sm"
-            />
-
             {isPrivateMode && (
               <input
                 type="text"
@@ -340,26 +325,6 @@ export default function UserAuthPage({ onLoginSuccess, isPrivateMode, onBack, on
               />
             )}
 
-            {/* 📜 Согласие с политикой конфиденциальности */}
-            <label className="flex items-start gap-2.5 cursor-pointer select-none text-left">
-              <input
-                type="checkbox"
-                checked={policyAccepted}
-                onChange={(e) => setPolicyAccepted(e.target.checked)}
-                className="mt-0.5 w-4 h-4 accent-pink-500"
-              />
-              <span className="text-sm text-gray-700">
-                Я принимаю{' '}
-                <button
-                  type="button"
-                  onClick={(e) => { e.preventDefault(); setPolicyOpen(true); }}
-                  className="text-pink-600 font-medium underline underline-offset-2 hover:text-pink-800"
-                >
-                  политику конфиденциальности
-                </button>
-              </span>
-            </label>
-
             {registerError && (
               <div className="text-red-600 text-sm text-center mt-2 font-medium bg-red-50 py-3 px-4 rounded-lg border border-red-200">
                 {registerError}
@@ -368,11 +333,22 @@ export default function UserAuthPage({ onLoginSuccess, isPrivateMode, onBack, on
 
             <button
               type="submit"
-              disabled={loading || !policyAccepted}
+              disabled={loading}
               className="w-full bg-gradient-to-r from-gray-700 to-gray-900 text-white py-4 rounded-xl mt-2 font-bold hover:from-gray-800 hover:to-black transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
             >
               {loading ? 'Регистрация...' : 'Зарегистрироваться'}
             </button>
+
+            <p className="text-center text-xs text-gray-500 mt-1">
+              Регистрируясь, вы принимаете{' '}
+              <button
+                type="button"
+                onClick={(e) => { e.preventDefault(); setPolicyOpen(true); }}
+                className="text-pink-600 font-medium underline underline-offset-2 hover:text-pink-800"
+              >
+                политику конфиденциальности
+              </button>
+            </p>
           </form>
         )}
       </div>

@@ -170,6 +170,17 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
+  // 🌑 Админ-панель всегда в тёмной теме — принудительно включаем dark на время
+  // жизни компонента и восстанавливаем прежнее состояние при выходе.
+  useEffect(() => {
+    const root = document.documentElement;
+    const hadDark = root.classList.contains('dark');
+    root.classList.add('dark');
+    return () => {
+      if (!hadDark) root.classList.remove('dark');
+    };
+  }, []);
+
   useEffect(() => {
     loadData();
 
@@ -364,7 +375,7 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
   const pageTitle = TAB_TITLES[activeTab] ? (uz ? TAB_TITLES[activeTab].uz : TAB_TITLES[activeTab].ru) : '';
 
   return (
-    <div className="min-h-screen bg-[#F6F7FB] flex text-[15px]">
+    <div className="min-h-screen flex text-[15px]" style={{ background: 'var(--ax-bg)' }}>
       {/* 📱 Overlay для мобильных (при открытом sidebar) */}
       {isSidebarOpen && (
         <div
