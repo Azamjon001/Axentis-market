@@ -392,6 +392,7 @@ func Setup(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 			analytics.GET("/company/:companyId", middleware.RequireAdminOrOwnCompanyParam("companyId"), handlers.GetCompanyAnalytics(db))
 			analytics.GET("/company/:companyId/dashboard", middleware.RequireAdminOrOwnCompanyParam("companyId"), handlers.GetCompanyDashboard(db)) // 📊 Единый дашборд продавца
 			analytics.GET("/company/:companyId/inventory-insights", middleware.RequireAdminOrOwnCompanyParam("companyId"), handlers.GetInventoryInsights(db)) // 📦 Прогноз остатков + ABC-анализ
+			analytics.GET("/company/:companyId/profit", middleware.RequireAdminOrOwnCompanyParam("companyId"), handlers.GetCompanyProfit(db)) // 💰 Разложение прибыли (онлайн/офлайн)
 			analytics.GET("/revenue", middleware.RequireCompany(cfg), middleware.RequireCompanyScope("companyId"), handlers.GetRevenueAnalytics(db))
 			analytics.GET("/admin/overview", middleware.RequireAdmin(cfg), handlers.GetAdminOverview(db)) // 📊 Дашборд платформы
 		}

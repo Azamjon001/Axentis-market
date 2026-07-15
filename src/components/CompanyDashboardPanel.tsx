@@ -2,8 +2,9 @@ import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ShoppingCart, TrendingUp, Clock, RotateCcw, AlertTriangle,
-  MessageCircleQuestion, Package, BarChart3, ArrowRight, CheckCircle2,
+  MessageCircleQuestion, Package, ArrowRight, CheckCircle2,
   Crown, Coins, PackageX, X, Boxes, Gauge, Timer,
+  Wallet, PiggyBank, Percent, Store, Globe, ChevronRight,
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip,
@@ -104,12 +105,23 @@ const springIn = {
   transition: { type: 'spring' as const, stiffness: 260, damping: 26 },
 };
 
+interface ProfitBlock { revenue: number; profit: number; cogs: number; count: number; margin: number }
+interface ProfitData {
+  online: ProfitBlock;
+  offline: ProfitBlock;
+  total: ProfitBlock;
+  today: { revenue: number; profit: number };
+}
+
 export default function CompanyDashboardPanel({ companyId, onNavigate }: CompanyDashboardPanelProps) {
   const [data, setData] = useState<DashboardData | null>(null);
   const [allOrders, setAllOrders] = useState<any[]>([]);
   const [insights, setInsights] = useState<InsightsData | null>(null);
+  const [profit, setProfit] = useState<ProfitData | null>(null);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<ProductDetail | null>(null);
+  // Открытая мини-панель разбора прибыли (null = закрыта)
+  const [profitOpen, setProfitOpen] = useState<null | 'revenue' | 'profit'>(null);
 
   useEffect(() => {
     let active = true;
@@ -117,12 +129,14 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
       api.analytics.dashboard(companyId),
       api.orders.list({ companyId }).catch(() => []),
       api.analytics.inventoryInsights(companyId).catch(() => null),
-    ]).then(([dashData, ordersData, insightsData]) => {
+      api.analytics.profit(companyId).catch(() => null),
+    ]).then(([dashData, ordersData, insightsData, profitData]) => {
       if (!active) return;
       setData(dashData);
       const orders = Array.isArray(ordersData) ? ordersData : (ordersData?.orders || []);
       setAllOrders(orders);
       setInsights(insightsData);
+      setProfit(profitData);
     }).catch((e) => console.error('Dashboard load failed:', e))
       .finally(() => active && setLoading(false));
     return () => { active = false; };
@@ -137,8 +151,17 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
     todayOrders: isUz ? 'Bugungi buyurtmalar' : 'Заказы сегодня',
     todayRevenue: isUz ? 'Bugungi tushum' : 'Выручка сегодня',
     totalRevenue: isUz ? 'Jami tushum' : 'Выручка всего',
+    netProfit: isUz ? 'Sof foyda (ustama)' : 'Чистая прибыль',
     soldUnits: isUz ? 'Sotilgan dona' : 'Продано единиц',
     lowStockCard: isUz ? 'Kam qolgan tovarlar' : 'Мало на складе',
+    // Короткие человеческие подсказки под карточками
+    hintTodayOrders: isUz ? 'bugun tushgan' : 'поступило сегодня',
+    hintTodayRevenue: isUz ? 'bugungi savdo' : 'продажи за сегодня',
+    hintSoldUnits: isUz ? 'jami dona' : 'штук всего',
+    hintRevenue: isUz ? 'bosing — pul qayerdan' : 'нажмите — откуда деньги',
+    hintProfit: isUz ? 'bosing — qancha ishladingiz' : 'нажмите — сколько заработали',
+    hintLowStock: isUz ? 'toʻldirish kerak' : 'пора докупить',
+    tapHint: isUz ? 'Bosib batafsil koʻring' : 'Нажмите, чтобы увидеть детали',
     attention: isUz ? 'Eʼtibor talab qiladi' : 'Требует внимания',
     newOrders: isUz ? 'Yangi buyurtmalar' : 'Новые заказы',
     returns: isUz ? 'Qaytarishlar' : 'Заявки на возврат',
@@ -153,11 +176,11 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
     allOrders: isUz ? 'Barchasi' : 'Все заказы',
     statusDist: isUz ? 'Buyurtma holatlari' : 'Статусы заказов',
     leaders: isUz ? 'Sotuv liderlari' : 'Лидеры продаж',
-    leadersHint: isUz ? '90 kun · dona boʻyicha' : '90 дней · по штукам',
+    leadersHint: isUz ? 'Eng koʻp sotib olishadi' : 'Покупают чаще всего',
     profitable: isUz ? 'Eng foydali tovarlar' : 'Самые прибыльные',
-    profitableHint: isUz ? '90 kun · tushum boʻyicha' : '90 дней · по выручке',
+    profitableHint: isUz ? 'Koʻproq pul keltiradi' : 'Приносят больше всего денег',
     lowStockTitle: isUz ? 'Kam qolgan tovarlar' : 'Товары с низким остатком',
-    lowStockHint: isUz ? 'Toʻldirish kerak' : 'Требуется пополнение',
+    lowStockHint: isUz ? 'Tugaydi — toʻldiring' : 'Скоро закончатся — пора докупить',
     units: isUz ? 'dona' : 'шт',
     perDay: isUz ? 'dona/kun' : 'шт/день',
     stockLeft: isUz ? 'qoldiq' : 'остаток',
@@ -174,6 +197,24 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
     revShare: isUz ? 'tushum ulushi' : 'доля выручки',
     replenish: isUz ? 'Omborni toʻldirish' : 'Пополнить склад',
     viewAnalytics: isUz ? 'Analitikaga oʻtish' : 'Открыть аналитику',
+    // ── Мини-панель прибыли ──
+    pTitle: isUz ? 'Foyda va tushum' : 'Прибыль и выручка',
+    pSubtitle: isUz ? 'Pulingiz qayerdan kelgani' : 'Откуда берутся ваши деньги',
+    pRevenue: isUz ? 'Umumiy tushum' : 'Общая выручка',
+    pRevenueExp: isUz ? 'Xaridorlar sizga toʻlagan barcha pul' : 'Все деньги, которые вам заплатили покупатели',
+    pProfit: isUz ? 'Sof foyda (ustama)' : 'Чистая прибыль (наценка)',
+    pProfitExp: isUz ? 'Sotish va sotib olish narxi orasidagi farq — sizning haqiqiy daromadingiz' : 'Разница между ценой продажи и закупки — ваш реальный заработок',
+    pCogs: isUz ? 'Tannarx' : 'Себестоимость',
+    pCogsExp: isUz ? 'Sotilgan tovarni sotib olishga ketgan pul' : 'Сколько потратили на закупку проданного товара',
+    pMargin: isUz ? 'Marja' : 'Маржа',
+    pMarginExp: isUz ? 'Har 100 soʻmdan qancha foyda qoladi' : 'Сколько прибыли остаётся с каждых 100 сум',
+    pOnline: isUz ? 'Onlayn (buyurtmalar)' : 'Онлайн (заказы)',
+    pOnlineExp: isUz ? 'Yetkazib berish bilan buyurtmalar' : 'Заказы с доставкой',
+    pOffline: isUz ? 'Oflayn (kassa)' : 'Офлайн (касса)',
+    pOfflineExp: isUz ? 'Doʻkonda kassa orqali sotuvlar' : 'Продажи через кассу в магазине',
+    pOps: isUz ? 'sotuv' : 'продаж',
+    pNoData: isUz ? 'Hali sotuvlar yoʻq' : 'Продаж пока нет',
+    pWhatIsThis: isUz ? 'Bu nima?' : 'Что это?',
   };
 
   const statusLabel: Record<string, string> = isUz ? {
@@ -258,12 +299,20 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
 
   if (!data) return <div style={{ padding: 20, color: '#F87171', textAlign: 'center' }}>{L.failed}</div>;
 
-  const stats = [
-    { icon: <ShoppingCart size={20} />, label: L.todayOrders,  value: fmt(data.todayOrders),                accent: '#7C5CF0', accentBg: 'rgba(124,92,240,0.15)', tab: 'orders' },
-    { icon: <TrendingUp size={20} />,   label: L.todayRevenue, value: `${fmt(data.todayRevenue)} ${L.sum}`,  accent: '#22C55E', accentBg: 'rgba(34,197,94,0.12)',  tab: 'analytics' },
-    { icon: <Package size={20} />,      label: L.soldUnits,    value: fmt(data.soldUnits),                  accent: '#FBBF24', accentBg: 'rgba(251,191,36,0.12)', tab: 'warehouse' },
-    { icon: <BarChart3 size={20} />,    label: L.totalRevenue, value: `${fmt(data.totalRevenue)} ${L.sum}`,  accent: '#38BDF8', accentBg: 'rgba(56,189,248,0.12)', tab: 'analytics' },
-    { icon: <AlertTriangle size={20} />, label: L.lowStockCard, value: fmt(data.lowStock), accent: '#FB923C', accentBg: 'rgba(251,146,60,0.14)', tab: 'warehouse', alert: data.lowStock > 0 },
+  const totalRevenueVal = profit?.total.revenue ?? data.totalRevenue;
+  const netProfitVal = profit?.total.profit ?? 0;
+
+  type Stat = {
+    icon: React.ReactNode; label: string; value: string; hint: string;
+    accent: string; accentBg: string; onClick: () => void; clickable?: boolean; alert?: boolean;
+  };
+  const stats: Stat[] = [
+    { icon: <ShoppingCart size={20} />, label: L.todayOrders,  value: fmt(data.todayOrders),               hint: L.hintTodayOrders,  accent: '#7C5CF0', accentBg: 'rgba(124,92,240,0.15)', onClick: () => onNavigate?.('orders') },
+    { icon: <TrendingUp size={20} />,   label: L.todayRevenue, value: `${fmt(data.todayRevenue)} ${L.sum}`, hint: L.hintTodayRevenue, accent: '#22C55E', accentBg: 'rgba(34,197,94,0.12)',  onClick: () => onNavigate?.('analytics') },
+    { icon: <Package size={20} />,      label: L.soldUnits,    value: fmt(data.soldUnits),                 hint: L.hintSoldUnits,    accent: '#FBBF24', accentBg: 'rgba(251,191,36,0.12)', onClick: () => onNavigate?.('warehouse') },
+    { icon: <Wallet size={20} />,       label: L.totalRevenue, value: `${fmt(totalRevenueVal)} ${L.sum}`,   hint: L.hintRevenue,      accent: '#38BDF8', accentBg: 'rgba(56,189,248,0.12)', onClick: () => setProfitOpen('revenue'), clickable: true },
+    { icon: <PiggyBank size={20} />,    label: L.netProfit,    value: `${fmt(netProfitVal)} ${L.sum}`,     hint: L.hintProfit,       accent: '#34D399', accentBg: 'rgba(52,211,153,0.15)', onClick: () => setProfitOpen('profit'),  clickable: true },
+    { icon: <AlertTriangle size={20} />, label: L.lowStockCard, value: fmt(data.lowStock),                 hint: L.hintLowStock,     accent: '#FB923C', accentBg: 'rgba(251,146,60,0.14)', onClick: () => onNavigate?.('warehouse'), alert: data.lowStock > 0 },
   ];
 
   const attentionItems = [
@@ -327,25 +376,32 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
         {stats.map((s, i) => (
           <motion.button
             key={i}
-            onClick={() => onNavigate?.(s.tab)}
+            onClick={s.onClick}
             initial={{ opacity: 0, y: 18 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ type: 'spring', stiffness: 300, damping: 24, delay: i * 0.05 }}
             whileHover={{ y: -3 }}
             whileTap={{ scale: 0.98 }}
             style={{
-              background: 'var(--ax-card)',
-              border: `1px solid ${(s as any).alert ? 'rgba(251,146,60,0.35)' : 'rgba(255,255,255,0.07)'}`,
+              position: 'relative',
+              background: s.clickable ? `linear-gradient(160deg, ${s.accent}14, var(--ax-card) 60%)` : 'var(--ax-card)',
+              border: `1px solid ${s.alert ? 'rgba(251,146,60,0.35)' : s.clickable ? `${s.accent}40` : 'rgba(255,255,255,0.07)'}`,
               borderRadius: 16, padding: '18px 20px', textAlign: 'left', cursor: 'pointer',
               display: 'flex', flexDirection: 'column', gap: 12, boxShadow: '0 4px 24px rgba(0,0,0,0.4)',
             }}
           >
+            {s.clickable && (
+              <span style={{ position: 'absolute', top: 14, right: 14, color: s.accent, opacity: 0.75, display: 'inline-flex' }}>
+                <ChevronRight size={16} />
+              </span>
+            )}
             <div style={{ width: 40, height: 40, borderRadius: 12, background: s.accentBg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: s.accent }}>
               {s.icon}
             </div>
             <div>
               <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--ax-text)', lineHeight: 1.2 }}>{s.value}</div>
               <div style={{ fontSize: 12, color: '#8B8BAA', marginTop: 4 }}>{s.label}</div>
+              <div style={{ fontSize: 10.5, color: s.clickable ? s.accent : '#5A5A78', marginTop: 3, fontWeight: s.clickable ? 600 : 400 }}>{s.hint}</div>
             </div>
           </motion.button>
         ))}
@@ -547,6 +603,20 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
         )}
       </AnimatePresence>
 
+      {/* 💰 Мини-панель разбора прибыли */}
+      <AnimatePresence>
+        {profitOpen && (
+          <ProfitModal
+            focus={profitOpen}
+            profit={profit}
+            L={L}
+            fmt={fmt}
+            onClose={() => setProfitOpen(null)}
+            onAnalytics={() => { setProfitOpen(null); onNavigate?.('analytics'); }}
+          />
+        )}
+      </AnimatePresence>
+
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
@@ -651,6 +721,154 @@ function ProductDetailModal({
             {L.viewAnalytics}
           </button>
         </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// ── Мини-панель разбора прибыли (онлайн/офлайн) ─────────────────────────────
+function ProfitModal({
+  focus, profit, L, fmt, onClose, onAnalytics,
+}: {
+  focus: 'revenue' | 'profit';
+  profit: ProfitData | null;
+  L: Record<string, string>;
+  fmt: (n: number) => string;
+  onClose: () => void;
+  onAnalytics: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const t = profit?.total;
+  const on = profit?.online;
+  const off = profit?.offline;
+  const hasData = !!t && t.count > 0;
+
+  // Доли онлайн/офлайн по выручке — для наглядной полоски
+  const onShare = t && t.revenue > 0 && on ? Math.round(on.revenue / t.revenue * 100) : 0;
+  const offShare = 100 - onShare;
+
+  // Ключевые цифры «героя» — выручка и прибыль, фокусная подсвечена
+  const hero = [
+    { key: 'revenue', icon: <Wallet size={16} />, label: L.pRevenue, exp: L.pRevenueExp, value: fmt(t?.revenue || 0), color: '#38BDF8' },
+    { key: 'profit',  icon: <PiggyBank size={16} />, label: L.pProfit,  exp: L.pProfitExp,  value: fmt(t?.profit || 0),  color: '#34D399' },
+  ];
+
+  const channel = (
+    title: string, exp: string, icon: React.ReactNode, blk: ProfitBlock | undefined, accent: string,
+  ) => (
+    <div style={{ flex: 1, minWidth: 0, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 14, padding: '13px 14px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <span style={{ width: 26, height: 26, borderRadius: 8, background: `${accent}1A`, color: accent, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{icon}</span>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ax-text)' }}>{title}</div>
+          <div style={{ fontSize: 10, color: '#5A5A78' }}>{exp}</div>
+        </div>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 10 }}>
+        <span style={{ fontSize: 11, color: '#8B8BAA' }}>{L.pRevenue}</span>
+        <span style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--ax-text)' }}>{fmt(blk?.revenue || 0)}</span>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 5 }}>
+        <span style={{ fontSize: 11, color: '#8B8BAA' }}>{L.pProfit.replace(' (ustama)', '').replace(' (наценка)', '')}</span>
+        <span style={{ fontSize: 13.5, fontWeight: 700, color: accent }}>{fmt(blk?.profit || 0)}</span>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 5 }}>
+        <span style={{ fontSize: 11, color: '#8B8BAA' }}>{L.pOps}</span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: '#8B8BAA' }}>{fmt(blk?.count || 0)}</span>
+      </div>
+    </div>
+  );
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(6,6,16,0.72)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+    >
+      <motion.div
+        initial={{ opacity: 0, y: 24, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 20, scale: 0.97 }}
+        transition={{ type: 'spring', stiffness: 320, damping: 28 }}
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: '100%', maxWidth: 480, maxHeight: '92vh', overflowY: 'auto', background: 'var(--ax-card)', border: '1px solid rgba(52,211,153,0.22)', borderRadius: 20, boxShadow: '0 24px 70px rgba(0,0,0,0.6)' }}
+      >
+        {/* Header */}
+        <div style={{ padding: '18px 20px', background: 'linear-gradient(135deg, rgba(52,211,153,0.16), rgba(56,189,248,0.04))', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'flex-start', gap: 12, position: 'sticky', top: 0, backdropFilter: 'blur(8px)', zIndex: 2 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ax-text)', lineHeight: 1.3 }}>{L.pTitle}</div>
+            <div style={{ fontSize: 12, color: '#8B8BAA', marginTop: 2 }}>{L.pSubtitle}</div>
+          </div>
+          <button onClick={onClose} style={{ flexShrink: 0, width: 32, height: 32, borderRadius: 10, background: 'rgba(255,255,255,0.06)', border: 'none', color: '#8B8BAA', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+            <X size={16} />
+          </button>
+        </div>
+
+        {!hasData ? (
+          <div style={{ padding: '40px 20px', textAlign: 'center', color: '#5A5A78', fontSize: 14 }}>{L.pNoData}</div>
+        ) : (
+          <>
+            {/* Hero: выручка + прибыль */}
+            <div style={{ padding: '16px 20px 6px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              {hero.map((h, i) => {
+                const active = h.key === focus;
+                return (
+                  <motion.div key={h.key} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.04 * i }}
+                    style={{ background: active ? `${h.color}14` : 'rgba(255,255,255,0.03)', border: `1px solid ${active ? h.color + '55' : 'rgba(255,255,255,0.06)'}`, borderRadius: 14, padding: '13px 14px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: h.color, marginBottom: 6 }}>
+                      {h.icon}<span style={{ fontSize: 11.5, color: '#8B8BAA' }}>{h.label}</span>
+                    </div>
+                    <div style={{ fontSize: 19, fontWeight: 700, color: 'var(--ax-text)', lineHeight: 1.15 }}>{h.value} <span style={{ fontSize: 12, color: '#5A5A78', fontWeight: 400 }}>{L.sum}</span></div>
+                    <div style={{ fontSize: 10.5, color: '#5A5A78', marginTop: 6, lineHeight: 1.4 }}>{h.exp}</div>
+                  </motion.div>
+                );
+              })}
+            </div>
+
+            {/* Маржа + Себестоимость */}
+            <div style={{ padding: '6px 20px 10px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, padding: '10px 13px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#A78BFA', marginBottom: 4 }}><Percent size={14} /><span style={{ fontSize: 11, color: '#8B8BAA' }}>{L.pMargin}</span></div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ax-text)' }}>{t?.margin ?? 0}%</div>
+                <div style={{ fontSize: 10, color: '#5A5A78', marginTop: 3 }}>{L.pMarginExp}</div>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, padding: '10px 13px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#FB923C', marginBottom: 4 }}><Boxes size={14} /><span style={{ fontSize: 11, color: '#8B8BAA' }}>{L.pCogs}</span></div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ax-text)' }}>{fmt(t?.cogs || 0)}</div>
+                <div style={{ fontSize: 10, color: '#5A5A78', marginTop: 3 }}>{L.pCogsExp}</div>
+              </div>
+            </div>
+
+            {/* Полоска онлайн/офлайн по выручке */}
+            <div style={{ padding: '6px 20px 4px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#8B8BAA', marginBottom: 6 }}>
+                <span style={{ color: '#38BDF8' }}>● {L.pOnline} {onShare}%</span>
+                <span style={{ color: '#A78BFA' }}>{L.pOffline} {offShare}% ●</span>
+              </div>
+              <div style={{ height: 8, borderRadius: 6, overflow: 'hidden', display: 'flex', background: 'rgba(255,255,255,0.06)' }}>
+                <motion.div initial={{ width: 0 }} animate={{ width: `${onShare}%` }} transition={{ type: 'spring', stiffness: 120, damping: 20 }} style={{ background: 'linear-gradient(90deg,#0EA5E9,#38BDF8)' }} />
+                <motion.div initial={{ width: 0 }} animate={{ width: `${offShare}%` }} transition={{ type: 'spring', stiffness: 120, damping: 20, delay: 0.05 }} style={{ background: 'linear-gradient(90deg,#8B5CF6,#A78BFA)' }} />
+              </div>
+            </div>
+
+            {/* Каналы: онлайн / офлайн */}
+            <div style={{ padding: '10px 20px 18px', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              {channel(L.pOnline, L.pOnlineExp, <Globe size={15} />, on, '#38BDF8')}
+              {channel(L.pOffline, L.pOfflineExp, <Store size={15} />, off, '#A78BFA')}
+            </div>
+
+            <div style={{ padding: '0 20px 20px' }}>
+              <button onClick={onAnalytics} style={{ width: '100%', padding: '12px', borderRadius: 12, border: '1px solid rgba(124,92,240,0.3)', cursor: 'pointer', background: 'rgba(124,92,240,0.12)', color: '#A78BFA', fontSize: 13, fontWeight: 600 }}>
+                {L.viewAnalytics}
+              </button>
+            </div>
+          </>
+        )}
       </motion.div>
     </motion.div>
   );

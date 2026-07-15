@@ -1498,6 +1498,11 @@ export const analytics = {
     return apiCall(`/analytics/company/${companyId}/inventory-insights`);
   },
 
+  // 💰 Разложение прибыли: онлайн (заказы) / офлайн (касса) / итого + маржа
+  profit: async (companyId: string | number) => {
+    return apiCall(`/analytics/company/${companyId}/profit`);
+  },
+
   // Get top products
   topProducts: async (params?: { companyId?: string; limit?: number }) => {
     const query = new URLSearchParams(params as any).toString();
