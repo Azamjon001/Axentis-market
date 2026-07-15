@@ -284,14 +284,28 @@ func Migrate(db *sql.DB) error {
 		END LOOP;
 	END $$;
 
-	-- Ensure all product columns exist on existing DBs (idempotent)
+	-- Ensure all product columns exist on existing DBs (idempotent).
+	-- CREATE TABLE IF NOT EXISTS never alters a pre-existing table, so a legacy
+	-- products table created before a column was added to the base schema would
+	-- silently lack it — and every INSERT/UPDATE the handlers run references
+	-- these columns, so a single missing one breaks "add product" / "change
+	-- image" entirely ("Failed to create product"). List every column the
+	-- product handlers touch so the backend self-heals any old database.
 	DO $$
 	DECLARE cols TEXT[] := ARRAY[
 		'sold_count INTEGER DEFAULT 0',
 		'description TEXT',
 		'brand TEXT',
 		'color TEXT',
-		'size TEXT'
+		'size TEXT',
+		'markup_percent NUMERIC(5,2) DEFAULT 0',
+		'barcode VARCHAR(100)',
+		'barid VARCHAR(100)',
+		'category VARCHAR(100)',
+		'images JSONB DEFAULT ''[]''::jsonb',
+		'has_color_options BOOLEAN DEFAULT FALSE',
+		'available_for_customers BOOLEAN DEFAULT TRUE',
+		'article VARCHAR(16)'
 	];
 	col TEXT;
 	col_name TEXT;
