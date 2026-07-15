@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { motion } from 'motion/react';
 import { Search, Barcode, X, Package, ShoppingCart, Trash2, RefreshCw, Plus, Minus, CheckCircle, DollarSign, Receipt } from 'lucide-react';
 import { useProducts, queryClient, localCache } from '../utils/cache';
 import api, { getImageUrl } from '../utils/api';
@@ -478,84 +479,72 @@ export default function BarcodeSearchPanel({ companyId }: BarcodeSearchPanelProp
       )}
 
       {activeView === 'pos' && (<>
-      {/* ========== ПОЛЕ СКАНИРОВАНИЯ ========== */}
-      <div className="bg-[#171F2E] text-white rounded-xl shadow-lg p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="flex items-center gap-2 text-2xl font-bold">
-            <ShoppingCart className="w-7 h-7" />
+      {/* ========== ПОЛЕ СКАНИРОВАНИЯ (герой) ========== */}
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+        style={{ background: 'linear-gradient(150deg, rgba(124,92,240,0.18), var(--ax-card) 62%)', border: '1px solid rgba(124,92,240,0.3)', borderRadius: 18, padding: 18 }}>
+        <div className="flex items-center justify-between mb-3.5" style={{ gap: 12 }}>
+          <h2 className="flex items-center gap-2.5 font-bold" style={{ color: 'var(--ax-text)', fontSize: 18 }}>
+            <span style={{ width: 36, height: 36, borderRadius: 11, background: 'var(--ax-primary)', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+              <ShoppingCart className="w-5 h-5" />
+            </span>
             {t.offline}
           </h2>
-          
           {cart.length > 0 && (
-            <button
-              onClick={handleNewOrder}
-              className="bg-white text-blue-600 px-6 py-3 rounded-lg hover:bg-blue-50 transition-colors flex items-center gap-2 shadow-md font-medium"
-            >
-              <RefreshCw className="w-5 h-5" />
+            <motion.button whileTap={{ scale: 0.95 }} onClick={handleNewOrder}
+              className="flex items-center gap-2 font-medium" style={{ padding: '9px 16px', borderRadius: 10, background: 'rgba(255,255,255,0.08)', color: 'var(--ax-text)', border: '1px solid var(--ax-border)', cursor: 'pointer', fontSize: 13 }}>
+              <RefreshCw className="w-4 h-4" />
               {t.newOrder}
-            </button>
+            </motion.button>
           )}
         </div>
-        
-        <div className="flex gap-3">
+
+        <div className="flex gap-2.5">
           <div className="flex-1 relative">
             <input
               ref={barcodeInputRef}
               type="text"
               value={searchBarcode}
-              onChange={(e) => {
-                setSearchBarcode(e.target.value);
-                setNotFound(false);
-                setLastScannedProduct(null);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  handleScan();
-                }
-              }}
-              className="w-full px-5 py-4 pl-14 bg-[#171F2E] text-white border-2 border-white/20 rounded-lg focus:outline-none focus:ring-4 focus:ring-blue-300 text-lg font-medium placeholder:text-gray-400"
+              onChange={(e) => { setSearchBarcode(e.target.value); setNotFound(false); setLastScannedProduct(null); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleScan(); } }}
+              className="w-full pl-12 pr-4 focus:outline-none"
+              style={{ padding: '14px 16px 14px 48px', background: 'var(--ax-input)', color: 'var(--ax-text)', border: '1px solid var(--ax-border)', borderRadius: 12, fontSize: 16, fontWeight: 500 }}
               placeholder={t.scanOrEnter}
               autoFocus
               disabled={processing}
             />
-            <Barcode className="absolute left-4 top-1/2 -translate-y-1/2 w-6 h-6 text-gray-300" />
+            <Barcode className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5" style={{ color: 'var(--ax-primary)' }} />
           </div>
-          
-          <button
-            onClick={handleScan}
-            disabled={processing}
-            className="bg-white text-blue-600 px-10 py-4 rounded-lg hover:bg-blue-50 transition-colors flex items-center gap-2 shadow-md font-medium disabled:opacity-50"
-          >
+          <motion.button whileTap={{ scale: 0.95 }} onClick={handleScan} disabled={processing}
+            className="flex items-center gap-2 font-semibold disabled:opacity-50"
+            style={{ padding: '0 22px', borderRadius: 12, background: 'linear-gradient(135deg, #7C5CF0, #5B3DD4)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 15, boxShadow: '0 6px 18px rgba(124,92,240,0.4)' }}>
             <Search className="w-5 h-5" />
             {t.search}
-          </button>
+          </motion.button>
         </div>
-        
-        <p className="text-gray-300 text-sm mt-3">
+
+        <p style={{ color: 'var(--ax-text-3)', fontSize: 12.5, marginTop: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
           💡 {t.scanOrEnter}
         </p>
-      </div>
+      </motion.div>
 
       {/* ========== УВЕДОМЛЕНИЕ: ТОВАР ДОБАВЛЕН ========== */}
       {lastScannedProduct && (
-        <div className="bg-green-50 border-2 border-green-500 rounded-lg p-4 flex items-center gap-4 shadow-md animate-pulse">
-          <div className="bg-green-500 text-white rounded-full p-3">
-            <Package className="w-6 h-6" />
-          </div>
-          <div className="flex-1">
-            <div className="text-green-800 font-semibold text-lg">✅ {t.barcodeFound}!</div>
-            <div className="text-green-700 font-medium">
+        <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
+          className="flex items-center gap-3.5"
+          style={{ background: 'rgba(34,197,94,0.10)', border: '1px solid rgba(34,197,94,0.35)', borderRadius: 14, padding: 14 }}>
+          <span style={{ background: '#22C55E', color: '#fff', borderRadius: 12, padding: 10, display: 'inline-flex', flexShrink: 0 }}>
+            <Package className="w-5 h-5" />
+          </span>
+          <div className="flex-1 min-w-0">
+            <div style={{ color: '#4ADE80', fontWeight: 700, fontSize: 14 }}>✅ {t.barcodeFound}!</div>
+            <div style={{ color: 'var(--ax-text)', fontWeight: 500, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {lastScannedProduct.name} — {formatPrice(getPriceWithMarkup(lastScannedProduct.price, lastScannedProduct.markupPercent || 0, lastScannedProduct.id))}
             </div>
           </div>
-          <button
-            onClick={() => setLastScannedProduct(null)}
-            className="text-green-600 hover:text-green-800 transition-colors"
-          >
+          <button onClick={() => setLastScannedProduct(null)} style={{ color: '#4ADE80', background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0 }}>
             <X className="w-5 h-5" />
           </button>
-        </div>
+        </motion.div>
       )}
 
       {/* ========== УВЕДОМЛЕНИЕ: ТОВАР НЕ НАЙДЕН ========== */}
@@ -812,37 +801,36 @@ export default function BarcodeSearchPanel({ companyId }: BarcodeSearchPanelProp
           </div>
         </div>
       ) : (
-        <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-12 text-center border-2 border-dashed border-gray-300 dark:border-gray-600">
-          <ShoppingCart className="w-16 h-16 text-gray-400 dark:text-gray-500 mx-auto mb-4" />
-          <h3 className="text-xl font-semibold text-gray-600 dark:text-gray-400 mb-2">{t.emptyCart}</h3>
-          <p className="text-gray-500 dark:text-gray-500">
-            {t.scanOrEnter}
-          </p>
-        </div>
+        <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}
+          style={{ background: 'var(--ax-card)', border: '1px dashed var(--ax-border)', borderRadius: 16, padding: '44px 24px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, minHeight: 220, justifyContent: 'center' }}>
+          <span style={{ width: 64, height: 64, borderRadius: 18, background: 'var(--ax-primary-pale)', color: 'var(--ax-primary)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+            <ShoppingCart className="w-8 h-8" />
+          </span>
+          <div>
+            <h3 style={{ color: 'var(--ax-text)', fontSize: 16, fontWeight: 600, margin: 0 }}>{t.emptyCart}</h3>
+            <p style={{ color: 'var(--ax-text-3)', fontSize: 13, marginTop: 4 }}>{t.scanOrEnter}</p>
+          </div>
+        </motion.div>
       )}
 
-      {/* ========== СТАТИСТИКА ========== */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 border border-gray-200 dark:border-gray-700">
-        <h3 className="mb-4 text-gray-800 dark:text-gray-100 font-semibold text-lg">{t.productStats}</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4">
-            <div className="text-sm text-blue-600 dark:text-blue-400 mb-1 font-medium">{t.totalProducts}</div>
-            <div className="text-3xl font-bold text-blue-700 dark:text-blue-300">{products.length}</div>
-          </div>
-          
-          <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-4">
-            <div className="text-sm text-green-600 dark:text-green-400 mb-1 font-medium">{t.withBarcode}</div>
-            <div className="text-3xl font-bold text-green-700 dark:text-green-300">
-              {products.filter((p: Product) => p.barcode && p.barcode.trim()).length}
-            </div>
-          </div>
-          
-          <div className="bg-orange-50 dark:bg-orange-900/20 rounded-lg p-4">
-            <div className="text-sm text-orange-600 dark:text-orange-400 mb-1 font-medium">{t.withoutBarcode}</div>
-            <div className="text-3xl font-bold text-orange-700 dark:text-orange-300">
-              {products.filter((p: Product) => !p.barcode || !p.barcode.trim()).length}
-            </div>
-          </div>
+      {/* ========== СТАТИСТИКА — компактные чипы ========== */}
+      <div>
+        <h3 style={{ margin: '0 0 10px', color: 'var(--ax-text-2)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t.productStats}</h3>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {[
+            { icon: <Package size={15} />, label: t.totalProducts, value: products.length, accent: '#7C5CF0' },
+            { icon: <Barcode size={15} />, label: t.withBarcode,   value: products.filter((p: Product) => p.barcode && p.barcode.trim()).length, accent: '#22C55E' },
+            { icon: <Barcode size={15} />, label: t.withoutBarcode, value: products.filter((p: Product) => !p.barcode || !p.barcode.trim()).length, accent: '#FB923C' },
+          ].map((s, i) => (
+            <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
+              style={{ flex: '1 1 0', minWidth: 0, display: 'flex', alignItems: 'center', gap: 9, padding: '10px 12px', borderRadius: 12, background: 'var(--ax-card)', border: `1px solid ${s.accent}2A` }}>
+              <span style={{ width: 30, height: 30, borderRadius: 9, background: `${s.accent}1F`, color: s.accent, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{s.icon}</span>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--ax-text)', lineHeight: 1 }}>{s.value}</div>
+                <div style={{ fontSize: 10.5, color: 'var(--ax-text-3)', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.label}</div>
+              </div>
+            </motion.div>
+          ))}
         </div>
       </div>
       </>)}
