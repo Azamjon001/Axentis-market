@@ -869,7 +869,7 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
                     <StatTile
                       icon={<Wallet className="w-4 h-4" style={{ color: balanceColor }} />}
                       iconBg={isPositive ? 'var(--ax-primary-pale)' : 'rgba(248,113,113,0.12)'}
-                      label={language === 'uz' ? 'Yakuniy balans' : 'Итоговый баланс'}
+                      label={language === 'uz' ? 'Xarajatlardan keyin qoldi' : 'Осталось после расходов'}
                       value={`${isPositive ? '+' : ''}${formatPrice(balance)}`}
                       valueColor={balanceColor}
                       accent={balanceColor}
@@ -897,7 +897,7 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
                     <StatTile
                       icon={<Package className="w-4 h-4" style={{ color: 'var(--ax-danger)' }} />}
                       iconBg="rgba(248,113,113,0.12)"
-                      label={language === 'uz' ? 'Kompaniya xarajatlari' : 'Затраты компании'}
+                      label={language === 'uz' ? 'Xarajatlar' : 'Расходы'}
                       value={`−${formatPrice(companyExpenses)}`}
                       valueColor="var(--ax-danger)"
                       sub={
@@ -912,7 +912,7 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
                             style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6, background: 'var(--ax-primary-pale)', border: '1px solid var(--ax-border)', borderRadius: 8, color: 'var(--ax-primary)', fontSize: 12, fontWeight: 700, cursor: 'pointer', padding: '6px 12px' }}
                           >
                             <Receipt className="w-3.5 h-3.5" />
-                            {language === 'uz' ? 'Barcha xarajatlar' : 'Все затраты'}
+                            {language === 'uz' ? 'Batafsil koʻrish' : 'Показать подробно'}
                           </button>
                         </>
                       }
@@ -922,7 +922,7 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
 
                 {/* ── КАНАЛЫ ПРОДАЖ (наблюдение, не влияют на баланс) ── */}
                 <div>
-                  <SectionLabel>{language === 'uz' ? 'Savdo kanallari' : 'Каналы продаж'}</SectionLabel>
+                  <SectionLabel>{language === 'uz' ? 'Savdo: onlayn va kassa' : 'Продажи: онлайн и касса'}</SectionLabel>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
 
                     {/* 4. ВЫРУЧКА ЗА ПЕРИОД (онлайн + офлайн) */}
@@ -992,7 +992,7 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
                         </span>
                         <div>
                           <div style={{ color: 'var(--ax-text)', fontWeight: 800, fontSize: 16 }}>
-                            {language === 'uz' ? 'Kompaniya xarajatlari' : 'Затраты компании'}
+                            {language === 'uz' ? 'Xarajatlar' : 'Расходы'}
                           </div>
                           <div style={{ color: 'var(--ax-text-3)', fontSize: 12 }}>
                             {language === 'uz' ? 'Tanlangan davr uchun' : 'За выбранный период'}
@@ -1103,7 +1103,7 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
                     {/* Итог по расходам (влияет на баланс) */}
                     <div style={{ borderTop: '1px solid var(--ax-border)', padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                       <span style={{ color: 'var(--ax-text-2)', fontSize: 13, fontWeight: 600 }}>
-                        {language === 'uz' ? 'Balansga taʼsir (xarajatlar)' : 'Влияет на баланс (расходы)'}
+                        {language === 'uz' ? 'Foydadan ayriladi' : 'Вычитается из прибыли'}
                       </span>
                       <span style={{ color: 'var(--ax-danger)', fontWeight: 800, fontSize: 16 }}>−{formatPrice(companyExpenses)}</span>
                     </div>
@@ -1116,7 +1116,7 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
 
           {/* 📊 ДИАГРАММА — ДИНАМИКА ВЫРУЧКИ */}
           <div className="max-w-7xl mx-auto mb-6" key={`charts-${financialTimePeriod}`}>
-            <SectionLabel>{language === 'uz' ? 'Dinamika' : 'Динамика'}</SectionLabel>
+            <SectionLabel>{language === 'uz' ? 'Savdo qanday ketmoqda' : 'Как идут продажи'}</SectionLabel>
             <div style={{
               background: 'var(--ax-card)',
               borderRadius: 14,
@@ -1138,14 +1138,6 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
                       <span style={{ width: 24, height: 3, background: '#5B3DD4', display: 'inline-block', borderRadius: 2, borderTop: '2px dashed #5B3DD4' }} />
                       {language === 'uz' ? 'Oldingi davr' : 'Предыдущий период'}
                     </span>
-                  </div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ color: 'var(--ax-text-3)', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
-                    {language === 'uz' ? 'Davr uchun jami' : 'Итого за период'}
-                  </div>
-                  <div style={{ color: 'var(--ax-text)', fontSize: 20, fontWeight: 800 }}>
-                    {formatPrice(getPeriodRevenue(financialTimePeriod))}
                   </div>
                 </div>
               </div>
@@ -1187,60 +1179,10 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
             </div>
           </div>
 
-          {/* 📊 ФИНАНСОВЫЙ РАЗРЕЗ (за всё время) — горизонтальные бары */}
+          {/* 💸 ВАШИ РАСХОДЫ (влияет на «Расходы» выше). Общие итоги за всё время
+               живут на Дашборде — здесь их не дублируем. */}
           <div className="max-w-7xl mx-auto mb-6">
-            {(() => {
-              const totalExpenses = inventoryCost + customExpenses;
-              const netProfit = Math.max(companyEarnings - customExpenses, 0);
-              const breakdown = [
-                { name: language === 'uz' ? 'Jami daromad' : 'Выручка (продажи)', value: totalRevenue, color: 'var(--ax-success)' },
-                { name: language === 'uz' ? 'Xarajatlar (ombor)' : 'Затраты (склад)', value: totalExpenses, color: 'var(--ax-danger)' },
-                { name: language === 'uz' ? 'Sof foyda' : 'Чистая прибыль', value: netProfit, color: 'var(--ax-primary)' },
-              ].filter(d => d.value > 0);
-              const maxValue = Math.max(...breakdown.map(d => d.value), 1);
-
-              return (
-                <div style={{ background: 'var(--ax-card)', borderRadius: 14, padding: '22px 24px', border: '1px solid var(--ax-border)' }}>
-                  <h3 style={{ color: 'var(--ax-text)', fontSize: 17, fontWeight: 700, marginBottom: 4 }}>
-                    {language === 'uz' ? 'Moliyaviy tahlil' : 'Финансовый разрез'}
-                  </h3>
-                  <p style={{ color: 'var(--ax-text-3)', fontSize: 12, marginBottom: 18 }}>
-                    {language === 'uz' ? 'Butun davr uchun' : 'За всё время работы'}
-                  </p>
-                  {breakdown.length > 0 ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                      {breakdown.map((entry, index) => (
-                        <div key={index}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6, gap: 8 }}>
-                            <span style={{ color: 'var(--ax-text-2)', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.name}</span>
-                            <span style={{ color: 'var(--ax-text)', fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap' }}>{formatPrice(entry.value)}</span>
-                          </div>
-                          <div style={{ height: 8, background: 'var(--ax-input)', borderRadius: 4, overflow: 'hidden' }}>
-                            <div style={{
-                              height: '100%',
-                              width: `${Math.max((entry.value / maxValue) * 100, 2)}%`,
-                              background: entry.color,
-                              borderRadius: 4,
-                              transition: 'width 0.6s ease',
-                            }} />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div style={{ height: 140, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, color: 'var(--ax-text-3)' }}>
-                      <Package style={{ width: 36, height: 36, opacity: 0.3 }} />
-                      <span style={{ fontSize: 13 }}>{language === 'uz' ? "Maʼlumot yoʼq" : 'Нет данных'}</span>
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
-          </div>
-
-          {/* 💸 УПРАВЛЕНИЕ РАСХОДАМИ (влияет на «Затраты компании» выше) */}
-          <div className="max-w-7xl mx-auto mb-6">
-            <SectionLabel>{language === 'uz' ? 'Xarajatlarni boshqarish' : 'Управление расходами'}</SectionLabel>
+            <SectionLabel>{language === 'uz' ? 'Xarajatlaringiz' : 'Ваши расходы'}</SectionLabel>
             <ExpensesManager
               companyId={companyId}
               onCustomExpensesUpdate={(totalCustomExpenses, expensesList) => {
