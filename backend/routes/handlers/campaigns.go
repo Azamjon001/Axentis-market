@@ -114,12 +114,19 @@ func DeleteCampaign(db *sql.DB) gin.HandlerFunc {
 // Активные кампании с товарами — для именованных рядов на главной.
 func GetActiveCampaigns(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// 🔐 Изоляция публичного/закрытого маркетплейса: кампании закрытых
+		// компаний не показываем на публичной главной, а закрытому приложению —
+		// только кампании его компании.
+		args := []interface{}{}
+		modeCond := modeCondition(c, "co", &args)
 		rows, err := db.Query(`
 			SELECT dc.id, dc.name, dc.emoji, dc.company_id
 			FROM discount_campaigns dc
+			JOIN companies co ON co.id = dc.company_id
 			WHERE dc.is_active AND dc.ends_at > NOW() AND dc.starts_at <= NOW()
+			  AND `+modeCond+`
 			ORDER BY dc.created_at DESC LIMIT 8
-		`)
+		`, args...)
 		if err != nil {
 			c.JSON(http.StatusOK, []gin.H{})
 			return

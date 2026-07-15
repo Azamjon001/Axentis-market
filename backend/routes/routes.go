@@ -139,10 +139,29 @@ func Setup(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 			broadcast.GET("/bans", middleware.RequireAdmin(cfg), handlers.ListBroadcastBans(db))
 		}
 
+		// 💸 Выплаты: проверка карты и отмена — компания; очередь и статусы — админ.
+		payouts := api.Group("/payouts")
+		{
+			payouts.POST("/verify-card", handlers.VerifyPayoutCard(db))
+			payouts.PUT("/:id/cancel", handlers.CancelPayout(db))
+			payouts.GET("", middleware.RequireAdmin(cfg), handlers.GetAllPayouts(db))
+			payouts.PUT("/:id/status", middleware.RequireAdmin(cfg), handlers.UpdatePayoutStatus(db))
+		}
+
+		// 📜 Политика конфиденциальности: чтение — публичное (показывается при
+		// регистрации/входе), редактирование — только админ, принятие — фиксируется.
+		policies := api.Group("/policies")
+		{
+			policies.GET("/:audience", handlers.GetPolicy(db))
+			policies.PUT("/:audience", middleware.RequireAdmin(cfg), handlers.UpdatePolicy(db))
+			policies.POST("/:audience/accept", handlers.AcceptPolicy(db))
+		}
+
 		// Регионы доставки: список — публичный; создание/изменение — только админ.
 		regions := api.Group("/regions")
 		{
 			regions.GET("", handlers.ListRegions(db))
+			regions.GET("/resolve", handlers.ResolveRegionAtPoint(db)) // 📍 точка покупателя → зоны доставки
 			regions.POST("", middleware.RequireAdmin(cfg), handlers.CreateRegion(db))
 			regions.PUT("/:id", middleware.RequireAdmin(cfg), handlers.UpdateRegion(db))
 			regions.DELETE("/:id", middleware.RequireAdmin(cfg), handlers.DeleteRegion(db))
@@ -173,6 +192,10 @@ func Setup(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 			companies.POST("/:id/subscribe", handlers.SubscribeToCompany(db))
 			companies.POST("/:id/unsubscribe", handlers.UnsubscribeFromCompany(db))
 			companies.PUT("/:id/expenses", middleware.RequireAdminOrOwnCompany(), handlers.UpdateCompanyExpenses(db))
+			// 💸 Вывод средств: баланс и история — компания/админ; создание — компания
+			companies.GET("/:id/payout-balance", handlers.GetPayoutBalance(db))
+			companies.GET("/:id/payouts", handlers.GetCompanyPayouts(db))
+			companies.POST("/:id/payouts", handlers.CreatePayout(db))
 			companies.POST("/:id/upload-logo", middleware.RequireAdminOrOwnCompany(), handlers.UploadCompanyLogo(db))
 			companies.POST("/:id/upload-cover", middleware.RequireAdminOrOwnCompany(), handlers.UploadCompanyCover(db)) // 🖼️ Фоновое фото магазина
 			companies.PUT("/:id/privacy", middleware.RequireAdminOrOwnCompany(), handlers.ToggleCompanyPrivacy(db)) // 🔐 Переключение приватности
@@ -249,6 +272,7 @@ func Setup(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 		{
 			users.POST("/check-unique", handlers.CheckUserUnique(db))
 			users.GET("/count", handlers.GetUsersCount(db))
+			users.DELETE("", middleware.RequireAdmin(cfg), handlers.DeleteAllUsers(db)) // 🗑️ Опасная зона админки
 			users.GET("/:phone", handlers.GetUserByPhone(db))
 			// Old cart/likes routes removed - use /api/cart and /api/favorites instead
 			users.POST("/:phone/avatar", middleware.RequireSelfPhone("phone"), handlers.UploadUserAvatar(db))
@@ -368,6 +392,7 @@ func Setup(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 			analytics.GET("/company/:companyId", middleware.RequireAdminOrOwnCompanyParam("companyId"), handlers.GetCompanyAnalytics(db))
 			analytics.GET("/company/:companyId/dashboard", middleware.RequireAdminOrOwnCompanyParam("companyId"), handlers.GetCompanyDashboard(db)) // 📊 Единый дашборд продавца
 			analytics.GET("/company/:companyId/inventory-insights", middleware.RequireAdminOrOwnCompanyParam("companyId"), handlers.GetInventoryInsights(db)) // 📦 Прогноз остатков + ABC-анализ
+			analytics.GET("/company/:companyId/profit", middleware.RequireAdminOrOwnCompanyParam("companyId"), handlers.GetCompanyProfit(db)) // 💰 Разложение прибыли (онлайн/офлайн)
 			analytics.GET("/revenue", middleware.RequireCompany(cfg), middleware.RequireCompanyScope("companyId"), handlers.GetRevenueAnalytics(db))
 			analytics.GET("/admin/overview", middleware.RequireAdmin(cfg), handlers.GetAdminOverview(db)) // 📊 Дашборд платформы
 		}

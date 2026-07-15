@@ -23,7 +23,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useFavorites } from '../../context/FavoritesContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { getProducts, getCategories, getApprovedAds, getRecentlyViewed, getRecommendations, getCampaigns } from '../../api';
+import { getProducts, getCategories, getApprovedAds, getRecentlyViewed, getRecommendations, getCampaigns, getDeliveryRegions } from '../../api';
 import { useLocationRegion } from '../../context/LocationContext';
 import { ALL_REGION_NAMES } from '../../utils/region';
 import ProductCard from '../../components/common/ProductCard';
@@ -81,12 +81,21 @@ export default function HomeScreen() {
   }, [search]);
 
   // 🗺️ Регион покупателя (GPS ИЛИ выбранный вручную). Товары строго его региона.
-  const { region, manualRegion, status: locStatus, requestLocation, setManualRegion } = useLocationRegion();
+  const { region, manualRegion, coords, status: locStatus, requestLocation, setManualRegion } = useLocationRegion();
   const [regionPickerOpen, setRegionPickerOpen] = useState(false);
+  const [adminZones, setAdminZones] = useState([]); // зоны, нарисованные админом (для ручного выбора)
   // В приватном режиме (закрытая компания) фильтрация по региону не нужна.
   const isPrivateMode = user?.mode === 'private' && !!user?.privateCompanyId;
-  // Готовы показывать товары, когда есть регион (определён или выбран вручную).
-  const regionReady = isPrivateMode || !!region;
+  // Готовы показывать товары, когда есть регион (определён/выбран вручную)
+  // ЛИБО координаты — бэкенд сам сверит точку с нарисованными зонами доставки.
+  const regionReady = isPrivateMode || !!region || !!coords;
+
+  // Список зон админа для ручного выбора (Карасу, Андижан и т.п.).
+  useEffect(() => {
+    getDeliveryRegions()
+      .then((list) => setAdminZones(list.filter((r) => r?.name)))
+      .catch(() => setAdminZones([]));
+  }, []);
 
   const getModeParams = useCallback(() => {
     const params = {};
@@ -95,8 +104,14 @@ export default function HomeScreen() {
       params.privateCompanyId = user.privateCompanyId;
     }
     if (region) params.region = region;
+    // Координаты передаём только в автоматическом режиме: если покупатель выбрал
+    // регион вручную, показываем строго его выбор, без примеси GPS-зон.
+    if (!manualRegion && coords) {
+      params.lat = coords.lat;
+      params.lng = coords.lng;
+    }
     return params;
-  }, [user?.mode, user?.privateCompanyId, region]);
+  }, [user?.mode, user?.privateCompanyId, region, manualRegion, coords]);
 
   const loadInitial = useCallback(async () => {
     try {
@@ -586,6 +601,34 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
             <ScrollView style={{ maxHeight: 380 }}>
+              {/* 📍 Зоны доставки, нарисованные админом (районы/города) — первыми */}
+              {adminZones.length > 0 && (
+                <Text style={[styles.regionGroupLabel, { color: colors.textMuted }]}>
+                  {language === 'uz' ? 'Yetkazib berish hududlari' : 'Зоны доставки'}
+                </Text>
+              )}
+              {adminZones.map((zone) => {
+                const name = language === 'uz' && zone.nameUz ? zone.nameUz : zone.name;
+                const active = region === zone.name || region === zone.nameUz;
+                return (
+                  <TouchableOpacity
+                    key={`zone-${zone.id}`}
+                    onPress={() => { setManualRegion(zone.name); setRegionPickerOpen(false); }}
+                    style={[styles.regionRow, { borderBottomColor: colors.border }]}
+                  >
+                    <Ionicons name="location-outline" size={16} color={colors.primary} style={{ marginRight: 8 }} />
+                    <Text style={{ color: active ? colors.primary : colors.text, fontWeight: active ? '700' : '400', flex: 1 }}>
+                      {name}
+                    </Text>
+                    {active && <Ionicons name="checkmark" size={20} color={colors.primary} />}
+                  </TouchableOpacity>
+                );
+              })}
+              {adminZones.length > 0 && (
+                <Text style={[styles.regionGroupLabel, { color: colors.textMuted }]}>
+                  {language === 'uz' ? 'Viloyatlar' : 'Области'}
+                </Text>
+              )}
               {ALL_REGION_NAMES.map((name) => {
                 const active = region === name;
                 return (
@@ -736,6 +779,7 @@ const styles = StyleSheet.create({
   regionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   regionTitle: { fontSize: 17, fontWeight: '700' },
   regionRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth },
+  regionGroupLabel: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 12, marginBottom: 4 },
   regionAuto: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingTop: 16 },
   retryLocationBtnText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
   loadMore: { paddingVertical: 20, alignItems: 'center' },

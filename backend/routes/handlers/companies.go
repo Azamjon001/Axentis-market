@@ -20,19 +20,31 @@ import (
 func GetCompanies(db *sql.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// SECURITY: credential fields (password, access key, private code) are
-		// only included for the platform admin. This endpoint is public — the
+		// returned only to the company itself. This endpoint is public — the
 		// storefronts use it to list shops — so leaking them here would hand
 		// out every seller's login to anyone.
-		admin := isAdmin(c)
 
-		// Для админ панели показываем все компании, для пользователей - только approved
+		// Для админ-панели показываем все компании; обычным клиентам — только
+		// одобренные и включённые магазины, с изоляцией режима. Раньше фильтра
+		// не было вовсе: публичный список магазинов отдавал ВСЕ компании —
+		// приватные (закрытые), а также pending/blocked/rejected — кому угодно.
+		where := ""
+		args := []interface{}{}
+		if !isAdmin(c) {
+			conds := []string{
+				"status = 'approved'",
+				"COALESCE(is_enabled, TRUE) = TRUE",
+				modeCondition(c, "companies", &args),
+			}
+			where = " WHERE " + strings.Join(conds, " AND ")
+		}
 		query := `
 			SELECT id, name, phone, password_hash, COALESCE(password_plain, ''), access_key, mode, private_code, status, logo_url, address, description, products_description, latitude, longitude, delivery_enabled, is_enabled, COALESCE(platform_commission_percent, 3), COALESCE(is_verified, FALSE)
-			FROM companies
+			FROM companies` + where + `
 			ORDER BY created_at DESC
 		`
 
-		rows, err := db.Query(query)
+		rows, err := db.Query(query, args...)
 
 		if err != nil {
 			log.Printf("❌ GetCompanies: Failed to query companies: %v", err)
@@ -82,24 +94,26 @@ func GetCompanies(db *sql.DB) gin.HandlerFunc {
 				"isVerified":      comp.IsVerified,
 			}
 
-			// Expose the readable password for the admin panel ONLY (plus each
-			// company's own row, which the seller settings panel reads for its
-			// private code). We surface password_plain (kept in sync on
-			// create/update); if it is empty but the stored hash is still legacy
-			// plaintext (not a bcrypt "$2..." hash), fall back to it. The bcrypt
-			// hash itself is never exposed.
-			if admin || (ctxRole(c) == "company" && ctxCompanyID(c) == comp.ID) {
+			// 🔒 Пароль и приватный код видит ТОЛЬКО сама компания в своей строке
+			// (панель настроек продавца читает свой private code). Bcrypt-хэш не
+			// отдаётся никому. Эндпоинт публичный — анонимам учётные данные не
+			// отдаются вообще.
+			if ctxRole(c) == "company" && ctxCompanyID(c) == comp.ID {
 				if comp.PasswordPlain != "" {
 					company["password"] = comp.PasswordPlain
 				} else if comp.PasswordHash != "" && !strings.HasPrefix(comp.PasswordHash, "$2") {
 					company["password"] = comp.PasswordHash
 				}
-				if comp.AccessKey.Valid {
-					company["accessKey"] = comp.AccessKey.String
-				}
 				if comp.PrivateCode.Valid {
 					company["privateCode"] = comp.PrivateCode.String
 				}
+			}
+			// 🔑 30-значный ключ доступа виден самой компании И администратору
+			// платформы: админ выдаёт ключи компаниям и должен всегда видеть их
+			// в панели управления.
+			if comp.AccessKey.Valid &&
+				(isAdmin(c) || (ctxRole(c) == "company" && ctxCompanyID(c) == comp.ID)) {
+				company["accessKey"] = comp.AccessKey.String
 			}
 			if comp.LogoURL.Valid {
 				company["logoUrl"] = comp.LogoURL.String
@@ -230,6 +244,13 @@ func GetCompany(db *sql.DB) gin.HandlerFunc {
 			&company.PlatformCommission, &company.IsVerified)
 
 		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Company not found"})
+			return
+		}
+
+		// 🔐 Прямой доступ по ID к закрытой компании — только своим (админ,
+		// сама компания, её закрытое приложение). Для остальных её как бы нет.
+		if company.Mode == "private" && !mayAccessPrivateCompany(c, company.ID) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Company not found"})
 			return
 		}
@@ -1063,7 +1084,12 @@ func GetNearestCompany(db *sql.DB) gin.HandlerFunc {
 		`
 
 		args := []interface{}{lat, lng}
-		argCounter := 3
+
+		// 🔐 Изоляция режимов: закрытые компании не должны находиться как
+		// «ближайший магазин» в публичных клиентах, а закрытому приложению —
+		// только его компания.
+		query += " AND " + modeCondition(c, "companies", &args)
+		argCounter := len(args) + 1
 
 		// Фильтр по району (если указан)
 		if district != "" {

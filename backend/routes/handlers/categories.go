@@ -272,6 +272,11 @@ func GetProductsByCategory(db *sql.DB) http.HandlerFunc {
 			orderBy = "COALESCE(p.sold_count,0) DESC, p.created_at DESC"
 		}
 
+		// 🔐 Изоляция публичного/закрытого маркетплейса: без параметров режима —
+		// только публичные компании; в закрытом приложении — только закреплённая
+		// компания. Иначе товары закрытых компаний утекали бы в публичный каталог.
+		conds = append(conds, modeConditionHTTP(r, "c", &args))
+
 		limit, offset := 40, 0
 		if v, err := strconv.Atoi(q.Get("limit")); err == nil && v > 0 && v <= 100 {
 			limit = v

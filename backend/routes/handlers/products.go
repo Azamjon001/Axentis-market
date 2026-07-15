@@ -78,7 +78,20 @@ func GetProducts(db *sql.DB) gin.HandlerFunc {
 				// компании ИЛИ регион из списка доставки service_regions). Если ни одна
 				// компания не выбрала регион покупателя — товаров не будет (как и задумано).
 				region := strings.TrimSpace(c.Query("region"))
-				log.Printf("🌐 GetProducts: Public mode, limit=%d offset=%d region=%q", limit, offset, region)
+				// 📍 Дополнительно: координаты покупателя. Точка сверяется с границами,
+				// нарисованными админом (таблица regions), — компания совпадает, если
+				// выбрала эту зону (region_id или её название в region/service_regions).
+				var matchedRegions []MatchedRegion
+				hasCoords := false
+				if latStr, lngStr := c.Query("lat"), c.Query("lng"); latStr != "" && lngStr != "" {
+					lat, errLat := strconv.ParseFloat(latStr, 64)
+					lng, errLng := strconv.ParseFloat(lngStr, 64)
+					if errLat == nil && errLng == nil {
+						hasCoords = true
+						matchedRegions = ResolveRegionsAtPoint(db, lat, lng)
+					}
+				}
+				log.Printf("🌐 GetProducts: Public mode, limit=%d offset=%d region=%q coords=%v matchedZones=%d", limit, offset, region, hasCoords, len(matchedRegions))
 				query := `
 					SELECT p.id, p.company_id, p.name, p.quantity, p.price, p.markup_percent,
 					       COALESCE(
@@ -97,9 +110,63 @@ func GetProducts(db *sql.DB) gin.HandlerFunc {
 					WHERE p.available_for_customers = true
 					  AND (c.mode = 'public' OR c.mode IS NULL)`
 				args := []interface{}{}
+				// Компания подходит, если обслуживает регион покупателя ЛЮБЫМ из способов:
+				// текстовое название области (reverse-геокодинг / ручной выбор),
+				// зона админа по имени/ID, родительская зона или область,
+				// которой принадлежит зона (ExpandBuyerRegion).
+				regionConds := []string{}
+				seenNames := map[string]bool{}
+				addNameCond := func(name string) {
+					name = strings.TrimSpace(name)
+					if name == "" || seenNames[strings.ToLower(name)] {
+						return
+					}
+					seenNames[strings.ToLower(name)] = true
+					args = append(args, name)
+					n := len(args)
+					regionConds = append(regionConds, fmt.Sprintf("(c.region = $%d OR c.service_regions @> to_jsonb($%d::text))", n, n))
+				}
+				seenZoneIDs := map[int64]bool{}
+				addZoneIDCond := func(id int64) {
+					if seenZoneIDs[id] {
+						return
+					}
+					seenZoneIDs[id] = true
+					args = append(args, id)
+					regionConds = append(regionConds, fmt.Sprintf("c.region_id = $%d", len(args)))
+				}
 				if region != "" {
-					args = append(args, region)
-					query += " AND (c.region = $1 OR c.service_regions @> to_jsonb($1::text))"
+					// Ручной выбор/reverse-геокод: разворачиваем название в зоны
+					// админа (ru/uz, с родителями) и текстовую область — иначе
+					// покупатель из «Карасу» не видел компании, обслуживающие
+					// «Андижанскую область», и наоборот.
+					zoneIDs, names := ExpandBuyerRegion(db, region)
+					for _, n := range names {
+						addNameCond(n)
+					}
+					for _, id := range zoneIDs {
+						addZoneIDCond(id)
+					}
+				}
+				for _, m := range matchedRegions {
+					addZoneIDCond(m.ID)
+					addNameCond(m.Name)
+					if m.NameUz != "" && m.NameUz != m.Name {
+						addNameCond(m.NameUz)
+					}
+					// Зона → текстовая область («Карасу» → «Андижанская область»):
+					// GPS-покупатель видит компании с областным выбором, даже если
+					// reverse-геокодинг не сработал.
+					if oblast := matchOblastName(m.Name); oblast != "" {
+						addNameCond(oblast)
+					}
+				}
+				if len(regionConds) > 0 {
+					query += " AND (" + strings.Join(regionConds, " OR ") + ")"
+				} else if hasCoords {
+					// Координаты переданы, но точка вне всех зон и области нет —
+					// строгая региональность: не показываем чужие товары.
+					query += " AND FALSE"
 				}
 				// Продвинутые товары (внутренняя реклама) — вверху выдачи.
 				query += fmt.Sprintf(" ORDER BY is_promoted DESC, p.created_at DESC LIMIT $%d OFFSET $%d", len(args)+1, len(args)+2)
@@ -381,6 +448,14 @@ func GetProductByID(db *sql.DB) gin.HandlerFunc {
 		if err != nil {
 			log.Printf("❌ GetProductByID error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch product"})
+			return
+		}
+
+		// 🔐 Прямой доступ по ID к товару закрытой компании — только своим.
+		// Публичный/чужой клиент не должен видеть приватный товар даже по ссылке.
+		var compMode string
+		if db.QueryRow(`SELECT COALESCE(mode, 'public') FROM companies WHERE id = $1`, p.CompanyID).Scan(&compMode); compMode == "private" && !mayAccessPrivateCompany(c, p.CompanyID) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
 			return
 		}
 
@@ -959,24 +1034,31 @@ func GetSimilarProducts(db *sql.DB) gin.HandlerFunc {
 
 		whereClause := strings.Join(conditions, " OR ")
 
+		// 🔐 Изоляция режимов: похожие товары — только из компаний того же режима
+		// (публичные для публичных клиентов, закрытая — только своя).
+		modeCond := modeCondition(c, "c", &args)
+		catPlaceholder := len(args) + 1
+		limitPlaceholder := len(args) + 2
+
 		query := fmt.Sprintf(`
-			SELECT 
+			SELECT
 				p.id, p.company_id, p.name, p.quantity, p.price, p.markup_percent,
 				p.selling_price, p.markup_amount, p.barcode, p.barid, p.category, p.images,
-				p.description, p.color, p.size, p.brand, p.has_color_options, p.available_for_customers, p.sold_count, 
+				p.description, p.color, p.size, p.brand, p.has_color_options, p.available_for_customers, p.sold_count,
 				p.created_at, p.updated_at,
 				c.name as company_name
 			FROM products p
 			LEFT JOIN companies c ON p.company_id = c.id
-			WHERE p.id != $1 
+			WHERE p.id != $1
 			  AND p.available_for_customers = true
+			  AND %s
 			  AND (%s)
-			ORDER BY 
+			ORDER BY
 				CASE WHEN p.category = $%d THEN 1 ELSE 2 END,
 				p.sold_count DESC,
 				p.created_at DESC
 			LIMIT $%d
-		`, whereClause, argIndex, argIndex+1)
+		`, modeCond, whereClause, catPlaceholder, limitPlaceholder)
 
 		// Добавляем категорию и лимит в аргументы
 		categoryValue := ""
