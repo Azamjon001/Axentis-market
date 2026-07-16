@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Search, Barcode, X, Package, ShoppingCart, Trash2, RefreshCw, Plus, Minus, CheckCircle, Receipt, CreditCard, Banknote, Info, TrendingUp } from 'lucide-react';
+import { Search, Barcode, X, Package, ShoppingCart, Trash2, RefreshCw, Plus, Minus, CheckCircle, Receipt, CreditCard, Banknote, TrendingUp } from 'lucide-react';
 import { useProducts, queryClient, localCache } from '../utils/cache';
 import api, { getImageUrl } from '../utils/api';
 import PaymentHistoryForCompany from './PaymentHistoryForCompany';
@@ -772,10 +772,10 @@ export default function BarcodeSearchPanel({ companyId }: BarcodeSearchPanelProp
 
           {/* Тип карты */}
           <div style={{ opacity: paymentMethod === 'card' ? 1 : 0.45, pointerEvents: paymentMethod === 'card' ? 'auto' : 'none', transition: 'opacity 0.2s' }}>
-            <label style={{ display: 'block', fontSize: 12.5, color: 'var(--ax-text-2)', marginBottom: 8 }}>
+            <label style={{ display: 'block', fontSize: 13.5, fontWeight: 600, color: 'var(--ax-text-2)', marginBottom: 10 }}>
               {language === 'uz' ? 'Karta turi' : 'Тип карты'}
             </label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               {([
                 { key: 'humo' as const,   label: 'Humo',      dot: '#22C55E' },
                 { key: 'uzcard' as const, label: 'Uzcard',    dot: '#38BDF8' },
@@ -789,35 +789,20 @@ export default function BarcodeSearchPanel({ companyId }: BarcodeSearchPanelProp
                     type="button"
                     onClick={() => setCardSubtype(c.key)}
                     style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                      padding: '11px 8px', borderRadius: 11, cursor: 'pointer', fontSize: 13, fontWeight: 600,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9,
+                      padding: '16px 10px', borderRadius: 12, cursor: 'pointer', fontSize: 14.5, fontWeight: 700,
                       background: on ? 'var(--ax-primary-pale)' : 'var(--ax-input)',
                       border: on ? '1.5px solid var(--ax-primary)' : '1px solid var(--ax-border)',
                       color: on ? 'var(--ax-primary)' : 'var(--ax-text-2)',
                       transition: 'all 0.15s',
                     }}
                   >
-                    <span style={{ width: 9, height: 9, borderRadius: '50%', background: c.dot, flexShrink: 0 }} />
+                    <span style={{ width: 11, height: 11, borderRadius: '50%', background: c.dot, flexShrink: 0 }} />
                     {c.label}
                   </button>
                 );
               })}
             </div>
-          </div>
-
-          {/* Инфобокс */}
-          <div style={{ background: 'var(--ax-input)', border: '1px solid var(--ax-border)', borderRadius: 13, padding: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-              <Info className="w-4 h-4" style={{ color: 'var(--ax-primary)', flexShrink: 0 }} />
-              <span style={{ color: 'var(--ax-text)', fontSize: 13.5, fontWeight: 700 }}>
-                {language === 'uz' ? "Maʼlumot" : 'Информация'}
-              </span>
-            </div>
-            <p style={{ color: 'var(--ax-text-2)', fontSize: 12.5, lineHeight: 1.55, margin: 0 }}>
-              {language === 'uz'
-                ? "Savdo yakunlangach tovarlar ombordan avtomatik ayriladi, foyda esa hisobotga qoʻshiladi."
-                : 'После завершения продажи товары автоматически списываются со склада, а прибыль попадает в аналитику.'}
-            </p>
           </div>
 
           {/* Кнопка оформления */}

@@ -253,6 +253,12 @@ export default function OrderDetailScreen() {
               <Text style={[styles.infoText, { color: colors.textSecondary }]}>{order.recipientName}</Text>
             </View>
           )}
+          {!!order.comment && (
+            <View style={styles.infoRow}>
+              <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.textMuted} />
+              <Text style={[styles.infoText, { color: colors.textSecondary }]}>{order.comment}</Text>
+            </View>
+          )}
         </View>
 
         <View style={[styles.section, { backgroundColor: colors.surface, borderColor: colors.border }]}>

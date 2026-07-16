@@ -567,6 +567,18 @@ export default function ProductDetailScreen() {
               color={ctxIsFavorite(productId) ? colors.error : colors.text}
             />
           </TouchableOpacity>
+          {/* 🛒 Быстрый переход в корзину — не нужно возвращаться на главную */}
+          <TouchableOpacity
+            onPress={() => navigation.navigate('Main', { screen: 'Cart' })}
+            style={[styles.topBtn, { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border }]}
+          >
+            <Ionicons name="cart-outline" size={20} color={colors.text} />
+            {items.length > 0 && (
+              <View style={[styles.cartBadge, { backgroundColor: colors.primary, borderColor: colors.background }]}>
+                <Text style={styles.cartBadgeText}>{items.length > 99 ? '99+' : items.length}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -1388,6 +1400,12 @@ const styles = StyleSheet.create({
   },
   topBtn: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   topActions: { flexDirection: 'row', gap: 8 },
+  cartBadge: {
+    position: 'absolute', top: -5, right: -5,
+    minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4,
+    alignItems: 'center', justifyContent: 'center', borderWidth: 2,
+  },
+  cartBadgeText: { color: '#FFFFFF', fontSize: 10, fontWeight: '700' },
   imgGallery: { paddingTop: 100 },
   mainImg: { height: width },
   noImg: { height: width, alignItems: 'center', justifyContent: 'center' },

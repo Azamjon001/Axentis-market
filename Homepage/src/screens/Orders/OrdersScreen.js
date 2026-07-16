@@ -133,6 +133,11 @@ export default function OrdersScreen() {
                 {orderItems.map(i => i.productName).join(', ')}
               </Text>
             )}
+            {!!item.comment && (
+              <Text style={[styles.orderItems, { color: colors.textMuted }]} numberOfLines={2}>
+                💬 {item.comment}
+              </Text>
+            )}
           </View>
         </View>
 

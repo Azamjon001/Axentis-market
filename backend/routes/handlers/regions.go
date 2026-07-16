@@ -332,6 +332,28 @@ var oblastKeywords = []struct {
 	{"Республика Каракалпакстан", []string{"karakalpak", "qoraqalpog", "nukus", "каракалпак", "нукус"}},
 }
 
+// canonicalOblast возвращает каноническое название, если строка — ИМЕННО
+// область/город из системного списка («Андижанская область», «город Ташкент»),
+// а не зона внутри неё. Используется для спуска «область → зоны».
+func canonicalOblast(name string) string {
+	lower := strings.ToLower(strings.TrimSpace(name))
+	if lower == "" {
+		return ""
+	}
+	if lower == "город ташкент" || lower == "toshkent shahri" {
+		return "город Ташкент"
+	}
+	if lower == "ташкентская область" || lower == "toshkent viloyati" {
+		return "Ташкентская область"
+	}
+	for _, o := range oblastKeywords {
+		if lower == strings.ToLower(o.Name) {
+			return o.Name
+		}
+	}
+	return ""
+}
+
 // matchOblastName возвращает каноническое название области по названию зоны
 // («Карасу» → «Андижанская область»), либо "" если не распознано.
 func matchOblastName(zoneName string) string {
@@ -357,9 +379,11 @@ func matchOblastName(zoneName string) string {
 
 // ExpandBuyerRegion разворачивает регион покупателя (название зоны или области)
 // в полный набор условий: id совпавших зон (для companies.region_id), их
-// названия (ru и uz), названия всех родительских зон и текстовая область.
+// названия (ru и uz), названия родительских И дочерних зон, текстовая область.
 // Так покупатель из «Карасу» находит компании, выбравшие зону «Карасу»,
-// родительскую зону «Андижан» или текстовую «Андижанскую область».
+// родительскую зону «Андижан» или текстовую «Андижанскую область», а покупатель,
+// чей регион определился как «Андижанская область», — компании, выбравшие
+// только зону «Карасу» внутри этой области.
 func ExpandBuyerRegion(db *sql.DB, buyerRegion string) (zoneIDs []int64, names []string) {
 	buyerRegion = strings.TrimSpace(buyerRegion)
 	if buyerRegion == "" {
@@ -376,7 +400,8 @@ func ExpandBuyerRegion(db *sql.DB, buyerRegion string) (zoneIDs []int64, names [
 	}
 	addName(buyerRegion)
 
-	// Зоны админа: совпадение по ru/uz названию + подъём по цепочке родителей.
+	// Зоны админа: совпадение по ru/uz названию + подъём по цепочке родителей
+	// + спуск к дочерним зонам + все зоны внутри области покупателя.
 	rows, err := db.Query(`SELECT id, name, COALESCE(name_uz, ''), parent_id FROM regions`)
 	if err == nil {
 		defer rows.Close()
@@ -396,22 +421,60 @@ func ExpandBuyerRegion(db *sql.DB, buyerRegion string) (zoneIDs []int64, names [
 		}
 		lower := strings.ToLower(buyerRegion)
 		seenZone := map[int64]bool{}
+		addZone := func(z zone) {
+			if seenZone[z.id] {
+				return
+			}
+			seenZone[z.id] = true
+			zoneIDs = append(zoneIDs, z.id)
+			addName(z.name)
+			if z.nameUz != "" {
+				addName(z.nameUz)
+			}
+		}
 		for _, z := range all {
 			if strings.ToLower(z.name) != lower && (z.nameUz == "" || strings.ToLower(z.nameUz) != lower) {
 				continue
 			}
 			// сама зона + все родители
-			for cur, ok := z, true; ok && !seenZone[cur.id]; {
-				seenZone[cur.id] = true
-				zoneIDs = append(zoneIDs, cur.id)
-				addName(cur.name)
-				if cur.nameUz != "" {
-					addName(cur.nameUz)
+			for cur, ok := z, true; ok; {
+				if seenZone[cur.id] {
+					break
 				}
+				addZone(cur)
 				if !cur.parentID.Valid {
 					break
 				}
 				cur, ok = all[cur.parentID.Int64]
+			}
+		}
+
+		// 🔽 Спуск: если покупатель передал ИМЕННО область (а не зону внутри
+		// неё), добавляем все зоны админа, относящиеся к этой области по
+		// ключевым словам. Иначе компания, выбравшая ТОЛЬКО зону «Карасу»,
+		// была бы невидима покупателю с регионом «Андижанская область»,
+		// хотя он физически находится в Карасу. Для зоны («Карасу») спуск
+		// не делаем — иначе покупатель видел бы компании соседних городов.
+		buyerOblast := canonicalOblast(buyerRegion)
+		if buyerOblast != "" {
+			for _, z := range all {
+				if matchOblastName(z.name) == buyerOblast || (z.nameUz != "" && matchOblastName(z.nameUz) == buyerOblast) {
+					addZone(z)
+				}
+			}
+		}
+
+		// Дочерние зоны всех совпавших зон (несколько проходов — на случай
+		// вложенности): покупатель выбрал родительскую зону «Андижан» →
+		// видит и компании, обслуживающие подзону «Карасу».
+		for changed := true; changed; {
+			changed = false
+			for _, z := range all {
+				if seenZone[z.id] || !z.parentID.Valid || !seenZone[z.parentID.Int64] {
+					continue
+				}
+				addZone(z)
+				changed = true
 			}
 		}
 	}

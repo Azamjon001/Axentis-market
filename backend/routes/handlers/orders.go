@@ -30,6 +30,7 @@ type OrderListItem struct {
 	DeliveryAddress     string          `json:"delivery_address"`
 	DeliveryCoordinates string          `json:"delivery_coordinates"`
 	MarkupProfit        float64         `json:"markup_profit"`
+	Comment             string          `json:"comment"`
 	Items               json.RawMessage `json:"items"`
 	CreatedAt           string          `json:"created_at"`
 	OrderGroupCode      string          `json:"order_group_code"`
@@ -199,6 +200,7 @@ func getOrdersCursor(ctx context.Context, c *gin.Context, db *sql.DB, customerPh
 		       COALESCE(delivery_address, '')          AS delivery_address,
 		       COALESCE(delivery_coordinates, '')      AS delivery_coordinates,
 		       COALESCE(markup_profit, 0)              AS markup_profit,
+		       COALESCE(comment, '')                   AS comment,
 		       COALESCE(items, '[]'::jsonb)            AS items,
 		       created_at,
 		       COALESCE(order_group_code, '')          AS order_group_code
@@ -255,7 +257,7 @@ func getOrdersCursor(ctx context.Context, c *gin.Context, db *sql.DB, customerPh
 			&o.TotalAmount, &o.DeliveryCost, &o.DeliveryType,
 			&o.CustomerName, &o.CustomerPhone,
 			&o.RecipientName, &o.DeliveryAddress, &o.DeliveryCoordinates,
-			&o.MarkupProfit, &o.Items, &o.CreatedAt, &o.OrderGroupCode,
+			&o.MarkupProfit, &o.Comment, &o.Items, &o.CreatedAt, &o.OrderGroupCode,
 		); err != nil {
 			log.Printf("⚠️ getOrdersCursor scan: %v", err)
 			continue
@@ -308,6 +310,7 @@ func getOrdersOffset(ctx context.Context, c *gin.Context, db *sql.DB, customerPh
 		       COALESCE(delivery_address, '')          AS delivery_address,
 		       COALESCE(delivery_coordinates, '')      AS delivery_coordinates,
 		       COALESCE(markup_profit, 0)              AS markup_profit,
+		       COALESCE(comment, '')                   AS comment,
 		       COALESCE(items, '[]'::jsonb)            AS items,
 		       created_at,
 		       COALESCE(order_group_code, '')          AS order_group_code
@@ -359,7 +362,7 @@ func getOrdersOffset(ctx context.Context, c *gin.Context, db *sql.DB, customerPh
 			&o.TotalAmount, &o.DeliveryCost, &o.DeliveryType,
 			&o.CustomerName, &o.CustomerPhone,
 			&o.RecipientName, &o.DeliveryAddress, &o.DeliveryCoordinates,
-			&o.MarkupProfit, &o.Items, &o.CreatedAt, &o.OrderGroupCode,
+			&o.MarkupProfit, &o.Comment, &o.Items, &o.CreatedAt, &o.OrderGroupCode,
 		); err != nil {
 			log.Printf("⚠️ getOrdersOffset scan: %v", err)
 			continue

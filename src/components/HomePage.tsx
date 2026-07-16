@@ -1753,6 +1753,12 @@ export default function HomePage({ onLogout, userName, userPhone, userCompanyId,
               setCheckoutStep('cart');
               setShowCart(true);
             }}
+            onGoToCart={() => {
+              setSelectedProduct(null);
+              setCheckoutStep('cart');
+              setShowCart(true);
+            }}
+            cartCount={Object.values(cart).reduce((s: number, q: any) => s + (Number(q) || 0), 0)}
             isNight={isNight}
             cartQuantity={cart[selectedProduct.id] || 0}
             formatPrice={formatPrice}

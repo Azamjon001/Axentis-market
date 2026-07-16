@@ -1,6 +1,6 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { motion } from 'motion/react';
-import { Search, Check, X, Clock, Package, Phone, User, DollarSign, RefreshCw, Calendar, MapPin, Navigation, Truck, TrendingUp, Briefcase, SlidersHorizontal, Map } from 'lucide-react';
+import { Search, Check, X, Clock, Package, Phone, User, DollarSign, RefreshCw, Calendar, MapPin, Navigation, Truck, TrendingUp, Briefcase, SlidersHorizontal, Map, MessageSquare } from 'lucide-react';
 import api, { getImageUrl } from '../utils/api';
 import { formatUzbekistanFullDateTime } from '../utils/uzbekTime';
 import { toast } from 'sonner@2.0.3';
@@ -40,6 +40,7 @@ interface Order {
   delivery_address?: string;
   delivery_coordinates?: string;
   recipient_name?: string;
+  comment?: string; // 💬 Комментарий покупателя к заказу
 }
 
 interface CompanyOrdersPanelProps {
@@ -161,6 +162,7 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
           delivery_address: order.deliveryAddress || order.delivery_address,
           delivery_coordinates: order.deliveryCoordinates || order.delivery_coordinates,
           recipient_name: order.recipientName || order.recipient_name,
+          comment: order.comment || '',
           items: mappedItems,
         };
       });
@@ -667,6 +669,17 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
                             {language === 'uz' ? 'Xaritada koʻrsatish' : 'Показать на карте'}
                           </button>
                         )}
+                      </div>
+                    )}
+
+                    {/* 💬 Комментарий покупателя к заказу */}
+                    {order.comment && (
+                      <div style={{ background: 'rgba(251,191,36,0.07)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 14, padding: '14px 16px' }}>
+                        <h4 style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#FBBF24', fontSize: 14, fontWeight: 700, margin: 0 }}>
+                          <MessageSquare className="w-4 h-4" />
+                          {language === 'uz' ? 'Xaridor izohi' : 'Комментарий покупателя'}
+                        </h4>
+                        <div style={{ marginTop: 8, color: 'var(--ax-text)', fontSize: 14, lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>{order.comment}</div>
                       </div>
                     )}
 

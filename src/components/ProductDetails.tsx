@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Share2, Star, ChevronDown, ChevronUp, Store, Send, Package, User, CheckCircle, Heart } from 'lucide-react';
+import { ArrowLeft, Share2, Star, ChevronDown, ChevronUp, Store, Send, Package, User, CheckCircle, Heart, ShoppingCart } from 'lucide-react';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 import api, { getImageUrl } from '../utils/api';
 import { LinkifiedText } from './LinkifiedText';
@@ -46,6 +46,8 @@ interface ProductDetailsProps {
   isLiked?: boolean;
   onToggleLike?: (productId: number) => void;
   onVariantChange?: (productId: number, color: string, size: string, stock: number) => void;
+  onGoToCart?: () => void; // 🛒 Быстрый переход в корзину из шапки
+  cartCount?: number;      // Всего товаров в корзине (для бейджа)
 }
 
 interface Review {
@@ -76,6 +78,8 @@ export default function ProductDetails({
   isLiked,
   onToggleLike,
   onVariantChange,
+  onGoToCart,
+  cartCount = 0,
 }: ProductDetailsProps) {
   const [descriptionOpen, setDescriptionOpen] = useState(true);
   const [reviewsOpen, setReviewsOpen] = useState(false);
@@ -280,6 +284,21 @@ export default function ProductDetails({
             <button onClick={() => onToggleLike(product.id)}
               className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: hp.card, border: `1px solid ${hp.border}` }}>
               <Heart className="w-5 h-5 transition-all" style={{ color: isLiked ? hp.error : hp.text, fill: isLiked ? hp.error : 'transparent' }} />
+            </button>
+          )}
+          {/* 🛒 Быстрый переход в корзину — не нужно возвращаться на главную */}
+          {onGoToCart && (
+            <button onClick={onGoToCart}
+              className="relative w-10 h-10 rounded-xl flex items-center justify-center" style={{ backgroundColor: hp.card, border: `1px solid ${hp.border}` }} title="Корзина">
+              <ShoppingCart className="w-5 h-5" style={{ color: hp.text }} />
+              {cartCount > 0 && (
+                <span
+                  className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center text-[10px] font-bold text-white"
+                  style={{ backgroundColor: hp.primary || '#7C5CF0', border: `2px solid ${hp.bg}` }}
+                >
+                  {cartCount > 99 ? '99+' : cartCount}
+                </span>
+              )}
             </button>
           )}
         </div>

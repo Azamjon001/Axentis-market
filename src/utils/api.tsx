@@ -1310,6 +1310,7 @@ export const ads = {
     adType: 'company' | 'product'; // 🆕 Тип рекламы
     companyId?: number;
     productId?: number; // 🆕 ID товара для рекламы товара
+    durationDays?: number; // Срок размещения баннера (2–7 дней)
   }) => {
     // Преобразуем camelCase в snake_case для бэкенда
     const backendData = {
@@ -1320,7 +1321,8 @@ export const ads = {
       image_url: data.imageUrl || '', // ✅ Преобразуем imageUrl -> image_url
       ad_type: data.adType, // ✅ Преобразуем adType -> ad_type
       company_id: data.companyId,
-      product_id: data.productId
+      product_id: data.productId,
+      duration_days: data.durationDays || 7
     };
     
     console.log('📤 [API] Sending ad data to backend:', backendData);

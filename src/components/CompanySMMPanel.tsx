@@ -38,9 +38,11 @@ interface MediaItem {
   title: string;
   description?: string;
   created_at: string;
-  status?: 'pending' | 'approved' | 'rejected';
+  status?: 'pending' | 'approved' | 'rejected' | 'expired';
   admin_message?: string; // 🆕 Сообщение от админа при отклонении
   rejection_reason?: string; // Краткая причина отклонения
+  duration_days?: number; // Срок размещения (2–7 дней)
+  expires_at?: string;    // Когда баннер снимается
 }
 
 export default function CompanySMMPanel({ companyId, companyName }: CompanySMMPanelProps) {
@@ -255,7 +257,9 @@ export default function CompanySMMPanel({ companyId, companyName }: CompanySMMPa
           created_at: ad.created_at,
           status: ad.status,
           admin_message: ad.admin_message,
-          rejection_reason: ad.rejection_reason
+          rejection_reason: ad.rejection_reason,
+          duration_days: ad.duration_days,
+          expires_at: ad.expires_at
         }));
       
       setMediaItems(items);
@@ -309,9 +313,9 @@ export default function CompanySMMPanel({ companyId, companyName }: CompanySMMPa
     }
   };
 
-  const handleMediaUpload = async (imageUrl: string, title: string, description: string, adType: 'company' | 'product', productId?: number, file?: File, linkUrl?: string) => {
+  const handleMediaUpload = async (imageUrl: string, title: string, description: string, adType: 'company' | 'product', productId?: number, file?: File, linkUrl?: string, durationDays?: number) => {
     try {
-      console.log('📸 [UPLOAD] Creating advertisement...', { title, adType, productId, companyId });
+      console.log('📸 [UPLOAD] Creating advertisement...', { title, adType, productId, companyId, durationDays });
       
       // Показываем прогресс
       toast.loading(t.creatingAd, { id: 'media-upload' });
@@ -334,7 +338,8 @@ export default function CompanySMMPanel({ companyId, companyName }: CompanySMMPa
         linkUrl: linkUrl || '',
         adType: adType,
         companyId: companyId,
-        productId: productId
+        productId: productId,
+        durationDays: durationDays || 7
       });
       
       console.log('✅ [UPLOAD] Advertisement created:', result);
@@ -1036,7 +1041,8 @@ function MediaCard({ item, companyId: _companyId, companyName: _companyName, onR
       pending: { text: t.statusPending, style: { background: 'rgba(251,191,36,0.15)', color: '#FBBF24' } },
       approved: { text: t.statusApproved, style: { background: 'rgba(34,197,94,0.15)', color: '#22C55E' } },
       rejected: { text: t.statusRejected, style: { background: 'rgba(248,113,113,0.15)', color: '#F87171' } },
-      cancelled: { text: t.statusRejected, style: { background: 'rgba(90,90,120,0.2)', color: '#8B8BAA' } }
+      cancelled: { text: t.statusRejected, style: { background: 'rgba(90,90,120,0.2)', color: '#8B8BAA' } },
+      expired: { text: language === 'uz' ? 'Muddati tugagan' : 'Срок истёк', style: { background: 'rgba(90,90,120,0.2)', color: '#8B8BAA' } }
     };
 
     const badge = badges[status as keyof typeof badges];
@@ -1083,6 +1089,23 @@ function MediaCard({ item, companyId: _companyId, companyName: _companyName, onR
       <div className="p-4">
         <h4 className="mb-2 font-medium" style={{ color: '#FFFFFF' }}>{item.title}</h4>
 
+        {/* ⏳ Срок размещения: запрошенный и оставшийся */}
+        {item.duration_days ? (
+          <p className="text-xs mb-2" style={{ color: '#8B8BAA' }}>
+            {(() => {
+              if (item.status === 'approved' && item.expires_at) {
+                const daysLeft = Math.max(0, Math.ceil((new Date(item.expires_at).getTime() - Date.now()) / 86400000));
+                return language === 'uz'
+                  ? `⏳ Bannerga ${daysLeft} kun qoldi (jami ${item.duration_days} kun)`
+                  : `⏳ Осталось ${daysLeft} дн. из ${item.duration_days}`;
+              }
+              return language === 'uz'
+                ? `⏳ Muddat: ${item.duration_days} kun (tasdiqdan keyin boshlanadi)`
+                : `⏳ Срок: ${item.duration_days} дн. (отсчёт после одобрения)`;
+            })()}
+          </p>
+        ) : null}
+
         {/* Показываем причину отклонения для rejected реклам */}
         {item.status === 'rejected' && (item.admin_message || item.rejection_reason) ? (
           <div className="mb-3 p-3 rounded-lg" style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)' }}>
@@ -1118,7 +1141,7 @@ function UploadModal({
   companyId
 }: {
   onClose: () => void;
-  onUpload: (imageUrl: string, title: string, description: string, adType: 'company' | 'product', productId?: number, file?: File, linkUrl?: string) => void;
+  onUpload: (imageUrl: string, title: string, description: string, adType: 'company' | 'product', productId?: number, file?: File, linkUrl?: string, durationDays?: number) => void;
   companyId: number;
 }) {
   const language = getCurrentLanguage();
@@ -1133,6 +1156,7 @@ function UploadModal({
   const [uploadMode, setUploadMode] = useState<'url' | 'file'>('file');
   const [isDragging, setIsDragging] = useState(false);
   const [adType, setAdType] = useState<'company' | 'product'>('company');
+  const [durationDays, setDurationDays] = useState(7); // Срок размещения: 2–7 дней
   const [selectedProductId, setSelectedProductId] = useState<number>();
   const [products, setProducts] = useState<any[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
@@ -1215,7 +1239,7 @@ function UploadModal({
     }
     // Для рекламы товара ссылку не передаём — клик ведёт на товар внутри приложения
     const finalLink = adType === 'company' ? (linkUrl || undefined) : undefined;
-    onUpload(uploadMode === 'url' ? imageUrl : '', title, description, adType, selectedProductId, uploadMode === 'file' ? file || undefined : undefined, finalLink);
+    onUpload(uploadMode === 'url' ? imageUrl : '', title, description, adType, selectedProductId, uploadMode === 'file' ? file || undefined : undefined, finalLink, durationDays);
   };
 
   return (
@@ -1294,6 +1318,33 @@ function UploadModal({
               )}
             </div>
           )}
+
+          {/* ⏳ Срок размещения баннера: выбирает компания, отсчёт после одобрения админом */}
+          <div>
+            <label className="block text-sm font-medium mb-2" style={{ color: '#8B8BAA' }}>
+              {language === 'uz' ? '⏳ Joylashtirish muddati' : '⏳ Срок размещения'}
+            </label>
+            <div className="grid grid-cols-6 gap-2">
+              {[2, 3, 4, 5, 6, 7].map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => setDurationDays(d)}
+                  className="py-2.5 rounded-lg transition-all text-sm font-semibold"
+                  style={durationDays === d
+                    ? { background: 'rgba(124,92,240,0.15)', border: '2px solid #7C5CF0', color: '#7C5CF0' }
+                    : { background: 'var(--ax-input)', border: '2px solid rgba(255,255,255,0.07)', color: '#8B8BAA' }}
+                >
+                  {d}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs mt-2" style={{ color: '#5A5A78' }}>
+              {language === 'uz'
+                ? `Banner tasdiqlangandan so'ng ${durationDays} kun ko'rsatiladi (kamida 2, ko'pi bilan 7 kun), keyin avtomatik olib tashlanadi.`
+                : `Баннер будет показываться ${durationDays} ${durationDays >= 5 ? 'дней' : 'дня'} после одобрения админом (минимум 2, максимум 7 дней), затем снимется автоматически.`}
+            </p>
+          </div>
 
           <div>
             <label className="block text-sm mb-2" style={{ color: '#8B8BAA' }}>{t.nameRequired}</label>

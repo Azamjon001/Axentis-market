@@ -1122,12 +1122,14 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
                             return [formatPrice(value), name === 'revCurrent' ? (language === 'uz' ? 'Joriy davr' : 'Текущий период') : (language === 'uz' ? 'Oldingi davr' : 'Предыдущий период')];
                           }}
                         />
-                        <Area yAxisId="rev" type="monotone" dataKey="revCurrent" stroke="#7C5CF0" strokeWidth={2.5} fill="url(#revCurGrad)"
-                          dot={false} activeDot={{ r: 5, fill: '#7C5CF0', stroke: '#FFFFFF', strokeWidth: 2 }}
+                        {/* Как на макете: плавная фиолетовая кривая с заливкой (текущий
+                            период) + тонкий пунктир без заливки (предыдущий период) */}
+                        <Area yAxisId="rev" type="natural" dataKey="revCurrent" stroke="#8B5CF6" strokeWidth={3} fill="url(#revCurGrad)"
+                          dot={false} activeDot={{ r: 5.5, fill: '#8B5CF6', stroke: '#FFFFFF', strokeWidth: 2 }}
                           animationDuration={1100} animationEasing="ease-out" legendType="none"
                         />
-                        <Area yAxisId="rev" type="monotone" dataKey="revPrevious" stroke="#5B3DD4" strokeWidth={1.5} strokeDasharray="5 4" fill="url(#revPrevGrad)"
-                          dot={false} activeDot={{ r: 3, fill: '#5B3DD4' }}
+                        <Area yAxisId="rev" type="natural" dataKey="revPrevious" stroke="#6D5DFB" strokeWidth={1.5} strokeDasharray="6 5" strokeOpacity={0.65} fill="transparent"
+                          dot={false} activeDot={{ r: 3.5, fill: '#6D5DFB' }}
                           animationDuration={1300} animationEasing="ease-out" legendType="none"
                         />
                       </ComposedChart>

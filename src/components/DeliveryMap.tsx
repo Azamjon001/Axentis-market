@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Map as LeafletMap, Polyline, GeoJSON, Marker } from 'leaflet';
 
 interface DeliveryMapProps {
@@ -13,6 +13,12 @@ export default function DeliveryMap({ companyCoords, deliveryCoords, companyAddr
   const mapRef = useRef<LeafletMap | null>(null);
   const routeLayerRef = useRef<Polyline | GeoJSON | null>(null);
   const deliveryMarkerRef = useRef<Marker | null>(null);
+  // Ключ уже отрисованного маршрута: пока точка доставки та же, эффект не
+  // перерисовывает карту и НЕ сбрасывает позицию/зум, выбранные пользователем.
+  const drawnKeyRef = useRef<string | null>(null);
+  // Карта создаётся асинхронно (динамический импорт leaflet) — эффект маршрута
+  // должен перезапуститься, когда она готова.
+  const [mapReady, setMapReady] = useState(false);
 
   // Initialize map once
   useEffect(() => {
@@ -61,6 +67,7 @@ export default function DeliveryMap({ companyCoords, deliveryCoords, companyAddr
       }
 
       mapRef.current = map;
+      setMapReady(true);
     });
 
     return () => {
@@ -72,9 +79,19 @@ export default function DeliveryMap({ companyCoords, deliveryCoords, companyAddr
     };
   }, []);
 
-  // Draw / update route when deliveryCoords or deliveryAddress changes
+  // Draw / update route when deliveryCoords or deliveryAddress changes.
+  // Зависимости — примитивы (lat/lng/адрес), а не объект: родитель может
+  // пересоздавать объект координат на каждом рендере (напр., при фоновом
+  // обновлении заказов), и раньше это перерисовывало карту и сбрасывало
+  // позицию, пока пользователь её двигал.
   useEffect(() => {
     if (!mapRef.current) return;
+
+    const routeKey = deliveryCoords
+      ? `${deliveryCoords.lat},${deliveryCoords.lng}`
+      : (deliveryAddress || '').trim();
+    // Точка доставки не изменилась и маршрут уже нарисован — ничего не трогаем.
+    if (routeKey && drawnKeyRef.current === routeKey) return;
 
     import('leaflet').then(async (Lmod) => {
       const L = Lmod.default;
@@ -117,8 +134,11 @@ export default function DeliveryMap({ companyCoords, deliveryCoords, companyAddr
       if (!coords) {
         const fallbackCenter = companyCoords || { lat: 41.2995, lng: 69.2401 };
         map.setView([fallbackCenter.lat, fallbackCenter.lng], 13);
+        drawnKeyRef.current = routeKey || null;
         return;
       }
+
+      drawnKeyRef.current = routeKey;
 
       // Delivery marker (red dot)
       const deliveryIcon = L.divIcon({
@@ -176,7 +196,7 @@ export default function DeliveryMap({ companyCoords, deliveryCoords, companyAddr
         map.setView([coords.lat, coords.lng], 15);
       }
     });
-  }, [deliveryCoords, deliveryAddress]);
+  }, [mapReady, deliveryCoords?.lat, deliveryCoords?.lng, deliveryAddress]);
 
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', minHeight: 300 }} />

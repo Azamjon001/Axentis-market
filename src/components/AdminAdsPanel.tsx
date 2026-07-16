@@ -18,6 +18,8 @@ interface Advertisement {
   reviewed_at?: string;
   rejection_reason?: string;
   admin_message?: string; // 🆕 Подробное сообщение от админа
+  duration_days?: number; // Срок размещения, выбранный компанией (2–7 дней)
+  expires_at?: string;    // Когда баннер снимается (после одобрения)
 }
 
 export default function AdminAdsPanel() {
@@ -341,6 +343,20 @@ export default function AdminAdsPanel() {
                             hour: '2-digit',
                             minute: '2-digit'
                           }) : 'Invalid Date'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 text-sm text-gray-500 mt-1">
+                        <Clock className="w-4 h-4" />
+                        <span>
+                          Срок размещения: {ad.duration_days || 7} дн.
+                          {ad.status === 'approved' && ad.expires_at && (
+                            <> · снимется {new Date(ad.expires_at).toLocaleString('ru-RU', {
+                              day: 'numeric',
+                              month: 'long',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}</>
+                          )}
                         </span>
                       </div>
                     </div>

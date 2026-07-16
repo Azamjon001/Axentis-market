@@ -33,8 +33,15 @@ type Advertisement struct {
 	ReviewedAt      *time.Time `json:"reviewed_at,omitempty"`
 	RejectionReason *string    `json:"rejection_reason,omitempty"`
 	AdminMessage    *string    `json:"admin_message,omitempty"` // 🆕 Подробное сообщение от админа
+	DurationDays    int        `json:"duration_days"`           // Срок размещения (2–7 дней), выбирает компания
+	ExpiresAt       *time.Time `json:"expires_at,omitempty"`    // Когда баннер снимается (reviewed_at + duration_days)
 	CreatedAt       time.Time  `json:"created_at"`
 }
+
+const (
+	adMinDurationDays = 2
+	adMaxDurationDays = 7
+)
 
 // GetApprovedAds возвращает рекламные объявления по фильтрам
 func GetApprovedAds(db *sql.DB) gin.HandlerFunc {
@@ -43,7 +50,16 @@ func GetApprovedAds(db *sql.DB) gin.HandlerFunc {
 		companyID := c.Query("companyId")
 		
 		log.Printf("📢 GetAds: status=%s, companyId=%s", status, companyID)
-		
+
+		// ⏳ Снимаем баннеры с истёкшим сроком размещения
+		if _, err := db.Exec(`
+			UPDATE advertisements
+			SET status = 'expired', updated_at = NOW()
+			WHERE status = 'approved' AND expires_at IS NOT NULL AND expires_at < NOW()
+		`); err != nil {
+			log.Printf("⚠️ [GetAds] Failed to expire ads: %v", err)
+		}
+
 		var ads []Advertisement
 		var rows *sql.Rows
 		var err error
@@ -69,6 +85,8 @@ func GetApprovedAds(db *sql.DB) gin.HandlerFunc {
 				a.reviewed_at,
 				a.rejection_reason,
 				a.admin_message,
+				COALESCE(a.duration_days, 7) as duration_days,
+				a.expires_at,
 				a.created_at
 			FROM advertisements a
 			LEFT JOIN companies c ON a.company_id = c.id
@@ -137,6 +155,8 @@ func GetApprovedAds(db *sql.DB) gin.HandlerFunc {
 				&ad.ReviewedAt,
 				&ad.RejectionReason,
 				&ad.AdminMessage, // 🆕 Добавлено
+				&ad.DurationDays,
+				&ad.ExpiresAt,
 				&ad.CreatedAt,
 			)
 			if err != nil {
@@ -178,9 +198,10 @@ func CreateAd(db *sql.DB) gin.HandlerFunc {
 			Caption   *string `json:"caption"`
 			ImageURL  *string `json:"image_url"` // ✅ Изменено с imageUrl на image_url
 			LinkURL   *string `json:"link_url"`  // ✅ Изменено с linkUrl на link_url
-			AdType    string  `json:"ad_type" binding:"required,oneof=company product"` // ✅ Изменено с adType на ad_type
-			CompanyID *int64  `json:"company_id"` // ✅ Изменено с companyId на company_id
-			ProductID *int64  `json:"product_id"` // ✅ Изменено с productId на product_id
+			AdType       string  `json:"ad_type" binding:"required,oneof=company product"` // ✅ Изменено с adType на ad_type
+			CompanyID    *int64  `json:"company_id"` // ✅ Изменено с companyId на company_id
+			ProductID    *int64  `json:"product_id"` // ✅ Изменено с productId на product_id
+			DurationDays int     `json:"duration_days"` // Срок размещения (2–7 дней)
 		}
 		
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -203,7 +224,16 @@ func CreateAd(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "productId is required for product ads"})
 			return
 		}
-		
+
+		// Срок размещения: минимум 2 дня, максимум неделя
+		if req.DurationDays == 0 {
+			req.DurationDays = adMaxDurationDays
+		}
+		if req.DurationDays < adMinDurationDays || req.DurationDays > adMaxDurationDays {
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("duration_days must be between %d and %d", adMinDurationDays, adMaxDurationDays)})
+			return
+		}
+
 		// Создаем рекламу со статусом pending
 		var adID int
 		var err error
@@ -211,11 +241,11 @@ func CreateAd(db *sql.DB) gin.HandlerFunc {
 		log.Printf("📢 CreateAd: Creating %s ad (company: %v, product: %v)", req.AdType, req.CompanyID, req.ProductID)
 		
 		err = db.QueryRow(`
-			INSERT INTO advertisements 
-			(title, content, caption, image_url, link_url, ad_type, status, company_id, product_id, submitted_at, created_at)
-			VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8, NOW(), NOW())
+			INSERT INTO advertisements
+			(title, content, caption, image_url, link_url, ad_type, status, company_id, product_id, duration_days, submitted_at, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8, $9, NOW(), NOW())
 			RETURNING id
-		`, req.Title, req.Content, req.Caption, req.ImageURL, req.LinkURL, req.AdType, req.CompanyID, req.ProductID).Scan(&adID)
+		`, req.Title, req.Content, req.Caption, req.ImageURL, req.LinkURL, req.AdType, req.CompanyID, req.ProductID, req.DurationDays).Scan(&adID)
 		
 		if err != nil {
 			log.Printf("❌ Error creating ad: %v", err)
@@ -253,9 +283,15 @@ func ModerateAd(db *sql.DB) gin.HandlerFunc {
 		
 		log.Printf("📝 [ModerateAd] Setting status to: %s for ad: %s (admin_message: %v)", req.Status, adID, req.AdminMessage)
 		
+		// При одобрении запускаем отсчёт срока размещения:
+		// expires_at = NOW() + duration_days (выбран компанией, 2–7 дней)
 		result, err := db.Exec(`
-			UPDATE advertisements 
-			SET status = $1, reviewed_at = NOW(), rejection_reason = $2, admin_message = $3
+			UPDATE advertisements
+			SET status = $1, reviewed_at = NOW(), rejection_reason = $2, admin_message = $3,
+			    expires_at = CASE
+			        WHEN $1 = 'approved' THEN NOW() + make_interval(days => LEAST(GREATEST(COALESCE(duration_days, 7), 2), 7))
+			        ELSE NULL
+			    END
 			WHERE id = $4
 		`, req.Status, req.Reason, req.AdminMessage, adID)
 		
