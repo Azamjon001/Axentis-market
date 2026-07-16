@@ -1,4 +1,5 @@
 import { useState, useEffect, type ReactNode } from 'react';
+import { motion } from 'motion/react';
 import { TrendingUp, Package, CreditCard, Calendar, Receipt, Wallet, Globe, Landmark } from 'lucide-react';
 import api from '../utils/api';
 import ExpensesManager from './ExpensesManager';
@@ -1232,9 +1233,14 @@ function StatTile({ icon, iconBg, label, value, valueColor, accent, sub }: {
   sub?: ReactNode;
 }) {
   return (
-    <div style={{
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ type: 'spring', stiffness: 300, damping: 26 }}
+      whileHover={{ y: -3 }}
+      style={{
       position: 'relative',
-      background: 'var(--ax-card)',
+      background: accent ? `linear-gradient(160deg, ${accent}10, var(--ax-card) 60%)` : 'var(--ax-card)',
       border: '1px solid var(--ax-border)',
       borderRadius: 14,
       padding: '18px 18px 16px',
@@ -1258,6 +1264,6 @@ function StatTile({ icon, iconBg, label, value, valueColor, accent, sub }: {
         {value}
       </div>
       {sub && <div style={{ color: 'var(--ax-text-2)', fontSize: 12, lineHeight: 1.6 }}>{sub}</div>}
-    </div>
+    </motion.div>
   );
 }
