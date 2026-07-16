@@ -51,6 +51,11 @@ export default function LoginScreen() {
   const [tab, setTab] = useState('login');
   const tabAnim = useRef(new Animated.Value(0)).current;
 
+  // 🔒 Режим маркетплейса — как на веб-версии: публичный (все магазины региона)
+  // или закрытый (только товары компании, чей код дал магазин).
+  const [isPrivateMode, setIsPrivateMode] = useState(false);
+  const [privateCode, setPrivateCode] = useState('');
+
   const [loginPhone, setLoginPhone] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginPassVisible, setLoginPassVisible] = useState(false);
@@ -108,7 +113,8 @@ export default function LoginScreen() {
 
   const loginPhoneDigits = loginPhone.replace(/\D/g, '');
   const isLoginPhoneValid = loginPhoneDigits.length >= 9;
-  const isLoginValid = isLoginPhoneValid && loginPassword.length >= 4;
+  const isPrivateCodeValid = !isPrivateMode || privateCode.trim().length > 0;
+  const isLoginValid = isLoginPhoneValid && loginPassword.length >= 4 && isPrivateCodeValid;
 
   const regPhoneDigits = regPhone.replace(/\D/g, '');
   const isRegPhoneValid = regPhoneDigits.length >= 9;
@@ -116,6 +122,7 @@ export default function LoginScreen() {
     regName.trim().length >= 2 &&
     isRegPhoneValid &&
     regPassword.length >= 6 &&
+    isPrivateCodeValid &&
     policyAccepted; // 📜 без согласия с политикой регистрация недоступна
 
   const handleLogin = async () => {
@@ -123,7 +130,7 @@ export default function LoginScreen() {
     setLoginLoading(true);
     try {
       const phone = getCleanPhone(loginPhone);
-      await login(phone, loginPassword);
+      await login(phone, loginPassword, isPrivateMode ? 'private' : 'public', privateCode.trim());
     } catch (err) {
       const status = err?.response?.status;
       const serverMsg = err?.response?.data?.error;
@@ -133,6 +140,14 @@ export default function LoginScreen() {
         Alert.alert(
           t('noServerConnection'),
           `${t('connectFailMsg')}\n\n(${err?.message || 'Network Error'})`,
+        );
+      } else if (status === 404 && /private code/i.test(serverMsg || '')) {
+        // Неверный код закрытого магазина — не путаем с «пользователь не найден»
+        Alert.alert(
+          language === 'uz' ? 'Kod notoʻgʻri' : 'Неверный код',
+          language === 'uz'
+            ? 'Yopiq doʻkon kodi topilmadi. Kodni doʻkondan qayta soʻrang.'
+            : 'Код закрытого магазина не найден. Уточните код у магазина.',
         );
       } else if (status === 404) {
         Alert.alert(t('userNotFound'), t('userNotRegistered'), [
@@ -162,7 +177,7 @@ export default function LoginScreen() {
     setRegLoading(true);
     try {
       const phone = getCleanPhone(regPhone);
-      await register(phone, regName.trim(), '', regPassword);
+      await register(phone, regName.trim(), '', regPassword, isPrivateMode ? 'private' : 'public', privateCode.trim());
       // 📜 Фиксируем принятие политики (документальное подтверждение согласия)
       acceptPolicy('customer', phone).catch(() => { /* не критично */ });
     } catch (err) {
@@ -231,6 +246,72 @@ export default function LoginScreen() {
                 </Text>
               </TouchableOpacity>
             </View>
+
+            {/* 🔒 Режим: публичный маркетплейс или закрытый магазин по коду
+                компании — тот же выбор, что на веб-версии */}
+            <View style={styles.modeRow}>
+              <TouchableOpacity
+                style={[
+                  styles.modeBtn,
+                  {
+                    borderColor: !isPrivateMode ? colors.primary : colors.border,
+                    backgroundColor: !isPrivateMode ? colors.primary + '15' : 'transparent',
+                  },
+                ]}
+                onPress={() => setIsPrivateMode(false)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="globe-outline" size={16} color={!isPrivateMode ? colors.primary : colors.textMuted} />
+                <Text style={[styles.modeText, { color: !isPrivateMode ? colors.primary : colors.textSecondary }]}>
+                  {language === 'uz' ? 'Ochiq bozor' : 'Публичный'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.modeBtn,
+                  {
+                    borderColor: isPrivateMode ? colors.primary : colors.border,
+                    backgroundColor: isPrivateMode ? colors.primary + '15' : 'transparent',
+                  },
+                ]}
+                onPress={() => setIsPrivateMode(true)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="lock-closed-outline" size={16} color={isPrivateMode ? colors.primary : colors.textMuted} />
+                <Text style={[styles.modeText, { color: isPrivateMode ? colors.primary : colors.textSecondary }]}>
+                  {language === 'uz' ? 'Yopiq doʻkon' : 'Закрытый магазин'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            {isPrivateMode && (
+              <View style={{ marginTop: 12 }}>
+                <Text style={[styles.label, { color: colors.textSecondary }]}>
+                  {language === 'uz' ? 'Doʻkon kodi' : 'Код магазина'}
+                </Text>
+                <View style={[styles.inputRow, { backgroundColor: colors.inputBg, borderColor: colors.border, marginBottom: 0 }]}>
+                  <Ionicons name="key-outline" size={18} color={colors.textMuted} style={styles.inputIcon} />
+                  <TextInput
+                    style={[styles.input, { color: colors.text }]}
+                    value={privateCode}
+                    onChangeText={setPrivateCode}
+                    placeholder={language === 'uz' ? 'Doʻkon bergan kod' : 'Код, который дал магазин'}
+                    placeholderTextColor={colors.textMuted}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                  />
+                  {privateCode.length > 0 && (
+                    <TouchableOpacity onPress={() => setPrivateCode('')}>
+                      <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+                    </TouchableOpacity>
+                  )}
+                </View>
+                <Text style={[styles.modeHint, { color: colors.textMuted }]}>
+                  {language === 'uz'
+                    ? 'Faqat shu doʻkonning mahsulotlari koʻrsatiladi'
+                    : 'Будут видны товары только этого магазина'}
+                </Text>
+              </View>
+            )}
 
             {tab === 'login' ? (
               <View style={{ marginTop: 24 }}>
@@ -487,6 +568,14 @@ const styles = StyleSheet.create({
   },
   tabBtn: { flex: 1, alignItems: 'center', justifyContent: 'center', zIndex: 1 },
   tabText: { fontSize: 14, fontWeight: '600' },
+  // 🔒 Переключатель «публичный / закрытый магазин»
+  modeRow: { flexDirection: 'row', gap: 8, marginTop: 14 },
+  modeBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, height: 42, borderRadius: 12, borderWidth: 1.5,
+  },
+  modeText: { fontSize: 13, fontWeight: '600' },
+  modeHint: { fontSize: 11.5, marginTop: 6 },
   formTitle: { fontSize: 20, fontWeight: '700', marginBottom: 20 },
   label: { fontSize: 13, fontWeight: '500', marginBottom: 6 },
   inputRow: {

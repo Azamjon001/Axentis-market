@@ -187,6 +187,16 @@ export default function ProfileScreen() {
               <Text style={[styles.userPhone, { color: colors.textSecondary }]}>
                 {user?.phone ? `+${user.phone}` : ''}
               </Text>
+              {/* 🔒 Индикатор закрытого режима: видны товары только одной компании.
+                  Сменить режим можно перелогином (как на веб-версии). */}
+              {user?.mode === 'private' && !!user?.privateCompanyId && (
+                <View style={[styles.modeBadge, { backgroundColor: colors.primary + '15', borderColor: colors.primary + '40' }]}>
+                  <Ionicons name="lock-closed" size={11} color={colors.primary} />
+                  <Text style={[styles.modeBadgeText, { color: colors.primary }]}>
+                    {language === 'uz' ? 'Yopiq doʻkon rejimi' : 'Режим закрытого магазина'}
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
         </View>
@@ -332,6 +342,12 @@ const styles = StyleSheet.create({
   },
   userName: { fontSize: 18, fontWeight: '700' },
   userPhone: { fontSize: 14, marginTop: 2 },
+  // 🔒 Бейдж закрытого режима
+  modeBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start',
+    paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, borderWidth: 1, marginTop: 6,
+  },
+  modeBadgeText: { fontSize: 11.5, fontWeight: '600' },
   loyaltyCard: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: Radius.card, backgroundColor: '#F59E0B' },
   loyaltyIconWrap: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.22)', alignItems: 'center', justifyContent: 'center' },
   loyaltyLabel: { fontSize: 16, fontWeight: '800', color: '#FFFFFF' },

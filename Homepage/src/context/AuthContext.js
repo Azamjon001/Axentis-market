@@ -53,16 +53,19 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const login = async (phone, password) => {
-    const result = await loginUser(phone, password);
+  // mode/privateCode — вход в закрытый магазин компании (как на веб-версии):
+  // бэкенд возвращает user.mode='private' и privateCompanyId, после чего все
+  // GET-запросы автоматически изолируются на товары этой компании.
+  const login = async (phone, password, mode = 'public', privateCode) => {
+    const result = await loginUser(phone, password, mode, privateCode);
     const userData = result.user || result;
     setUser(userData);
     await AsyncStorage.setItem('currentUser', JSON.stringify(userData));
     if (result.token) await AsyncStorage.setItem('userToken', result.token);
   };
 
-  const register = async (phone, name, surname, password) => {
-    const result = await registerUser(phone, name, surname, password);
+  const register = async (phone, name, surname, password, mode = 'public', privateCode) => {
+    const result = await registerUser(phone, name, surname, password, mode, privateCode);
     const userData = result.user || result;
     setUser(userData);
     await AsyncStorage.setItem('currentUser', JSON.stringify(userData));

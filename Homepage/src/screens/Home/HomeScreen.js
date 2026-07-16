@@ -291,8 +291,9 @@ export default function HomeScreen() {
     );
     return (
       <View>
-        {/* 🗺️ Просим включить геолокацию, чтобы показывать товары в регионе покупателя */}
-        {(locStatus === 'denied' || locStatus === 'unavailable') && (
+        {/* 🗺️ Просим включить геолокацию, чтобы показывать товары в регионе
+            покупателя. В закрытом магазине регион не нужен — баннер скрыт. */}
+        {!isPrivateMode && (locStatus === 'denied' || locStatus === 'unavailable') && (
           <TouchableOpacity
             activeOpacity={0.85}
             onPress={requestLocation}
@@ -331,7 +332,7 @@ export default function HomeScreen() {
         <SectionHeader title={sectionTitle} style={{ marginTop: showBanner ? Spacing.sm : Spacing.xs }} />
       </View>
     );
-  }, [ads, debouncedSearch, activeCategory, t, recentlyViewed, recommendations, collections, campaigns, colors, navigation, isFavorite, toggleFav, locStatus, requestLocation, regionReady]);
+  }, [ads, debouncedSearch, activeCategory, t, recentlyViewed, recommendations, collections, campaigns, colors, navigation, isFavorite, toggleFav, locStatus, requestLocation, regionReady, isPrivateMode]);
 
   if (isLoading) {
     return (
@@ -467,9 +468,15 @@ export default function HomeScreen() {
             <View style={styles.empty}>
               <Ionicons name="cube-outline" size={52} color={colors.textMuted} />
               <Text style={[styles.emptyText, { color: colors.textMuted, textAlign: 'center', paddingHorizontal: 24 }]}>
-                {debouncedSearch.trim() ? t('nothingFound') : t('noPartnersInRegion')}
+                {debouncedSearch.trim()
+                  ? t('nothingFound')
+                  : isPrivateMode
+                    ? (language === 'uz' ? 'Doʻkonda hozircha mahsulotlar yoʻq' : 'В магазине пока нет товаров')
+                    : t('noPartnersInRegion')}
               </Text>
-              {!debouncedSearch.trim() && (
+              {/* Смена региона — только в публичном режиме: в закрытом магазине
+                  товары не зависят от региона */}
+              {!debouncedSearch.trim() && !isPrivateMode && (
                 <TouchableOpacity
                   onPress={() => setRegionPickerOpen(true)}
                   style={[styles.retryLocationBtn, { backgroundColor: colors.primary, marginTop: 12 }]}

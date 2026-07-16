@@ -62,13 +62,27 @@ api.interceptors.request.use(async (config) => {
 });
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
-export const loginUser = async (phone, password) => {
-  const res = await api.post(ENDPOINTS.loginUser, { phone, password });
+// mode/privateCode — закрытый режим (как на веб-версии): пользователь входит с
+// кодом компании и видит только её товары. Без кода — публичный режим.
+export const loginUser = async (phone, password, mode = 'public', privateCode) => {
+  const res = await api.post(ENDPOINTS.loginUser, {
+    phone,
+    password,
+    mode,
+    privateCode: mode === 'private' ? privateCode : undefined,
+  });
   return res.data;
 };
 
-export const registerUser = async (phone, name, surname, password) => {
-  const res = await api.post(ENDPOINTS.registerUser, { phone, name, surname, password });
+export const registerUser = async (phone, name, surname, password, mode = 'public', privateCode) => {
+  const res = await api.post(ENDPOINTS.registerUser, {
+    phone,
+    name,
+    surname,
+    password,
+    mode,
+    privateCode: mode === 'private' ? privateCode : undefined,
+  });
   return res.data;
 };
 
