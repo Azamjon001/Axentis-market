@@ -1,6 +1,6 @@
-import { useState, useEffect, type ReactNode } from 'react';
+import { useState, useEffect, useRef, useMemo, type ReactNode } from 'react';
 import { motion } from 'motion/react';
-import { TrendingUp, Package, CreditCard, Calendar, Receipt, Wallet, Globe, Landmark } from 'lucide-react';
+import { TrendingUp, Package, Receipt, Landmark, Plus, ShoppingBag, Users, XCircle, Zap, Crown, CalendarDays, Coins, Gem } from 'lucide-react';
 import api from '../utils/api';
 import ExpensesManager from './ExpensesManager';
 import CompanyPayoutsPanel from './CompanyPayoutsPanel';
@@ -347,12 +347,69 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
     return ordRev + saleRev;
   };
 
-  // ═══════════════════════════════════════════════════════════
-  // ЗАТРАТЫ КОМПАНИИ = себестоимость проданных товаров (COGS)
-  //   = выручка за период - прибыль (наценка) за период
-  // ═══════════════════════════════════════════════════════════
-  const getPeriodCOGS = (period: PeriodType = 'day') => {
-    return Math.max(getPeriodRevenue(period) - getPeriodProfit(period), 0);
+  // Кассовые продажи предыдущего периода (для дельты «офлайн» и прибыли)
+  const getPreviousPeriodSales = (period: PeriodType = 'day') => {
+    const now = new Date();
+    const start = new Date();
+    const end = new Date();
+    if (period === 'day') {
+      start.setDate(now.getDate() - 1); start.setHours(0, 0, 0, 0);
+      end.setDate(now.getDate() - 1);   end.setHours(23, 59, 59, 999);
+    } else if (period === 'week') {
+      start.setDate(now.getDate() - 14); start.setHours(0, 0, 0, 0);
+      end.setDate(now.getDate() - 7);
+    } else if (period === 'month') {
+      start.setMonth(now.getMonth() - 2); start.setHours(0, 0, 0, 0);
+      end.setMonth(now.getMonth() - 1);
+    } else if (period === 'year') {
+      start.setFullYear(now.getFullYear() - 2); start.setHours(0, 0, 0, 0);
+      end.setFullYear(now.getFullYear() - 1);
+    } else {
+      return [];
+    }
+    return salesHistory.filter(sale => {
+      const dateStr = sale.createdAt || sale.created_at;
+      if (!dateStr) return false;
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return false;
+      return d >= start && d <= end;
+    });
+  };
+
+  // Изменение метрики к прошлому периоду, %
+  const pctChange = (current: number, previous: number): number | null => {
+    if (previous > 0) return ((current - previous) / previous) * 100;
+    if (current > 0) return 100;
+    return null;
+  };
+
+  // Мини-серия для спарклайна: суммы метрики по N корзинам текущего периода
+  const getMetricSeries = (metric: 'profit' | 'online' | 'offline', buckets = 16): number[] => {
+    const { start, end } = getPeriodRange(financialTimePeriod);
+    const span = Math.max(end.getTime() - start.getTime(), 1);
+    const series = new Array(buckets).fill(0);
+    const put = (dateStr: string | undefined, value: number) => {
+      if (!dateStr || !value) return;
+      const t = new Date(dateStr).getTime();
+      if (isNaN(t) || t < start.getTime() || t > end.getTime()) return;
+      const idx = Math.min(Math.floor(((t - start.getTime()) / span) * buckets), buckets - 1);
+      series[idx] += value;
+    };
+    if (metric === 'profit' || metric === 'online') {
+      getFilteredOrders(financialTimePeriod).forEach(o => put(
+        o.created_at || o.createdAt,
+        metric === 'profit' ? (parseFloat(o.markup_profit) || 0) : (parseFloat(o.total_amount) || 0)
+      ));
+    }
+    if (metric === 'profit' || metric === 'offline') {
+      getFilteredSales(financialTimePeriod).forEach(s => put(
+        s.createdAt || s.created_at,
+        metric === 'profit'
+          ? (parseFloat(s.markupProfit) || parseFloat(s.markup_profit) || 0)
+          : (parseFloat(s.total_amount || s.totalAmount) || 0)
+      ));
+    }
+    return series;
   };
 
   // ═══════════════════════════════════════════════════════════
@@ -702,6 +759,83 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
     }));
   };
 
+  // 📌 Прокрутка к менеджеру расходов по кнопке «+ Добавить расход»
+  const expensesRef = useRef<HTMLDivElement>(null);
+  const scrollToExpenses = () => {
+    expensesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  // ⚡ Быстрая статистика за период: заказы приложения (с клиентами и статусами)
+  const getPeriodCustomerOrders = () => {
+    const { start, end } = getPeriodRange(financialTimePeriod);
+    return customerOrders.filter(o => {
+      const dateStr = o.createdAt || o.created_at || o.order_date;
+      if (!dateStr) return false;
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return false;
+      return d >= start && d <= end;
+    });
+  };
+
+  // 🏆 Ключевые показатели «Расширенной аналитики» (за всё время)
+  const advancedHighlights = useMemo(() => {
+    const qtyByProduct = new Map<string, { name: string; qty: number; profit: number }>();
+    const dayCounts = new Array(7).fill(0);
+    let ordersTotal = 0;
+    let ordersCount = 0;
+
+    const addItems = (items: any[]) => {
+      items.forEach((item: any) => {
+        const name = String(item.productName || item.product_name || item.name || '').trim();
+        if (!name) return;
+        const qty = Number(item.quantity) || 1;
+        const base = Number(item.price) || 0;
+        const selling = Number(item.price_with_markup || item.priceWithMarkup) || base;
+        const markup = Number(item.markupAmount || item.markup_amount) || Math.max(selling - base, 0);
+        const key = name.toLowerCase();
+        const entry = qtyByProduct.get(key) || { name, qty: 0, profit: 0 };
+        entry.qty += qty;
+        entry.profit += markup * qty;
+        qtyByProduct.set(key, entry);
+      });
+    };
+
+    const addRecord = (dateStr: string | undefined, amount: number, rawItems: any) => {
+      let items: any[] = [];
+      try { items = typeof rawItems === 'string' ? JSON.parse(rawItems) : (rawItems || []); } catch { items = []; }
+      if (Array.isArray(items)) addItems(items);
+      if (dateStr) {
+        const d = new Date(dateStr);
+        if (!isNaN(d.getTime())) dayCounts[d.getDay() === 0 ? 6 : d.getDay() - 1]++;
+      }
+      ordersTotal += amount;
+      ordersCount++;
+    };
+
+    ordersWithItems.forEach(o => addRecord(
+      o.created_at || o.createdAt,
+      parseFloat(o.total_amount) || 0,
+      o.items
+    ));
+    salesHistory.forEach(s => addRecord(
+      s.createdAt || s.created_at,
+      parseFloat(s.total_amount || s.totalAmount) || 0,
+      s.items
+    ));
+
+    const products = Array.from(qtyByProduct.values());
+    const bestSeller = products.reduce((a, b) => (b.qty > (a?.qty || 0) ? b : a), null as null | { name: string; qty: number; profit: number });
+    const topProfit = products.reduce((a, b) => (b.profit > (a?.profit || 0) ? b : a), null as null | { name: string; qty: number; profit: number });
+    const bestDayIdx = dayCounts.some(c => c > 0) ? dayCounts.indexOf(Math.max(...dayCounts)) : -1;
+
+    return {
+      bestSeller,
+      topProfit,
+      bestDayIdx,
+      avgOrder: ordersCount > 0 ? ordersTotal / ordersCount : 0,
+    };
+  }, [ordersWithItems, salesHistory]);
+
   if (loading) {
     return <div className="text-center py-12">{t.loadingAnalytics}</div>;
   }
@@ -773,11 +907,15 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
       {/* 📊 ВКЛАДКА: Аналитика */}
       {activeTab === 'analytics' && (
         <>
-          {/* ========== ЗАГОЛОВОК + СЕЛЕКТОР ПЕРИОДА ========== */}
-          <div className="flex flex-wrap items-center justify-between gap-3 max-w-7xl mx-auto mb-4">
-            <div className="flex items-center gap-2">
-              <Calendar className="w-5 h-5" style={{ color: 'var(--ax-text-2)' }} />
-              <h4 className="text-base font-semibold" style={{ color: 'var(--ax-text)' }}>{t.periodAnalysis}</h4>
+          {/* ========== ШАПКА СТРАНИЦЫ: ЗАГОЛОВОК + СЕЛЕКТОР ПЕРИОДА ========== */}
+          <div className="flex flex-wrap items-center justify-between gap-3 max-w-7xl mx-auto mb-5">
+            <div>
+              <h2 style={{ color: 'var(--ax-text)', fontSize: 22, fontWeight: 800, margin: 0, letterSpacing: '-0.01em' }}>
+                {language === 'uz' ? 'Analitika' : 'Аналитика'}
+              </h2>
+              <p style={{ color: 'var(--ax-text-2)', fontSize: 13, margin: '4px 0 0' }}>
+                {language === 'uz' ? 'Moliyaviy koʻrsatkichlar va savdo dinamikasi' : 'Финансовые показатели и динамика продаж'}
+              </p>
             </div>
             <CompactPeriodSelector
               value={financialTimePeriod}
@@ -837,8 +975,6 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
           ═══════════════════════════════════════════════════════ */}
           {(() => {
             const profit        = getPeriodProfit(financialTimePeriod);
-            const onlineMarkup  = getOnlineMarkup(financialTimePeriod);
-            const offlineMarkup = getOfflineMarkup(financialTimePeriod);
             const revenue       = getPeriodRevenue(financialTimePeriod);
             const opEx          = getPeriodOperatingExpenses(financialTimePeriod, revenue);
             const detailed      = getOperatingExpensesDetailed(financialTimePeriod, revenue);
@@ -857,122 +993,264 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
             const onlineCommission = Math.round(onlineSales * (commissionPercent / 100));
             const balanceColor  = isPositive ? 'var(--ax-primary)' : 'var(--ax-danger)';
 
+            // Дельты к предыдущему периоду + серии для спарклайнов
+            const prevOrders  = getPreviousPeriodOrders(financialTimePeriod);
+            const prevSales   = getPreviousPeriodSales(financialTimePeriod);
+            const prevProfit  = prevOrders.reduce((s, o) => s + (parseFloat(o.markup_profit) || 0), 0)
+                              + prevSales.reduce((s, x) => s + (parseFloat(x.markupProfit) || parseFloat(x.markup_profit) || 0), 0);
+            const prevOnline  = prevOrders.reduce((s, o) => s + (parseFloat(o.total_amount) || 0), 0);
+            const prevOffline = prevSales.reduce((s, x) => s + (parseFloat(x.total_amount || x.totalAmount) || 0), 0);
+            const profitDelta  = pctChange(profit, prevProfit);
+            const onlineDelta  = pctChange(onlineSales, prevOnline);
+            const offlineDelta = pctChange(offlineSales, prevOffline);
+            const profitSeries  = getMetricSeries('profit');
+            const onlineSeries  = getMetricSeries('online');
+            const offlineSeries = getMetricSeries('offline');
+
+            // Быстрая статистика за период
+            const periodCustomerOrders = getPeriodCustomerOrders();
+            const uniqueClients = new Set(
+              periodCustomerOrders
+                .map(o => o.customerPhone || o.customer_phone || o.user_phone || o.customerName || o.customer_name)
+                .filter(Boolean)
+            ).size;
+            const cancelledCount = periodCustomerOrders.filter(o =>
+              ['cancelled', 'canceled', 'rejected'].includes(String(o.status || '').toLowerCase())
+            ).length;
+            const expensePercent = revenue > 0 ? Math.min(100, Math.round((companyExpenses / revenue) * 100)) : 0;
+            const unit = language === 'uz' ? 'ta' : 'шт';
+            const dayNames = language === 'uz' ? DAY_NAMES_UZ : DAY_NAMES_RU;
+
             return (
               <>
-              <div className="max-w-7xl mx-auto mb-6" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              <div className="max-w-7xl mx-auto mb-6" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-                {/* ── ИТОГИ ПЕРИОДА ── */}
-                <div>
-                  <SectionLabel>{language === 'uz' ? 'Davr yakunlari' : 'Итоги периода'}</SectionLabel>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
-
-                    {/* 1. ИТОГОВЫЙ БАЛАНС (главный показатель) */}
-                    <StatTile
-                      icon={<Wallet className="w-4 h-4" style={{ color: balanceColor }} />}
-                      iconBg={isPositive ? 'var(--ax-primary-pale)' : 'rgba(248,113,113,0.12)'}
-                      label={language === 'uz' ? 'Xarajatlardan keyin qoldi' : 'Осталось после расходов'}
-                      value={`${isPositive ? '+' : ''}${formatPrice(balance)}`}
-                      valueColor={balanceColor}
-                      accent={balanceColor}
-                      sub={language === 'uz'
-                        ? `Foyda (${formatPrice(profit)}) − Xarajatlar (${formatPrice(companyExpenses)})`
-                        : `Наценка (${formatPrice(profit)}) − Расходы (${formatPrice(companyExpenses)})`}
-                    />
-
-                    {/* 2. ПРИБЫЛЬ (наценка онлайн + офлайн) */}
-                    <StatTile
-                      icon={<TrendingUp className="w-4 h-4" style={{ color: 'var(--ax-success)' }} />}
-                      iconBg="rgba(34,197,94,0.12)"
-                      label={language === 'uz' ? 'Foyda (ustama)' : 'Прибыль (наценка)'}
-                      value={`+${formatPrice(profit)}`}
-                      valueColor="var(--ax-success)"
-                      sub={
-                        <>
-                          <SubRow name={language === 'uz' ? 'Onlayn ustama' : 'Онлайн наценка'} value={formatPrice(onlineMarkup)} />
-                          <SubRow name={language === 'uz' ? 'Oflayn ustama' : 'Офлайн наценка'} value={formatPrice(offlineMarkup)} />
-                        </>
-                      }
-                    />
-
-                    {/* 3. ЗАТРАТЫ КОМПАНИИ (итог + раскрытие деталей) */}
-                    <StatTile
-                      icon={<Package className="w-4 h-4" style={{ color: 'var(--ax-danger)' }} />}
-                      iconBg="rgba(248,113,113,0.12)"
-                      label={language === 'uz' ? 'Xarajatlar' : 'Расходы'}
-                      value={`−${formatPrice(companyExpenses)}`}
-                      valueColor="var(--ax-danger)"
-                      sub={
-                        <>
-                          <SubRow
-                            name={language === 'uz' ? 'Ombor/xaridlar (balansga kirmaydi)' : 'Склад/закупки (не в балансе)'}
-                            value={`−${formatPrice(warehouseCost)}`}
-                            valueColor="var(--ax-text-2)"
-                          />
-                          <button
-                            onClick={() => { setShowExpensesModal(true); setShowExtraExpenses(false); }}
-                            style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6, background: 'var(--ax-primary-pale)', border: '1px solid var(--ax-border)', borderRadius: 8, color: 'var(--ax-primary)', fontSize: 12, fontWeight: 700, cursor: 'pointer', padding: '6px 12px' }}
-                          >
-                            <Receipt className="w-3.5 h-3.5" />
-                            {language === 'uz' ? 'Batafsil koʻrish' : 'Показать подробно'}
-                          </button>
-                        </>
-                      }
-                    />
-                  </div>
+                {/* ── СТАТ-КАРТЫ: ПРИБЫЛЬ / РАСХОДЫ / ОНЛАЙН / ОФЛАЙН ── */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(225px, 1fr))', gap: 14 }}>
+                  <MetricCard
+                    index={0}
+                    label={language === 'uz' ? 'Jami foyda' : 'Общая прибыль'}
+                    value={`+${formatPrice(profit)}`}
+                    accent="#22C55E"
+                    delta={profitDelta}
+                    series={profitSeries}
+                  />
+                  <MetricCard
+                    index={1}
+                    label={language === 'uz' ? 'Jami xarajat' : 'Расходы'}
+                    value={`−${formatPrice(companyExpenses)}`}
+                    accent="#F87171"
+                    footer={
+                      <button
+                        onClick={() => { setShowExpensesModal(true); setShowExtraExpenses(false); }}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'rgba(248,113,113,0.12)', border: '1px solid rgba(248,113,113,0.25)', borderRadius: 8, color: '#F87171', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', padding: '5px 10px' }}
+                      >
+                        <Receipt style={{ width: 13, height: 13 }} />
+                        {language === 'uz' ? 'Batafsil' : 'Подробно'}
+                      </button>
+                    }
+                  />
+                  <MetricCard
+                    index={2}
+                    label={language === 'uz' ? 'Onlayn savdo' : 'Онлайн продажи'}
+                    value={formatPrice(onlineSales)}
+                    accent="#38BDF8"
+                    delta={onlineDelta}
+                    series={onlineSeries}
+                    sub={language === 'uz'
+                      ? `${onlineCount} buyurtma · komissiya ${formatPrice(onlineCommission)}`
+                      : `${onlineCount} заказов · комиссия ${formatPrice(onlineCommission)}`}
+                  />
+                  <MetricCard
+                    index={3}
+                    label={language === 'uz' ? 'Offline savdo (kassa)' : 'Офлайн продажи (касса)'}
+                    value={formatPrice(offlineSales)}
+                    accent="#FBBF24"
+                    delta={offlineDelta}
+                    series={offlineSeries}
+                    sub={language === 'uz' ? `${offlineCount} kassa sotuvi` : `${offlineCount} продаж через кассу`}
+                  />
                 </div>
 
-                {/* ── КАНАЛЫ ПРОДАЖ (наблюдение, не влияют на баланс) ── */}
-                <div>
-                  <SectionLabel>{language === 'uz' ? 'Savdo: onlayn va kassa' : 'Продажи: онлайн и касса'}</SectionLabel>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
+                {/* ── ГРАФИК ВЫРУЧКИ + ПРАВАЯ КОЛОНКА ── */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'stretch' }}>
 
-                    {/* 4. ВЫРУЧКА ЗА ПЕРИОД (онлайн + офлайн) */}
-                    <StatTile
-                      icon={<CreditCard className="w-4 h-4" style={{ color: 'var(--ax-primary)' }} />}
-                      iconBg="var(--ax-primary-pale)"
-                      label={language === 'uz' ? 'Davr tushumi' : 'Выручка за период'}
-                      value={formatPrice(revenue)}
-                      sub={language === 'uz'
-                        ? `Onlayn + oflayn savdo summasi`
-                        : `Онлайн + офлайн продажи`}
-                    />
+                  {/* График «Динамика выручки» */}
+                  <motion.div
+                    key={`chart-${financialTimePeriod}`}
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ type: 'spring', stiffness: 280, damping: 26 }}
+                    style={{ flex: '2 1 460px', minWidth: 0, background: 'var(--ax-card)', border: '1px solid var(--ax-border)', borderRadius: 16, padding: '20px 22px' }}
+                  >
+                    <div style={{ marginBottom: 14, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                      <h3 style={{ color: 'var(--ax-text)', fontSize: 16, fontWeight: 700, margin: 0 }}>
+                        {language === 'uz' ? 'Daromad statistikasi' : 'Статистика выручки'}
+                      </h3>
+                      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--ax-text-2)', fontSize: 12.5 }}>
+                          <span style={{ width: 22, height: 3, background: '#7C5CF0', display: 'inline-block', borderRadius: 2 }} />
+                          {language === 'uz' ? 'Joriy davr' : 'Текущий период'}
+                        </span>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--ax-text-2)', fontSize: 12.5 }}>
+                          <span style={{ width: 22, height: 0, display: 'inline-block', borderTop: '3px dashed #5B3DD4', borderRadius: 2 }} />
+                          {language === 'uz' ? 'Oldingi davr' : 'Предыдущий период'}
+                        </span>
+                      </div>
+                    </div>
 
-                    {/* 5. ОНЛАЙН ПРОДАЖИ */}
-                    <StatTile
-                      icon={<Globe className="w-4 h-4" style={{ color: '#38BDF8' }} />}
-                      iconBg="rgba(56,189,248,0.12)"
-                      label={language === 'uz' ? 'Onlayn savdo' : 'Онлайн продажи'}
-                      value={formatPrice(onlineSales)}
-                      sub={
-                        <>
-                          <SubRow name={language === 'uz' ? 'Buyurtmalar' : 'Заказы'} value={`${onlineCount}`} />
-                          <SubRow
-                            name={language === 'uz' ? `Platforma komissiyasi (${commissionPercent}%)` : `Комиссия платформы (${commissionPercent}%)`}
-                            value={formatPrice(onlineCommission)}
-                          />
-                        </>
-                      }
-                    />
+                    <ResponsiveContainer width="100%" height={290}>
+                      <ComposedChart data={getCombinedChartData()} margin={{ top: 5, right: 16, left: 0, bottom: 5 }}>
+                        <defs>
+                          <linearGradient id="revCurGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#7C5CF0" stopOpacity={0.28} />
+                            <stop offset="95%" stopColor="#7C5CF0" stopOpacity={0} />
+                          </linearGradient>
+                          <linearGradient id="revPrevGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#5B3DD4" stopOpacity={0.12} />
+                            <stop offset="95%" stopColor="#5B3DD4" stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(139,139,170,0.15)" vertical={false} />
+                        <XAxis dataKey="period" tick={{ fill: '#8B8BAA', fontSize: 10 }} axisLine={{ stroke: 'rgba(139,139,170,0.3)' }} tickLine={false} interval="preserveStartEnd" />
+                        <YAxis yAxisId="rev" orientation="left" tick={{ fill: '#8B8BAA', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => formatShortPrice(v)} width={58} />
+                        <Tooltip
+                          contentStyle={{ background: '#13132A', border: '1px solid rgba(124,92,240,0.4)', borderRadius: '12px', color: '#FFFFFF', fontSize: '13px' }}
+                          labelStyle={{ color: '#8B8BAA', marginBottom: '6px' }}
+                          itemStyle={{ color: '#FFFFFF' }}
+                          formatter={(value: number, name: string) => {
+                            return [formatPrice(value), name === 'revCurrent' ? (language === 'uz' ? 'Joriy davr' : 'Текущий период') : (language === 'uz' ? 'Oldingi davr' : 'Предыдущий период')];
+                          }}
+                        />
+                        <Area yAxisId="rev" type="monotone" dataKey="revCurrent" stroke="#7C5CF0" strokeWidth={2.5} fill="url(#revCurGrad)"
+                          dot={false} activeDot={{ r: 5, fill: '#7C5CF0', stroke: '#FFFFFF', strokeWidth: 2 }}
+                          animationDuration={1100} animationEasing="ease-out" legendType="none"
+                        />
+                        <Area yAxisId="rev" type="monotone" dataKey="revPrevious" stroke="#5B3DD4" strokeWidth={1.5} strokeDasharray="5 4" fill="url(#revPrevGrad)"
+                          dot={false} activeDot={{ r: 3, fill: '#5B3DD4' }}
+                          animationDuration={1300} animationEasing="ease-out" legendType="none"
+                        />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </motion.div>
 
-                    {/* 6. ОФЛАЙН ПРОДАЖИ (касса) */}
-                    <StatTile
-                      icon={<Receipt className="w-4 h-4" style={{ color: 'var(--ax-warning)' }} />}
-                      iconBg="rgba(251,191,36,0.12)"
-                      label={language === 'uz' ? 'Oflayn savdo (kassa)' : 'Офлайн продажи (касса)'}
-                      value={formatPrice(offlineSales)}
-                      sub={
-                        <>
-                          <SubRow name={language === 'uz' ? 'Kassa sotuvlari' : 'Продажи через кассу'} value={`${offlineCount}`} />
-                          <div style={{ opacity: 0.8 }}>
-                            {language === 'uz'
-                              ? 'Sotuv tarixi — Oflayn panelida'
-                              : 'История продаж — в офлайн-панели'}
+                  {/* Правая колонка: расходы компании + быстрая статистика */}
+                  <div style={{ flex: '1 1 290px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+                    {/* Карточка «Расходы компании» с донатом */}
+                    <motion.div
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ type: 'spring', stiffness: 280, damping: 26, delay: 0.05 }}
+                      style={{ background: 'var(--ax-card)', border: '1px solid var(--ax-border)', borderRadius: 16, padding: 18 }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                        <div style={{ minWidth: 0 }}>
+                          <h3 style={{ color: 'var(--ax-text)', fontSize: 15, fontWeight: 700, margin: 0 }}>
+                            {language === 'uz' ? 'Kompaniya xarajatlari' : 'Расходы компании'}
+                          </h3>
+                          <div style={{ marginTop: 8, fontSize: 13, color: 'var(--ax-text-2)' }}>
+                            {language === 'uz' ? 'Davr jami:' : 'За период:'}{' '}
+                            <span style={{ color: 'var(--ax-danger)', fontWeight: 700 }}>−{formatPrice(companyExpenses)}</span>
                           </div>
-                        </>
-                      }
-                    />
+                          <div style={{ marginTop: 6, fontSize: 12, color: 'var(--ax-text-3)', wordBreak: 'break-word' }}>
+                            {formatPrice(companyExpenses)} / {formatPrice(revenue)}
+                          </div>
+                          <div style={{ marginTop: 8, fontSize: 12.5, color: 'var(--ax-text-2)' }}>
+                            {language === 'uz' ? 'Sof qoldiq:' : 'Чистый остаток:'}{' '}
+                            <span style={{ color: balanceColor, fontWeight: 700 }}>{isPositive ? '+' : ''}{formatPrice(balance)}</span>
+                          </div>
+                        </div>
+                        <Donut percent={expensePercent} />
+                      </div>
+                      <button
+                        onClick={scrollToExpenses}
+                        style={{ marginTop: 14, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '11px 0', borderRadius: 11, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #7C5CF0, #5B3DD4)', color: '#FFFFFF', fontSize: 13.5, fontWeight: 700, boxShadow: '0 6px 16px rgba(124,92,240,0.35)' }}
+                      >
+                        <Plus style={{ width: 15, height: 15 }} />
+                        {language === 'uz' ? 'Xarajat qoʻshish' : 'Добавить расход'}
+                      </button>
+                    </motion.div>
+
+                    {/* Карточка «Быстрая статистика» */}
+                    <motion.div
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ type: 'spring', stiffness: 280, damping: 26, delay: 0.1 }}
+                      style={{ flex: 1, background: 'var(--ax-card)', border: '1px solid var(--ax-border)', borderRadius: 16, padding: 18 }}
+                    >
+                      <h3 style={{ color: 'var(--ax-text)', fontSize: 15, fontWeight: 700, margin: '0 0 14px' }}>
+                        {language === 'uz' ? 'Tezkor statistika' : 'Быстрая статистика'}
+                      </h3>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        <QuickStatRow
+                          icon={<ShoppingBag style={{ width: 15, height: 15 }} />}
+                          accent="#7C5CF0"
+                          label={language === 'uz' ? 'Jami buyurtmalar' : 'Всего продаж'}
+                          value={`${onlineCount + offlineCount} ${language === 'uz' ? 'dona' : 'шт'}`}
+                        />
+                        <QuickStatRow
+                          icon={<Users style={{ width: 15, height: 15 }} />}
+                          accent="#22C55E"
+                          label={language === 'uz' ? 'Yangi mijozlar' : 'Новые клиенты'}
+                          value={`${uniqueClients} ${unit}`}
+                        />
+                        <QuickStatRow
+                          icon={<XCircle style={{ width: 15, height: 15 }} />}
+                          accent="#F87171"
+                          label={language === 'uz' ? 'Bekor qilingan buyurtmalar' : 'Отменённые заказы'}
+                          value={`${cancelledCount} ${unit}`}
+                        />
+                      </div>
+                    </motion.div>
                   </div>
                 </div>
+
+                {/* ── KENGAYTIRILGAN ANALITIKA ── */}
+                <motion.div
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ type: 'spring', stiffness: 280, damping: 26, delay: 0.12 }}
+                  style={{ background: 'var(--ax-card)', border: '1px solid var(--ax-border)', borderRadius: 16, padding: '18px 20px' }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <Zap style={{ width: 16, height: 16, color: 'var(--ax-primary)' }} />
+                    <h3 style={{ color: 'var(--ax-text)', fontSize: 15, fontWeight: 700, margin: 0 }}>
+                      {language === 'uz' ? 'Kengaytirilgan analitika' : 'Расширенная аналитика'}
+                    </h3>
+                  </div>
+                  <p style={{ color: 'var(--ax-text-3)', fontSize: 12.5, margin: '0 0 14px' }}>
+                    {language === 'uz' ? 'Tizimdagi asosiy koʻrsatkichlar' : 'Ключевые показатели системы'}
+                  </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(215px, 1fr))', gap: 12 }}>
+                    <HighlightCard
+                      icon={<Crown style={{ width: 15, height: 15 }} />}
+                      accent="#7C5CF0"
+                      label={language === 'uz' ? 'Eng koʻp sotilgan mahsulot' : 'Самый продаваемый товар'}
+                      value={advancedHighlights.bestSeller?.name || '—'}
+                      valueColor="#A78BFA"
+                    />
+                    <HighlightCard
+                      icon={<CalendarDays style={{ width: 15, height: 15 }} />}
+                      accent="#22C55E"
+                      label={language === 'uz' ? 'Eng koʻp savdo kuni' : 'Самый активный день'}
+                      value={advancedHighlights.bestDayIdx >= 0 ? dayNames[advancedHighlights.bestDayIdx] : '—'}
+                    />
+                    <HighlightCard
+                      icon={<Coins style={{ width: 15, height: 15 }} />}
+                      accent="#38BDF8"
+                      label={language === 'uz' ? 'Oʻrtacha buyurtma qiymati' : 'Средний чек'}
+                      value={advancedHighlights.avgOrder > 0 ? formatPrice(Math.round(advancedHighlights.avgOrder)) : '—'}
+                    />
+                    <HighlightCard
+                      icon={<Gem style={{ width: 15, height: 15 }} />}
+                      accent="#FBBF24"
+                      label={language === 'uz' ? 'Eng koʻp foyda keltirgan tovar' : 'Самый прибыльный товар'}
+                      value={advancedHighlights.topProfit ? formatPrice(Math.round(advancedHighlights.topProfit.profit)) : '—'}
+                      sub={advancedHighlights.topProfit?.name}
+                    />
+                  </div>
+                </motion.div>
               </div>
 
               {/* 🔻 МИНИ-ПАНЕЛЬ: детализация «Затраты компании» */}
@@ -1115,74 +1393,9 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
             );
           })()}
 
-          {/* 📊 ДИАГРАММА — ДИНАМИКА ВЫРУЧКИ */}
-          <div className="max-w-7xl mx-auto mb-6" key={`charts-${financialTimePeriod}`}>
-            <SectionLabel>{language === 'uz' ? 'Savdo qanday ketmoqda' : 'Как идут продажи'}</SectionLabel>
-            <div style={{
-              background: 'var(--ax-card)',
-              borderRadius: 14,
-              padding: '22px 24px',
-              border: '1px solid var(--ax-border)',
-            }}>
-              {/* Header + legend — только сумма (заработано), текущий и предыдущий период */}
-              <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
-                <div>
-                  <h3 style={{ color: 'var(--ax-text)', fontSize: '17px', fontWeight: 700, margin: '0 0 10px 0' }}>
-                    {language === 'uz' ? 'Daromad' : 'Выручка'}
-                  </h3>
-                  <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--ax-text-2)', fontSize: '13px' }}>
-                      <span style={{ width: 24, height: 3, background: '#7C5CF0', display: 'inline-block', borderRadius: 2 }} />
-                      {language === 'uz' ? 'Joriy davr' : 'Текущий период'}
-                    </span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--ax-text-2)', fontSize: '13px' }}>
-                      <span style={{ width: 24, height: 3, background: '#5B3DD4', display: 'inline-block', borderRadius: 2, borderTop: '2px dashed #5B3DD4' }} />
-                      {language === 'uz' ? 'Oldingi davr' : 'Предыдущий период'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <ResponsiveContainer width="100%" height={280}>
-                <ComposedChart data={getCombinedChartData()} margin={{ top: 5, right: 16, left: 0, bottom: 5 }}>
-                  <defs>
-                    <linearGradient id="revCurGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#7C5CF0" stopOpacity={0.25} />
-                      <stop offset="95%" stopColor="#7C5CF0" stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="revPrevGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#5B3DD4" stopOpacity={0.12} />
-                      <stop offset="95%" stopColor="#5B3DD4" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(139,139,170,0.15)" vertical={false} />
-                  <XAxis dataKey="period" tick={{ fill: '#8B8BAA', fontSize: 10 }} axisLine={{ stroke: 'rgba(139,139,170,0.3)' }} tickLine={false} interval="preserveStartEnd" />
-                  {/* Единственная шкала — заработанная сумма */}
-                  <YAxis yAxisId="rev" orientation="left" tick={{ fill: '#8B8BAA', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => formatShortPrice(v)} width={58} />
-                  <Tooltip
-                    contentStyle={{ background: '#13132A', border: '1px solid rgba(124,92,240,0.4)', borderRadius: '12px', color: '#FFFFFF', fontSize: '13px' }}
-                    labelStyle={{ color: '#8B8BAA', marginBottom: '6px' }}
-                    itemStyle={{ color: '#FFFFFF' }}
-                    formatter={(value: number, name: string) => {
-                      return [formatPrice(value), name === 'revCurrent' ? (language === 'uz' ? 'Joriy davr' : 'Текущий период') : (language === 'uz' ? 'Oldingi davr' : 'Предыдущий период')];
-                    }}
-                  />
-                  <Area yAxisId="rev" type="monotone" dataKey="revCurrent" stroke="#7C5CF0" strokeWidth={2.5} fill="url(#revCurGrad)"
-                    dot={false} activeDot={{ r: 5, fill: '#7C5CF0', stroke: '#FFFFFF', strokeWidth: 2 }}
-                    animationDuration={1100} animationEasing="ease-out" legendType="none"
-                  />
-                  <Area yAxisId="rev" type="monotone" dataKey="revPrevious" stroke="#5B3DD4" strokeWidth={1.5} strokeDasharray="5 4" fill="url(#revPrevGrad)"
-                    dot={false} activeDot={{ r: 3, fill: '#5B3DD4' }}
-                    animationDuration={1300} animationEasing="ease-out" legendType="none"
-                  />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
           {/* 💸 ВАШИ РАСХОДЫ (влияет на «Расходы» выше). Общие итоги за всё время
                живут на Дашборде — здесь их не дублируем. */}
-          <div className="max-w-7xl mx-auto mb-6">
+          <div className="max-w-7xl mx-auto mb-6" ref={expensesRef} style={{ scrollMarginTop: 16 }}>
             <SectionLabel>{language === 'uz' ? 'Xarajatlaringiz' : 'Ваши расходы'}</SectionLabel>
             <ExpensesManager
               companyId={companyId}
@@ -1206,6 +1419,9 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
 
 // ── UI-примитивы аналитики ──────────────────────────────────
 
+const DAY_NAMES_UZ = ['Dushanba', 'Seshanba', 'Chorshanba', 'Payshanba', 'Juma', 'Shanba', 'Yakshanba'];
+const DAY_NAMES_RU = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'];
+
 function SectionLabel({ children }: { children: ReactNode }) {
   return (
     <div style={{ color: 'var(--ax-text-3)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
@@ -1214,56 +1430,135 @@ function SectionLabel({ children }: { children: ReactNode }) {
   );
 }
 
-function SubRow({ name, value, valueColor }: { name: string; value: string; valueColor?: string }) {
+// Мини-график тренда внутри стат-карты (чистый SVG, без библиотек)
+function Sparkline({ data, color, width = 96, height = 30 }: { data: number[]; color: string; width?: number; height?: number }) {
+  const max = Math.max(...data, 1);
+  const stepX = width / Math.max(data.length - 1, 1);
+  const pad = 2;
+  const points = data.map((v, i) => {
+    const x = i * stepX;
+    const y = pad + (1 - v / max) * (height - pad * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  const line = points.join(' ');
+  const area = `0,${height} ${line} ${width},${height}`;
+  const gradId = `spark-${color.replace(/[^a-zA-Z0-9]/g, '')}`;
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
-      <span style={{ color: valueColor || 'var(--ax-text)', fontWeight: 600, flexShrink: 0 }}>{value}</span>
-    </div>
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ display: 'block', flexShrink: 0 }} aria-hidden="true">
+      <defs>
+        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity={0.28} />
+          <stop offset="100%" stopColor={color} stopOpacity={0} />
+        </linearGradient>
+      </defs>
+      <polygon points={area} fill={`url(#${gradId})`} />
+      <polyline points={line} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
 
-function StatTile({ icon, iconBg, label, value, valueColor, accent, sub }: {
-  icon: ReactNode;
-  iconBg: string;
+// Стат-карта верхнего ряда: подпись, крупное значение, дельта и спарклайн
+function MetricCard({ index, label, value, accent, delta, series, sub, footer }: {
+  index: number;
   label: string;
   value: string;
-  valueColor?: string;
-  accent?: string;
-  sub?: ReactNode;
+  accent: string;
+  delta?: number | null;
+  series?: number[];
+  sub?: string;
+  footer?: ReactNode;
 }) {
+  const deltaText = delta === null || delta === undefined
+    ? null
+    : `${delta >= 0 ? '+' : ''}${Math.abs(delta) >= 100 ? Math.round(delta) : delta.toFixed(1)}%`;
+  const deltaColor = (delta ?? 0) >= 0 ? '#22C55E' : '#F87171';
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ type: 'spring', stiffness: 300, damping: 26 }}
+      transition={{ type: 'spring', stiffness: 300, damping: 26, delay: index * 0.05 }}
       whileHover={{ y: -3 }}
       style={{
-      position: 'relative',
-      background: accent ? `linear-gradient(160deg, ${accent}10, var(--ax-card) 60%)` : 'var(--ax-card)',
-      border: '1px solid var(--ax-border)',
-      borderRadius: 14,
-      padding: '18px 18px 16px',
-      overflow: 'hidden',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 10,
-    }}>
-      {accent && (
-        <span style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: accent }} />
-      )}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 9, background: iconBg, flexShrink: 0 }}>
+        background: `linear-gradient(160deg, ${accent}0F, var(--ax-card) 58%)`,
+        border: `1px solid ${accent}26`,
+        borderRadius: 16,
+        padding: '16px 18px 14px',
+        minWidth: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+      }}
+    >
+      <span style={{ color: 'var(--ax-text-2)', fontSize: 12.5, fontWeight: 600 }}>{label}</span>
+      <span style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.15, color: accent, wordBreak: 'break-word' }}>{value}</span>
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 10, minHeight: 30 }}>
+        <div style={{ minWidth: 0 }}>
+          {deltaText && (
+            <span style={{ fontSize: 12, fontWeight: 700, color: deltaColor }}>{deltaText}</span>
+          )}
+          {sub && (
+            <div style={{ fontSize: 11, color: 'var(--ax-text-3)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</div>
+          )}
+          {footer}
+        </div>
+        {series && series.some(v => v > 0) && <Sparkline data={series} color={accent} />}
+      </div>
+    </motion.div>
+  );
+}
+
+// Кольцевой индикатор доли расходов
+function Donut({ percent, size = 82, stroke = 9 }: { percent: number; size?: number; stroke?: number }) {
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const filled = (Math.max(0, Math.min(100, percent)) / 100) * c;
+  return (
+    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
+      <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }} aria-hidden="true">
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(139,139,170,0.18)" strokeWidth={stroke} />
+        <motion.circle
+          cx={size / 2} cy={size / 2} r={r} fill="none"
+          stroke="var(--ax-primary)" strokeWidth={stroke} strokeLinecap="round"
+          strokeDasharray={`${filled} ${c - filled}`}
+          initial={{ strokeDasharray: `0 ${c}` }}
+          animate={{ strokeDasharray: `${filled} ${c - filled}` }}
+          transition={{ duration: 0.9, ease: 'easeOut' }}
+        />
+      </svg>
+      <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 800, color: 'var(--ax-text)' }}>
+        {Math.round(percent)}%
+      </span>
+    </div>
+  );
+}
+
+// Строка «Быстрой статистики»: иконка + подпись слева, значение справа
+function QuickStatRow({ icon, accent, label, value }: { icon: ReactNode; accent: string; label: string; value: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 9, background: `${accent}1F`, color: accent, flexShrink: 0 }}>
+        {icon}
+      </span>
+      <span style={{ flex: 1, minWidth: 0, color: 'var(--ax-text-2)', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+      <span style={{ color: 'var(--ax-text)', fontSize: 14, fontWeight: 700, flexShrink: 0 }}>{value}</span>
+    </div>
+  );
+}
+
+// Мини-карта «Расширенной аналитики»
+function HighlightCard({ icon, accent, label, value, valueColor, sub }: {
+  icon: ReactNode; accent: string; label: string; value: string; valueColor?: string; sub?: string;
+}) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '13px 14px', borderRadius: 13, background: 'var(--ax-input)', border: `1px solid ${accent}26`, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 8, background: `${accent}1F`, color: accent, flexShrink: 0 }}>
           {icon}
         </span>
-        <span style={{ color: 'var(--ax-text-2)', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-          {label}
-        </span>
+        <span style={{ color: 'var(--ax-text-3)', fontSize: 11, fontWeight: 600, lineHeight: 1.3 }}>{label}</span>
       </div>
-      <div style={{ fontSize: 26, fontWeight: 800, lineHeight: 1.15, color: valueColor || 'var(--ax-text)', wordBreak: 'break-word' }}>
-        {value}
-      </div>
-      {sub && <div style={{ color: 'var(--ax-text-2)', fontSize: 12, lineHeight: 1.6 }}>{sub}</div>}
-    </motion.div>
+      <span style={{ color: valueColor || 'var(--ax-text)', fontSize: 15, fontWeight: 700, lineHeight: 1.25, wordBreak: 'break-word' }}>{value}</span>
+      {sub && <span style={{ color: 'var(--ax-text-3)', fontSize: 11, marginTop: -4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</span>}
+    </div>
   );
 }

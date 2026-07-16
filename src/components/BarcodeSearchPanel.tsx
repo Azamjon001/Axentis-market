@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { Search, Barcode, X, Package, ShoppingCart, Trash2, RefreshCw, Plus, Minus, CheckCircle, DollarSign, Receipt } from 'lucide-react';
+import { Search, Barcode, X, Package, ShoppingCart, Trash2, RefreshCw, Plus, Minus, CheckCircle, Receipt, CreditCard, Banknote, Info, TrendingUp } from 'lucide-react';
 import { useProducts, queryClient, localCache } from '../utils/cache';
 import api, { getImageUrl } from '../utils/api';
 import PaymentHistoryForCompany from './PaymentHistoryForCompany';
@@ -86,6 +86,24 @@ export default function BarcodeSearchPanel({ companyId }: BarcodeSearchPanelProp
     barcodeInputRef.current?.focus();
     loadDiscounts(); // 🆕 Загрузка скидок
   }, []);
+
+  // 💰 Прибыль за сегодня (для чипа статистики)
+  const [todayProfit, setTodayProfit] = useState(0);
+  useEffect(() => {
+    loadTodayProfit();
+  }, [companyId]);
+  const loadTodayProfit = async () => {
+    try {
+      const salesData = await api.sales.list({ companyId: String(companyId) });
+      const sales = Array.isArray(salesData) ? salesData : ((salesData as any)?.sales || []);
+      const today = new Date().toDateString();
+      setTodayProfit(sales.reduce((sum: number, s: any) => {
+        const d = new Date(s.createdAt || s.created_at);
+        if (isNaN(d.getTime()) || d.toDateString() !== today) return sum;
+        return sum + (parseFloat(s.markupProfit) || parseFloat(s.markup_profit) || 0);
+      }, 0));
+    } catch { /* нет данных — оставляем 0 */ }
+  };
 
   // 🆕 Загрузка скидок (обычные + агрессивные)
   const loadDiscounts = async () => {
@@ -401,8 +419,9 @@ export default function BarcodeSearchPanel({ companyId }: BarcodeSearchPanelProp
       queryClient.invalidateQueries({ queryKey: ['analytics'] });
       await refetch();
 
-      // Очищаем корзину
+      // Очищаем корзину и обновляем прибыль за сегодня
       clearCart();
+      loadTodayProfit();
 
       alert(
         `✅ ${t.saleSuccess}\n\n` +
@@ -441,63 +460,57 @@ export default function BarcodeSearchPanel({ companyId }: BarcodeSearchPanelProp
 
   return (
     <div className="space-y-6 pb-8">
-      {/* ========== ПЕРЕКЛЮЧАТЕЛЬ: КАССА / ИСТОРИЯ ПРОДАЖ ========== */}
-      <div style={{ background: 'var(--ax-card)', border: '1px solid var(--ax-border)', borderRadius: 14, padding: 6, display: 'flex', gap: 6 }}>
-        <button
-          onClick={() => setActiveView('pos')}
-          style={{
-            flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-            padding: '10px 20px', borderRadius: 10, border: 'none', cursor: 'pointer',
-            transition: 'all 0.2s', fontSize: 14, fontWeight: 600,
-            ...(activeView === 'pos'
-              ? { background: 'var(--ax-primary)', color: '#FFFFFF' }
-              : { background: 'transparent', color: 'var(--ax-text-2)' })
-          }}
-        >
-          <ShoppingCart className="w-4 h-4" />
-          <span>{t.offline}</span>
-        </button>
-        <button
-          onClick={() => setActiveView('history')}
-          style={{
-            flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-            padding: '10px 20px', borderRadius: 10, border: 'none', cursor: 'pointer',
-            transition: 'all 0.2s', fontSize: 14, fontWeight: 600,
-            ...(activeView === 'history'
-              ? { background: 'var(--ax-primary)', color: '#FFFFFF' }
-              : { background: 'transparent', color: 'var(--ax-text-2)' })
-          }}
-        >
-          <Receipt className="w-4 h-4" />
-          <span>{t.salesHistory}</span>
-        </button>
-      </div>
-
       {/* ========== ИСТОРИЯ ОФЛАЙН-ПРОДАЖ ========== */}
       {activeView === 'history' && (
-        <PaymentHistoryForCompany companyId={companyId} />
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <h2 style={{ color: 'var(--ax-text)', fontSize: 22, fontWeight: 800, margin: 0, letterSpacing: '-0.01em' }}>
+              {t.salesHistory}
+            </h2>
+            <motion.button whileTap={{ scale: 0.96 }} onClick={() => setActiveView('pos')}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderRadius: 11, background: 'var(--ax-card)', color: 'var(--ax-text)', border: '1px solid var(--ax-border)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+              <ShoppingCart className="w-4 h-4" style={{ color: 'var(--ax-primary)' }} />
+              {language === 'uz' ? 'Kassaga qaytish' : 'Назад к кассе'}
+            </motion.button>
+          </div>
+          <PaymentHistoryForCompany companyId={companyId} />
+        </>
       )}
 
       {activeView === 'pos' && (<>
+      {/* ========== ШАПКА: OFFLINE REJIM ========== */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <h2 style={{ color: 'var(--ax-text)', fontSize: 22, fontWeight: 800, margin: 0, letterSpacing: '-0.01em' }}>
+              {language === 'uz' ? 'Offline rejim' : 'Офлайн режим'}
+            </h2>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 11px', borderRadius: 999, background: 'rgba(34,197,94,0.12)', border: '1px solid rgba(34,197,94,0.3)', color: '#4ADE80', fontSize: 12, fontWeight: 700 }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#22C55E', display: 'inline-block' }} />
+              Offline
+            </span>
+          </div>
+          <p style={{ color: 'var(--ax-text-2)', fontSize: 13, margin: '5px 0 0' }}>
+            {language === 'uz' ? "Mahsulotlarni skanerlang yoki kod orqali qoʻshing" : 'Сканируйте товары или добавляйте по коду'}
+          </p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <motion.button whileTap={{ scale: 0.96 }} onClick={() => setActiveView('history')}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderRadius: 11, background: 'var(--ax-card)', color: 'var(--ax-text)', border: '1px solid var(--ax-border)', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+            <Receipt className="w-4 h-4" style={{ color: 'var(--ax-text-2)' }} />
+            {t.salesHistory}
+          </motion.button>
+          <motion.button whileTap={{ scale: 0.96 }} onClick={cart.length > 0 ? handleNewOrder : clearCart}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px', borderRadius: 11, background: 'linear-gradient(135deg, #7C5CF0, #5B3DD4)', color: '#FFFFFF', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700, boxShadow: '0 6px 16px rgba(124,92,240,0.35)' }}>
+            <Plus className="w-4 h-4" />
+            {t.newOrder}
+          </motion.button>
+        </div>
+      </div>
+
       {/* ========== ПОЛЕ СКАНИРОВАНИЯ (герой) ========== */}
       <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-        style={{ background: 'linear-gradient(150deg, rgba(124,92,240,0.18), var(--ax-card) 62%)', border: '1px solid rgba(124,92,240,0.3)', borderRadius: 18, padding: 18 }}>
-        <div className="flex items-center justify-between mb-3.5" style={{ gap: 12 }}>
-          <h2 className="flex items-center gap-2.5 font-bold" style={{ color: 'var(--ax-text)', fontSize: 18 }}>
-            <span style={{ width: 36, height: 36, borderRadius: 11, background: 'var(--ax-primary)', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-              <ShoppingCart className="w-5 h-5" />
-            </span>
-            {t.offline}
-          </h2>
-          {cart.length > 0 && (
-            <motion.button whileTap={{ scale: 0.95 }} onClick={handleNewOrder}
-              className="flex items-center gap-2 font-medium" style={{ padding: '9px 16px', borderRadius: 10, background: 'rgba(255,255,255,0.08)', color: 'var(--ax-text)', border: '1px solid var(--ax-border)', cursor: 'pointer', fontSize: 13 }}>
-              <RefreshCw className="w-4 h-4" />
-              {t.newOrder}
-            </motion.button>
-          )}
-        </div>
-
+        style={{ background: 'var(--ax-card)', border: '1px solid var(--ax-border)', borderRadius: 16, padding: 16 }}>
         <div className="flex gap-2.5">
           <div className="flex-1 relative">
             <input
@@ -507,8 +520,8 @@ export default function BarcodeSearchPanel({ companyId }: BarcodeSearchPanelProp
               onChange={(e) => { setSearchBarcode(e.target.value); setNotFound(false); setLastScannedProduct(null); }}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleScan(); } }}
               className="w-full pl-12 pr-4 focus:outline-none"
-              style={{ padding: '14px 16px 14px 48px', background: 'var(--ax-input)', color: 'var(--ax-text)', border: '1px solid var(--ax-border)', borderRadius: 12, fontSize: 16, fontWeight: 500 }}
-              placeholder={t.scanOrEnter}
+              style={{ padding: '14px 16px 14px 48px', background: 'var(--ax-input)', color: 'var(--ax-text)', border: '1px solid var(--ax-border)', borderRadius: 12, fontSize: 15, fontWeight: 500 }}
+              placeholder={language === 'uz' ? 'Mahsulotni skanerlang yoki shtrix-kod/nomini kiriting' : 'Сканируйте товар или введите штрих-код/название'}
               autoFocus
               disabled={processing}
             />
@@ -516,32 +529,30 @@ export default function BarcodeSearchPanel({ companyId }: BarcodeSearchPanelProp
           </div>
           <motion.button whileTap={{ scale: 0.95 }} onClick={handleScan} disabled={processing}
             className="flex items-center gap-2 font-semibold disabled:opacity-50"
-            style={{ padding: '0 22px', borderRadius: 12, background: 'linear-gradient(135deg, #7C5CF0, #5B3DD4)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 15, boxShadow: '0 6px 18px rgba(124,92,240,0.4)' }}>
-            <Search className="w-5 h-5" />
-            {t.search}
+            style={{ padding: '0 24px', borderRadius: 12, background: 'linear-gradient(135deg, #7C5CF0, #5B3DD4)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 14.5, boxShadow: '0 6px 18px rgba(124,92,240,0.4)' }}>
+            <Search className="w-4 h-4" />
+            {language === 'uz' ? 'Qidiruv' : 'Поиск'}
           </motion.button>
         </div>
-
-        <p style={{ color: 'var(--ax-text-3)', fontSize: 12.5, marginTop: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-          💡 {t.scanOrEnter}
-        </p>
       </motion.div>
 
       {/* ========== УВЕДОМЛЕНИЕ: ТОВАР ДОБАВЛЕН ========== */}
       {lastScannedProduct && (
         <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
           className="flex items-center gap-3.5"
-          style={{ background: 'rgba(34,197,94,0.10)', border: '1px solid rgba(34,197,94,0.35)', borderRadius: 14, padding: 14 }}>
-          <span style={{ background: '#22C55E', color: '#fff', borderRadius: 12, padding: 10, display: 'inline-flex', flexShrink: 0 }}>
-            <Package className="w-5 h-5" />
+          style={{ background: 'rgba(34,197,94,0.10)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: 14, padding: '14px 16px' }}>
+          <span style={{ width: 40, height: 40, borderRadius: '50%', border: '2px solid #22C55E', color: '#22C55E', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <CheckCircle className="w-5 h-5" />
           </span>
           <div className="flex-1 min-w-0">
-            <div style={{ color: '#4ADE80', fontWeight: 700, fontSize: 14 }}>✅ {t.barcodeFound}!</div>
-            <div style={{ color: 'var(--ax-text)', fontWeight: 500, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <div style={{ color: '#4ADE80', fontWeight: 700, fontSize: 14 }}>
+              {language === 'uz' ? "Sotuvga qoʻshildi" : 'Добавлено в продажу'}
+            </div>
+            <div style={{ color: 'var(--ax-text)', fontWeight: 500, fontSize: 13.5, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {lastScannedProduct.name} — {formatPrice(getPriceWithMarkup(lastScannedProduct.price, lastScannedProduct.markupPercent || 0, lastScannedProduct.id))}
             </div>
           </div>
-          <button onClick={() => setLastScannedProduct(null)} style={{ color: '#4ADE80', background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0 }}>
+          <button onClick={() => setLastScannedProduct(null)} style={{ color: '#4ADE80', background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0, padding: 4 }} aria-label="close">
             <X className="w-5 h-5" />
           </button>
         </motion.div>
@@ -549,111 +560,103 @@ export default function BarcodeSearchPanel({ companyId }: BarcodeSearchPanelProp
 
       {/* ========== УВЕДОМЛЕНИЕ: ТОВАР НЕ НАЙДЕН ========== */}
       {notFound && (
-        <div className="bg-red-50 border-2 border-red-500 rounded-lg p-4 flex items-center gap-4 shadow-md animate-pulse">
-          <div className="bg-red-500 text-white rounded-full p-3">
-            <X className="w-6 h-6" />
+        <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
+          className="flex items-center gap-3.5"
+          style={{ background: 'rgba(248,113,113,0.10)', border: '1px solid rgba(248,113,113,0.35)', borderRadius: 14, padding: '14px 16px' }}>
+          <span style={{ width: 40, height: 40, borderRadius: '50%', border: '2px solid #F87171', color: '#F87171', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <X className="w-5 h-5" />
+          </span>
+          <div className="flex-1 min-w-0">
+            <div style={{ color: '#F87171', fontWeight: 700, fontSize: 14 }}>{t.productNotFound}</div>
+            <div style={{ color: 'var(--ax-text-2)', fontSize: 13, marginTop: 2, fontFamily: 'monospace' }}>{t.search}: {searchBarcode}</div>
           </div>
-          <div className="flex-1">
-            <div className="text-red-800 font-semibold text-lg">❌ {t.productNotFound}!</div>
-            <div className="text-red-700 font-mono font-medium">{t.search}: {searchBarcode}</div>
-          </div>
-        </div>
+        </motion.div>
       )}
 
-      {/* ========== КОРЗИНА С ТОВАРАМИ ========== */}
-      {cart.length > 0 ? (
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 border border-gray-200 dark:border-gray-700">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-xl font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
-              <ShoppingCart className="w-6 h-6 text-blue-600" />
+      {/* ========== КОРЗИНА + ОПЛАТА (две колонки) ========== */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'stretch' }}>
+
+        {/* ── Левая колонка: корзина ── */}
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: 'spring', stiffness: 280, damping: 26 }}
+          style={{ flex: '1.2 1 400px', minWidth: 0, background: 'var(--ax-card)', border: '1px solid var(--ax-border)', borderRadius: 16, padding: 20, display: 'flex', flexDirection: 'column' }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 16 }}>
+            <h3 style={{ display: 'flex', alignItems: 'center', gap: 9, color: 'var(--ax-text)', fontSize: 16, fontWeight: 700, margin: 0 }}>
+              <ShoppingCart className="w-5 h-5" style={{ color: 'var(--ax-text-2)' }} />
               {t.cart} ({getTotalItems()} {t.pieces})
             </h3>
-            <button
-              onClick={() => setCart([])}
-              className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-semibold transition-colors shadow-md"
-            >
-              <Trash2 className="w-5 h-5" />
-              {t.clearCart}
-            </button>
+            {cart.length > 0 && (
+              <button
+                onClick={() => setCart([])}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', color: '#F87171', cursor: 'pointer', fontSize: 13, fontWeight: 600, padding: 4 }}
+              >
+                <Trash2 className="w-4 h-4" />
+                {language === 'uz' ? 'Savatni tozalash' : 'Очистить корзину'}
+              </button>
+            )}
           </div>
 
-          <div className="space-y-3 mb-6">
-            {cart.map((item) => {
-              const basePrice = item.variantPrice ?? item.product.price;
-              const priceWithMarkup = item.variantSellingPrice
-                ?? getPriceWithMarkup(item.product.price, item.product.markupPercent || 0, item.product.id);
-              const totalPrice = priceWithMarkup * item.quantity;
-              
-              // 🆕 Проверка на скидку
-              const discount = discounts.find(d => d.productId === item.product.id);
-              const originalPrice = basePrice * (1 + (item.product.markupPercent || 0) / 100);
+          {/* Товары в корзине */}
+          {cart.length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+              {cart.map((item) => {
+                const basePrice = item.variantPrice ?? item.product.price;
+                const priceWithMarkup = item.variantSellingPrice
+                  ?? getPriceWithMarkup(item.product.price, item.product.markupPercent || 0, item.product.id);
 
-              return (
-                <div
-                  key={item.product.id}
-                  className="border-2 border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:border-blue-300 dark:hover:border-blue-500 transition-colors bg-white dark:bg-gray-800"
-                >
-                  <div className="flex items-center gap-4">
+                // 🆕 Проверка на скидку
+                const discount = discounts.find(d => d.productId === item.product.id);
+                const originalPrice = basePrice * (1 + (item.product.markupPercent || 0) / 100);
+
+                return (
+                  <div
+                    key={`${item.product.id}-${item.variantId ?? 'base'}`}
+                    style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 4px', borderBottom: '1px solid var(--ax-border)', flexWrap: 'wrap' }}
+                  >
                     {/* Изображение */}
-                    <div className="w-20 h-20 flex-shrink-0">
+                    <div style={{ width: 58, height: 58, flexShrink: 0, borderRadius: 12, overflow: 'hidden', background: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       {item.product.images && item.product.images.length > 0 ? (
                         <img
                           src={getImageUrl(item.product.images[0]) || item.product.images[0]}
                           alt={item.product.name}
-                          className="w-full h-full object-cover rounded-lg"
-                          style={{
-                            imageRendering: 'auto',
-                            maxWidth: '100%',
-                            height: '100%',
-                            objectFit: 'cover'
-                          }}
+                          style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                           loading="lazy"
                         />
                       ) : (
-                        <div className="w-full h-full bg-gray-200 dark:bg-gray-700 rounded-lg flex items-center justify-center">
-                          <Package className="w-10 h-10 text-gray-400" />
-                        </div>
+                        <Package className="w-7 h-7" style={{ color: '#5A5A78' }} />
                       )}
                     </div>
 
                     {/* Информация */}
-                    <div className="flex-1">
-                      <div className="text-lg font-semibold text-gray-900 dark:text-gray-100">{item.product.name}</div>
-                      <div className="text-sm text-gray-500 dark:text-gray-400 font-mono">{item.product.barcode || item.product.barid}</div>
-                      
-                      {/* 🆕 Отображение скидки */}
+                    <div style={{ flex: 1, minWidth: 140 }}>
+                      <div style={{ color: 'var(--ax-text)', fontSize: 14.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.product.name}</div>
                       {discount && discount.discountPercent > 0 ? (
-                        <div className="mt-1">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm text-gray-400 line-through">{formatPrice(originalPrice)}</span>
-                            <span className={`text-xs px-2 py-1 rounded-full font-semibold ${
-                              discount.isAggressive 
-                                ? 'bg-red-100 text-red-700' 
-                                : 'bg-blue-100 text-blue-700'
-                            }`}>
-                              {discount.isAggressive ? '🔥' : '🏷️'} -{discount.discountPercent}%
-                            </span>
-                          </div>
-                          <div className="text-green-600 font-semibold">
-                            {formatPrice(priceWithMarkup)} × {item.quantity} = {formatPrice(totalPrice)}
-                          </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3, flexWrap: 'wrap' }}>
+                          <span style={{ color: 'var(--ax-text-3)', fontSize: 12, textDecoration: 'line-through' }}>{formatPrice(originalPrice)}</span>
+                          <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: discount.isAggressive ? 'rgba(248,113,113,0.15)' : 'rgba(56,189,248,0.15)', color: discount.isAggressive ? '#F87171' : '#38BDF8' }}>
+                            −{discount.discountPercent}%
+                          </span>
+                          <span style={{ color: 'var(--ax-primary)', fontSize: 14, fontWeight: 700 }}>{formatPrice(priceWithMarkup)}</span>
                         </div>
                       ) : (
-                        <div className="text-green-600 font-semibold mt-1">
-                          {formatPrice(priceWithMarkup)} × {item.quantity} = {formatPrice(totalPrice)}
+                        <div style={{ color: 'var(--ax-primary)', fontSize: 14, fontWeight: 700, marginTop: 3 }}>
+                          {formatPrice(priceWithMarkup)}
                         </div>
                       )}
                     </div>
 
-                    {/* Управление */}
-                    <div className="flex items-center gap-2">
+                    {/* Управление количеством */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                       <button
                         onClick={() => updateQuantity(item.product.id, item.quantity - 1, item.variantId)}
-                        className="bg-red-100 text-red-600 p-2 rounded-lg hover:bg-red-200 transition-colors"
+                        aria-label="minus"
+                        style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--ax-input)', border: '1px solid var(--ax-border)', color: 'var(--ax-text)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
                       >
-                        <Minus className="w-5 h-5" />
+                        <Minus className="w-4 h-4" />
                       </button>
-
                       <input
                         type="text"
                         value={item.quantity === 0 ? '' : item.quantity}
@@ -673,161 +676,200 @@ export default function BarcodeSearchPanel({ companyId }: BarcodeSearchPanelProp
                             updateQuantity(item.product.id, 1, item.variantId);
                           }
                         }}
-                        className="w-20 text-center border-2 border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 rounded-lg py-2 font-semibold text-lg focus:border-blue-500 focus:outline-none"
+                        style={{ width: 44, height: 36, textAlign: 'center', background: 'var(--ax-input)', border: '1px solid var(--ax-border)', borderRadius: 10, color: 'var(--ax-text)', fontSize: 14.5, fontWeight: 700, outline: 'none' }}
                         placeholder="0"
                       />
-
                       <button
                         onClick={() => updateQuantity(item.product.id, item.quantity + 1, item.variantId)}
-                        className="bg-green-100 text-green-600 p-2 rounded-lg hover:bg-green-200 transition-colors"
+                        aria-label="plus"
+                        style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--ax-primary)', border: 'none', color: '#FFFFFF', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
                       >
-                        <Plus className="w-5 h-5" />
+                        <Plus className="w-4 h-4" />
                       </button>
-
                       <button
                         onClick={() => removeFromCart(item.product.id, item.variantId)}
-                        className="bg-red-500 hover:bg-red-600 text-white p-2 rounded-lg transition-colors ml-2"
-                        title="Удалить товар"
+                        title={language === 'uz' ? "Oʻchirish" : 'Удалить товар'}
+                        style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(248,113,113,0.15)', border: '1px solid rgba(248,113,113,0.3)', color: '#F87171', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
                       >
-                        <Trash2 className="w-5 h-5" />
+                        <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   </div>
-                </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div style={{ flex: 1, border: '1px dashed var(--ax-border)', borderRadius: 14, padding: '36px 20px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, minHeight: 180, marginBottom: 16 }}>
+              <span style={{ width: 56, height: 56, borderRadius: 16, background: 'var(--ax-primary-pale)', color: 'var(--ax-primary)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                <ShoppingCart className="w-7 h-7" />
+              </span>
+              <div>
+                <h4 style={{ color: 'var(--ax-text)', fontSize: 15, fontWeight: 600, margin: 0 }}>{t.emptyCart}</h4>
+                <p style={{ color: 'var(--ax-text-3)', fontSize: 12.5, marginTop: 4 }}>{t.scanOrEnter}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Итоги корзины */}
+          <div style={{ marginTop: 'auto' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderTop: '1px solid var(--ax-border)' }}>
+              <span style={{ color: 'var(--ax-text-2)', fontSize: 13.5 }}>{language === 'uz' ? 'Mahsulotlar' : 'Товаров'}</span>
+              <span style={{ color: 'var(--ax-text)', fontSize: 14, fontWeight: 700 }}>{getTotalItems()} {language === 'uz' ? 'dona' : 'шт'}</span>
+            </div>
+            {getTotalProfit() > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 0 10px' }}>
+                <span style={{ color: 'var(--ax-text-2)', fontSize: 13.5 }}>{t.profit}</span>
+                <span style={{ color: '#22C55E', fontSize: 14, fontWeight: 700 }}>+{formatPrice(getTotalProfit())}</span>
+              </div>
+            )}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: 10, borderTop: '1px solid var(--ax-border)' }}>
+              <span style={{ color: 'var(--ax-text)', fontSize: 17, fontWeight: 800 }}>{language === 'uz' ? 'Jami summa' : 'Итого'}</span>
+              <span style={{ color: 'var(--ax-primary)', fontSize: 24, fontWeight: 800 }}>{formatPrice(getTotalAmount())}</span>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* ── Правая колонка: способ оплаты ── */}
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: 'spring', stiffness: 280, damping: 26, delay: 0.06 }}
+          style={{ flex: '1 1 300px', minWidth: 0, background: 'var(--ax-card)', border: '1px solid var(--ax-border)', borderRadius: 16, padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}
+        >
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: 9, color: 'var(--ax-text)', fontSize: 16, fontWeight: 700, margin: 0 }}>
+            <CreditCard className="w-5 h-5" style={{ color: 'var(--ax-text-2)' }} />
+            {language === 'uz' ? "Toʻlov usuli" : 'Способ оплаты'}
+          </h3>
+
+          {/* Наличные / Карта */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {([
+              { key: 'cash' as const, icon: <Banknote className="w-5 h-5" />, label: language === 'uz' ? 'Naqd' : 'Наличные' },
+              { key: 'card' as const, icon: <CreditCard className="w-5 h-5" />, label: language === 'uz' ? 'Karta' : 'Карта' },
+            ]).map(m => {
+              const on = paymentMethod === m.key;
+              return (
+                <motion.button
+                  key={m.key}
+                  type="button"
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => setPaymentMethod(m.key)}
+                  style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8,
+                    padding: '18px 10px', borderRadius: 13, cursor: 'pointer', fontSize: 14, fontWeight: 700,
+                    background: on ? 'var(--ax-primary-pale)' : 'var(--ax-input)',
+                    border: on ? '1.5px solid var(--ax-primary)' : '1px solid var(--ax-border)',
+                    color: on ? 'var(--ax-primary)' : 'var(--ax-text-2)',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  {m.icon}
+                  {m.label}
+                </motion.button>
               );
             })}
           </div>
 
-          {/* ========== ИТОГИ ========== */}
-          <div className="border-t-2 border-gray-300 dark:border-gray-600 pt-6 space-y-3">
-            <div className="flex items-center justify-between text-lg">
-              <span className="text-gray-600 dark:text-gray-400 font-medium">{t.itemsCount}:</span>
-              <span className="text-gray-900 dark:text-gray-100 font-semibold">{getTotalItems()} {t.pieces}</span>
-            </div>
-            
-            <div className="flex items-center justify-between text-lg">
-              <span className="text-gray-600 dark:text-gray-400 font-medium flex items-center gap-2">
-                <DollarSign className="w-5 h-5" />
-                {t.profit}:
-              </span>
-              <span className="text-green-600 dark:text-green-400 font-semibold">{formatPrice(getTotalProfit())}</span>
-            </div>
-            
-            <div className="flex items-center justify-between pt-3 border-t-2 border-gray-200 dark:border-gray-600">
-              <span className="text-2xl font-bold text-gray-800 dark:text-gray-100">{t.totalLabel}:</span>
-              <span className="text-4xl font-bold text-blue-600 dark:text-blue-400">{formatPrice(getTotalAmount())}</span>
-            </div>
-          </div>
-
-          {/* ========== СПОСОБ ОПЛАТЫ ========== */}
-          <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-xl border-2 border-gray-200 dark:border-gray-600">
-            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
-              💳 {t.paymentMethodLabel}
+          {/* Тип карты */}
+          <div style={{ opacity: paymentMethod === 'card' ? 1 : 0.45, pointerEvents: paymentMethod === 'card' ? 'auto' : 'none', transition: 'opacity 0.2s' }}>
+            <label style={{ display: 'block', fontSize: 12.5, color: 'var(--ax-text-2)', marginBottom: 8 }}>
+              {language === 'uz' ? 'Karta turi' : 'Тип карты'}
             </label>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => setPaymentMethod('cash')}
-                className={`
-                  flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-medium transition-all
-                  ${paymentMethod === 'cash' 
-                    ? 'bg-green-500 text-white shadow-lg scale-105' 
-                    : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-2 border-gray-300 dark:border-gray-600 hover:border-green-400'
-                  }
-                `}
-              >
-                💵 {t.cash}
-              </button>
-              <button
-                type="button"
-                onClick={() => setPaymentMethod('card')}
-                className={`
-                  flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-medium transition-all
-                  ${paymentMethod === 'card' 
-                    ? 'bg-blue-500 text-white shadow-lg scale-105' 
-                    : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-2 border-gray-300 dark:border-gray-600 hover:border-blue-400'
-                  }
-                `}
-              >
-                💳 {t.card}
-              </button>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              {([
+                { key: 'humo' as const,   label: 'Humo',      dot: '#22C55E' },
+                { key: 'uzcard' as const, label: 'Uzcard',    dot: '#38BDF8' },
+                { key: 'visa' as const,   label: 'Visa',      dot: '#FBBF24' },
+                { key: 'other' as const,  label: language === 'uz' ? 'Boshqalar' : 'Другие', dot: '#E2E8F0' },
+              ]).map(c => {
+                const on = cardSubtype === c.key;
+                return (
+                  <button
+                    key={c.key}
+                    type="button"
+                    onClick={() => setCardSubtype(c.key)}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                      padding: '11px 8px', borderRadius: 11, cursor: 'pointer', fontSize: 13, fontWeight: 600,
+                      background: on ? 'var(--ax-primary-pale)' : 'var(--ax-input)',
+                      border: on ? '1.5px solid var(--ax-primary)' : '1px solid var(--ax-border)',
+                      color: on ? 'var(--ax-primary)' : 'var(--ax-text-2)',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    <span style={{ width: 9, height: 9, borderRadius: '50%', background: c.dot, flexShrink: 0 }} />
+                    {c.label}
+                  </button>
+                );
+              })}
             </div>
+          </div>
 
-            {/* 💳 Выбор типа карты */}
-            {paymentMethod === 'card' && (
-              <div className="mt-3">
-                <label className="block text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">{t.cardType}:</label>
-                <div className="grid grid-cols-4 gap-2">
-                  <button type="button" onClick={() => setCardSubtype('humo')}
-                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                      cardSubtype === 'humo' ? 'bg-green-500 text-white shadow-lg scale-105' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:border-green-400'
-                    }`}>🟢 Humo</button>
-                  <button type="button" onClick={() => setCardSubtype('uzcard')}
-                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                      cardSubtype === 'uzcard' ? 'bg-blue-500 text-white shadow-lg scale-105' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:border-blue-400'
-                    }`}>🔵 Uzcard</button>
-                  <button type="button" onClick={() => setCardSubtype('visa')}
-                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                      cardSubtype === 'visa' ? 'bg-yellow-500 text-white shadow-lg scale-105' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:border-yellow-400'
-                    }`}>🟡 Visa</button>
-                  <button type="button" onClick={() => setCardSubtype('other')}
-                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                      cardSubtype === 'other' ? 'bg-gray-500 text-white shadow-lg scale-105' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 hover:border-gray-400'
-                    }`}>⚪ {t.other}</button>
-                </div>
-              </div>
+          {/* Инфобокс */}
+          <div style={{ background: 'var(--ax-input)', border: '1px solid var(--ax-border)', borderRadius: 13, padding: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <Info className="w-4 h-4" style={{ color: 'var(--ax-primary)', flexShrink: 0 }} />
+              <span style={{ color: 'var(--ax-text)', fontSize: 13.5, fontWeight: 700 }}>
+                {language === 'uz' ? "Maʼlumot" : 'Информация'}
+              </span>
+            </div>
+            <p style={{ color: 'var(--ax-text-2)', fontSize: 12.5, lineHeight: 1.55, margin: 0 }}>
+              {language === 'uz'
+                ? "Savdo yakunlangach tovarlar ombordan avtomatik ayriladi, foyda esa hisobotga qoʻshiladi."
+                : 'После завершения продажи товары автоматически списываются со склада, а прибыль попадает в аналитику.'}
+            </p>
+          </div>
+
+          {/* Кнопка оформления */}
+          <motion.button
+            whileTap={{ scale: cart.length > 0 ? 0.97 : 1 }}
+            onClick={handleCheckout}
+            disabled={processing || cart.length === 0}
+            style={{
+              marginTop: 'auto',
+              width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+              padding: '16px 0', borderRadius: 14, border: 'none',
+              cursor: processing || cart.length === 0 ? 'not-allowed' : 'pointer',
+              background: cart.length > 0 ? 'linear-gradient(135deg, #8B6CF5, #6D48E5)' : 'var(--ax-input)',
+              color: cart.length > 0 ? '#FFFFFF' : 'var(--ax-text-3)',
+              fontSize: 16.5, fontWeight: 800,
+              boxShadow: cart.length > 0 ? '0 10px 26px rgba(124,92,240,0.4)' : 'none',
+              opacity: processing ? 0.7 : 1,
+            }}
+          >
+            {processing ? (
+              <>
+                <RefreshCw className="w-5 h-5 animate-spin" />
+                {t.processing}
+              </>
+            ) : (
+              <>
+                <CheckCircle className="w-5 h-5" />
+                {language === 'uz' ? 'Sotib olindi' : 'Продано'}
+              </>
             )}
-          </div>
-
-          {/* ========== КНОПКА ОФОРМЛЕНИЯ ========== */}
-          <div className="mt-6">
-            <button
-              onClick={handleCheckout}
-              disabled={processing}
-              className="w-full bg-gradient-to-r from-green-500 to-green-600 text-white px-8 py-5 rounded-xl hover:from-green-600 hover:to-green-700 transition-all flex items-center justify-center gap-3 shadow-lg text-xl font-bold disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {processing ? (
-                <>
-                  <RefreshCw className="w-6 h-6 animate-spin" />
-                  {t.processing}
-                </>
-              ) : (
-                <>
-                  <CheckCircle className="w-6 h-6" />
-                  ✅ {t.purchased}
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-      ) : (
-        <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}
-          style={{ background: 'var(--ax-card)', border: '1px dashed var(--ax-border)', borderRadius: 16, padding: '44px 24px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, minHeight: 220, justifyContent: 'center' }}>
-          <span style={{ width: 64, height: 64, borderRadius: 18, background: 'var(--ax-primary-pale)', color: 'var(--ax-primary)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-            <ShoppingCart className="w-8 h-8" />
-          </span>
-          <div>
-            <h3 style={{ color: 'var(--ax-text)', fontSize: 16, fontWeight: 600, margin: 0 }}>{t.emptyCart}</h3>
-            <p style={{ color: 'var(--ax-text-3)', fontSize: 13, marginTop: 4 }}>{t.scanOrEnter}</p>
-          </div>
+          </motion.button>
         </motion.div>
-      )}
+      </div>
 
-      {/* ========== СТАТИСТИКА — компактные чипы ========== */}
-      <div>
-        <h3 style={{ margin: '0 0 10px', color: 'var(--ax-text-2)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t.productStats}</h3>
-        <div style={{ display: 'flex', gap: 8 }}>
+      {/* ========== СТАТИСТИКА ТОВАРОВ ========== */}
+      <div style={{ background: 'var(--ax-card)', border: '1px solid var(--ax-border)', borderRadius: 16, padding: '16px 18px' }}>
+        <h3 style={{ margin: '0 0 12px', color: 'var(--ax-text-2)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+          {language === 'uz' ? 'Mahsulotlar statistikasi' : 'Статистика товаров'}
+        </h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
           {[
-            { icon: <Package size={15} />, label: t.totalProducts, value: products.length, accent: '#7C5CF0' },
-            { icon: <Barcode size={15} />, label: t.withBarcode,   value: products.filter((p: Product) => p.barcode && p.barcode.trim()).length, accent: '#22C55E' },
-            { icon: <Barcode size={15} />, label: t.withoutBarcode, value: products.filter((p: Product) => !p.barcode || !p.barcode.trim()).length, accent: '#FB923C' },
+            { icon: <Package size={16} />,    label: language === 'uz' ? 'Jami mahsulotlar' : 'Всего товаров', value: `${products.length}`, accent: '#7C5CF0' },
+            { icon: <Barcode size={16} />,    label: language === 'uz' ? 'Shtrix-kodli' : 'Со штрих-кодом',   value: `${products.filter((p: Product) => p.barcode && p.barcode.trim()).length}`, accent: '#22C55E' },
+            { icon: <Package size={16} />,    label: language === 'uz' ? 'Shtrix-kodsiz' : 'Без штрих-кода',  value: `${products.filter((p: Product) => !p.barcode || !p.barcode.trim()).length}`, accent: '#FB923C' },
+            { icon: <TrendingUp size={16} />, label: language === 'uz' ? 'Bugungi foyda' : 'Прибыль за сегодня', value: `+${formatPrice(todayProfit)}`, accent: '#38BDF8', small: true },
           ].map((s, i) => (
             <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
-              style={{ flex: '1 1 0', minWidth: 0, display: 'flex', alignItems: 'center', gap: 9, padding: '10px 12px', borderRadius: 12, background: 'var(--ax-card)', border: `1px solid ${s.accent}2A` }}>
-              <span style={{ width: 30, height: 30, borderRadius: 9, background: `${s.accent}1F`, color: s.accent, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{s.icon}</span>
+              style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 10, padding: '12px 13px', borderRadius: 13, background: 'var(--ax-input)', border: `1px solid ${s.accent}26` }}>
+              <span style={{ width: 34, height: 34, borderRadius: 10, background: `${s.accent}1F`, color: s.accent, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{s.icon}</span>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--ax-text)', lineHeight: 1 }}>{s.value}</div>
-                <div style={{ fontSize: 10.5, color: 'var(--ax-text-3)', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.label}</div>
+                <div style={{ fontSize: (s as any).small ? 14 : 18, fontWeight: 800, color: s.accent, lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.value}</div>
+                <div style={{ fontSize: 11, color: 'var(--ax-text-3)', marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.label}</div>
               </div>
             </motion.div>
           ))}

@@ -314,90 +314,88 @@ export default function PurchaseAnalytics({ companyId }: PurchaseAnalyticsProps)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+      {/* Header: заголовок + период + экспорт */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div>
-          <h3 style={{ fontSize: 20, fontWeight: 700, color: 'var(--ax-text)', display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
-            <Package style={{ width: 24, height: 24, color: '#7C5CF0' }} />
-            {language === 'uz' ? 'Xaridlar tahlili' : 'Аналитика закупок'}
-          </h3>
-          <p style={{ color: '#8B8BAA', marginTop: 4, marginBottom: 0, fontSize: 14 }}>
-            {language === 'uz' ? 'Tovar xaridlari statistikasi va trendlari' : 'Статистика и тренды закупок товаров'}
+          <h2 style={{ fontSize: 22, fontWeight: 800, color: 'var(--ax-text)', margin: 0, letterSpacing: '-0.01em' }}>
+            {language === 'uz' ? 'Xaridlar' : 'Закупки'}
+          </h2>
+          <p style={{ color: '#8B8BAA', marginTop: 4, marginBottom: 0, fontSize: 13 }}>
+            {language === 'uz' ? 'Tovar xaridlari statistikasi va tahlili' : 'Статистика и анализ закупок товаров'}
           </p>
         </div>
-        {purchases.length > 0 && (
-          <button
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13, color: '#8B8BAA' }}>
+            {language === 'uz' ? 'Davr tanlang:' : 'Период:'}
+          </span>
+          <CompactPeriodSelector
+            value={timePeriod as any}
+            onChange={setTimePeriod as any}
+            language={language}
+          />
+          <motion.button
+            whileTap={{ scale: 0.96 }}
             onClick={exportCSV}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', background: 'rgba(34,197,94,0.14)', border: '1px solid rgba(34,197,94,0.28)', borderRadius: 10, color: '#22C55E', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
+            disabled={purchases.length === 0}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 7, padding: '10px 16px',
+              background: purchases.length > 0 ? 'linear-gradient(135deg, #7C5CF0, #5B3DD4)' : 'rgba(255,255,255,0.06)',
+              border: 'none', borderRadius: 11,
+              color: purchases.length > 0 ? '#FFFFFF' : '#5A5A78',
+              cursor: purchases.length > 0 ? 'pointer' : 'not-allowed',
+              fontSize: 13, fontWeight: 700,
+              boxShadow: purchases.length > 0 ? '0 6px 16px rgba(124,92,240,0.35)' : 'none',
+            }}
           >
-            <Download style={{ width: 16, height: 16 }} />
-            {language === 'uz' ? 'Excelga' : 'В Excel'}
-          </button>
-        )}
+            <Download style={{ width: 15, height: 15 }} />
+            {language === 'uz' ? 'Excelga eksport' : 'Экспорт в Excel'}
+          </motion.button>
+        </div>
       </div>
 
-      {/* Period Selector */}
-      <div
-        style={{
-          background: 'var(--ax-card)',
-          border: '1px solid rgba(255,255,255,0.07)',
-          borderRadius: 16,
-          padding: 16,
-        }}
-      >
-        <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#8B8BAA', marginBottom: 12 }}>
-          {language === 'uz' ? '📅 Davr tanlang:' : '📅 Выберите период:'}
-        </label>
-        <CompactPeriodSelector
-          value={timePeriod}
-          onChange={setTimePeriod}
-          language={language}
-        />
-
-        {/* 🎯 Произвольный период (от одного дня до нескольких лет) */}
-        {timePeriod === 'custom' && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 16, marginTop: 16, paddingTop: 16, borderTop: '1px solid rgba(255,255,255,0.07)' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <label style={{ fontSize: 12, color: '#8B8BAA', fontWeight: 600 }}>
-                {language === 'uz' ? 'Boshlanish sanasi' : 'Дата начала'}
-              </label>
-              <input
-                type="date"
-                value={customStartDate}
-                max={customEndDate || undefined}
-                onChange={(e) => setCustomStartDate(e.target.value)}
-                style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: '8px 10px', color: '#FFFFFF', fontSize: 14, colorScheme: 'dark' }}
-              />
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <label style={{ fontSize: 12, color: '#8B8BAA', fontWeight: 600 }}>
-                {language === 'uz' ? 'Tugash sanasi' : 'Дата конца'}
-              </label>
-              <input
-                type="date"
-                value={customEndDate}
-                min={customStartDate || undefined}
-                onChange={(e) => setCustomEndDate(e.target.value)}
-                style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: '8px 10px', color: '#FFFFFF', fontSize: 14, colorScheme: 'dark' }}
-              />
-            </div>
-            {!(customStartDate && customEndDate) && (
-              <p style={{ fontSize: 12, color: '#8B8BAA', margin: 0, alignSelf: 'center' }}>
-                {language === 'uz'
-                  ? 'Boshlanish va tugash sanasini tanlang.'
-                  : 'Выберите дату начала и конца.'}
-              </p>
-            )}
+      {/* 🎯 Произвольный период (от одного дня до нескольких лет) */}
+      {timePeriod === 'custom' && (
+        <div style={{ background: 'var(--ax-card)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: 14, display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 16 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <label style={{ fontSize: 12, color: '#8B8BAA', fontWeight: 600 }}>
+              {language === 'uz' ? 'Boshlanish sanasi' : 'Дата начала'}
+            </label>
+            <input
+              type="date"
+              value={customStartDate}
+              max={customEndDate || undefined}
+              onChange={(e) => setCustomStartDate(e.target.value)}
+              style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: '8px 10px', color: 'var(--ax-text)', fontSize: 14, colorScheme: 'dark' }}
+            />
           </div>
-        )}
-      </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <label style={{ fontSize: 12, color: '#8B8BAA', fontWeight: 600 }}>
+              {language === 'uz' ? 'Tugash sanasi' : 'Дата конца'}
+            </label>
+            <input
+              type="date"
+              value={customEndDate}
+              min={customStartDate || undefined}
+              onChange={(e) => setCustomEndDate(e.target.value)}
+              style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: '8px 10px', color: 'var(--ax-text)', fontSize: 14, colorScheme: 'dark' }}
+            />
+          </div>
+          {!(customStartDate && customEndDate) && (
+            <p style={{ fontSize: 12, color: '#8B8BAA', margin: 0, alignSelf: 'center' }}>
+              {language === 'uz'
+                ? 'Boshlanish va tugash sanasini tanlang.'
+                : 'Выберите дату начала и конца.'}
+            </p>
+          )}
+        </div>
+      )}
 
-      {/* Statistics Cards — анимированные */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
+      {/* Statistics Cards — иконка слева, подпись и значение справа */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
         {[
-          { icon: <Package style={{ width: 22, height: 22 }} />,      label: language === 'uz' ? 'Xaridlar' : 'Закупок',    value: `${stats.totalPurchases}`, accent: '#7C5CF0', big: 30 },
-          { icon: <TrendingDown style={{ width: 22, height: 22 }} />, label: language === 'uz' ? 'Tovarlar' : 'Товаров',    value: `${stats.totalQuantity}`,  accent: '#22C55E', big: 30 },
-          { icon: <DollarSign style={{ width: 22, height: 22 }} />,   label: language === 'uz' ? 'Sarflangan' : 'Потрачено', value: `${stats.totalCost.toLocaleString()} ${language === 'uz' ? "so'm" : 'сум'}`, accent: '#EF4444', big: 22 },
+          { icon: <Package style={{ width: 20, height: 20 }} />,      label: language === 'uz' ? 'Jami xaridlar' : 'Всего закупок',   value: `${stats.totalPurchases} ${language === 'uz' ? 'ta' : 'шт'}`, accent: '#7C5CF0', big: 22 },
+          { icon: <TrendingDown style={{ width: 20, height: 20 }} />, label: language === 'uz' ? 'Jami tovarlar' : 'Всего товаров',   value: `${stats.totalQuantity} ${language === 'uz' ? 'ta' : 'шт'}`,  accent: '#22C55E', big: 22 },
+          { icon: <DollarSign style={{ width: 20, height: 20 }} />,   label: language === 'uz' ? 'Sarflangan summa' : 'Потраченная сумма', value: `${stats.totalCost.toLocaleString()} ${language === 'uz' ? "so'm" : 'сум'}`, accent: '#F87171', big: 19 },
         ].map((c, i) => (
           <motion.div
             key={i}
@@ -406,17 +404,17 @@ export default function PurchaseAnalytics({ companyId }: PurchaseAnalyticsProps)
             transition={{ type: 'spring', stiffness: 300, damping: 24, delay: i * 0.06 }}
             whileHover={{ y: -3 }}
             style={{
-              background: `linear-gradient(160deg, ${c.accent}12, var(--ax-card) 62%)`,
-              border: `1px solid ${c.accent}2E`, borderRadius: 16, padding: 20,
+              background: `linear-gradient(160deg, ${c.accent}10, var(--ax-card) 58%)`,
+              border: `1px solid ${c.accent}26`, borderRadius: 16, padding: '16px 18px',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-              <div style={{ padding: 12, background: `${c.accent}22`, color: c.accent, borderRadius: 12, flexShrink: 0, display: 'inline-flex' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 13 }}>
+              <div style={{ width: 42, height: 42, background: `${c.accent}1F`, color: c.accent, borderRadius: 12, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
                 {c.icon}
               </div>
               <div style={{ minWidth: 0 }}>
-                <p style={{ fontSize: 13, color: '#8B8BAA', fontWeight: 500, margin: 0 }}>{c.label}</p>
-                <p style={{ fontSize: c.big, fontWeight: 700, color: c.accent, margin: 0, lineHeight: 1.1, wordBreak: 'break-word' }}>{c.value}</p>
+                <p style={{ fontSize: 12.5, color: '#8B8BAA', fontWeight: 500, margin: 0 }}>{c.label}</p>
+                <p style={{ fontSize: c.big, fontWeight: 800, color: c.accent, margin: '2px 0 0', lineHeight: 1.15, wordBreak: 'break-word' }}>{c.value}</p>
               </div>
             </div>
           </motion.div>
@@ -442,29 +440,34 @@ export default function PurchaseAnalytics({ companyId }: PurchaseAnalyticsProps)
         </div>
       ) : (
         <>
-          {/* Recent Purchases Table */}
+          {/* Таблица «Последние закупки» + график «Динамика закупок» в два столбца */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'stretch' }}>
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ type: 'spring', stiffness: 260, damping: 26, delay: 0.1 }}
             style={{
+              flex: '1.3 1 440px',
+              minWidth: 0,
               background: 'var(--ax-card)',
               border: '1px solid rgba(255,255,255,0.07)',
               borderRadius: 16,
               overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
             }}
           >
             <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-              <h4 style={{ fontSize: 16, fontWeight: 600, color: 'var(--ax-text)', margin: 0 }}>
+              <h4 style={{ fontSize: 16, fontWeight: 700, color: 'var(--ax-text)', margin: 0 }}>
                 {language === 'uz' ? "So'nggi xaridlar" : 'Последние закупки'}
               </h4>
             </div>
-            <div style={{ overflowX: 'auto' }}>
+            <div style={{ overflowX: 'auto', flex: 1 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr
                     style={{
-                      background: 'linear-gradient(135deg, rgba(124,92,240,0.3), rgba(91,61,212,0.2))',
+                      background: 'var(--ax-input)',
                     }}
                   >
                     <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#8B8BAA', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
@@ -480,7 +483,7 @@ export default function PurchaseAnalytics({ companyId }: PurchaseAnalyticsProps)
                       {language === 'uz' ? 'Summa' : 'Сумма'}
                     </th>
                     <th style={{ padding: '12px 16px', textAlign: 'center', fontSize: 11, fontWeight: 600, color: '#8B8BAA', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                      {language === 'uz' ? 'Batafsil' : 'Подробнее'}
+                      {language === 'uz' ? 'Amallar' : 'Действия'}
                     </th>
                   </tr>
                 </thead>
@@ -640,26 +643,35 @@ export default function PurchaseAnalytics({ companyId }: PurchaseAnalyticsProps)
                 </tbody>
               </table>
             </div>
+            {/* Футер таблицы: итог по записям */}
+            <div style={{ padding: '12px 20px', borderTop: '1px solid rgba(255,255,255,0.07)', color: '#8B8BAA', fontSize: 12.5 }}>
+              {language === 'uz' ? `Jami: ${purchases.length} ta yozuv` : `Всего: ${purchases.length} записей`}
+            </div>
           </motion.div>
 
-          {/* 📈 Динамика закупок — во всю ширину, точки по всему периоду */}
-          <div
+          {/* 📈 Динамика закупок */}
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ type: 'spring', stiffness: 260, damping: 26, delay: 0.15 }}
             style={{
+              flex: '1 1 340px',
+              minWidth: 0,
               background: 'var(--ax-card)',
               border: '1px solid rgba(255,255,255,0.07)',
               borderRadius: 16,
-              padding: 24,
+              padding: 22,
             }}
           >
-            <h4 style={{ fontSize: 16, fontWeight: 600, color: 'var(--ax-text)', margin: '0 0 4px' }}>
+            <h4 style={{ fontSize: 16, fontWeight: 700, color: 'var(--ax-text)', margin: '0 0 4px' }}>
               {language === 'uz' ? 'Xaridlar dinamikasi' : 'Динамика закупок'}
             </h4>
-            <p style={{ fontSize: 13, color: '#5A5A78', margin: '0 0 20px' }}>
+            <p style={{ fontSize: 12.5, color: '#5A5A78', margin: '0 0 18px' }}>
               {language === 'uz'
-                ? "Bugun — har soat, hafta — har 12 soat, oy — har kun, yil — har hafta"
-                : 'Сегодня — по часам, неделя — каждые 12 часов, месяц — по дням, год — по неделям'}
+                ? "Tanlangan davr boʻyicha xarajatlar oqimi"
+                : 'Поток затрат за выбранный период'}
             </p>
-            <ResponsiveContainer width="100%" height={320}>
+            <ResponsiveContainer width="100%" height={300}>
               <AreaChart data={chartData} margin={{ left: 0, right: 8 }}>
                 <defs>
                   <linearGradient id="purchaseGrad" x1="0" y1="0" x2="0" y2="1">
@@ -707,18 +719,22 @@ export default function PurchaseAnalytics({ companyId }: PurchaseAnalyticsProps)
                 />
               </AreaChart>
             </ResponsiveContainer>
+          </motion.div>
           </div>
 
           {/* 🏆 Топ-10 товаров по закупкам — список, без диаграмм */}
-          <div
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ type: 'spring', stiffness: 260, damping: 26, delay: 0.2 }}
             style={{
               background: 'var(--ax-card)',
               border: '1px solid rgba(255,255,255,0.07)',
               borderRadius: 16,
-              padding: 24,
+              padding: 22,
             }}
           >
-            <h4 style={{ fontSize: 16, fontWeight: 600, color: 'var(--ax-text)', margin: '0 0 4px' }}>
+            <h4 style={{ fontSize: 16, fontWeight: 700, color: 'var(--ax-text)', margin: '0 0 4px' }}>
               {language === 'uz' ? 'Top-10 tovarlar (xaridlar boʻyicha)' : 'Топ-10 товаров по закупкам'}
             </h4>
             <p style={{ fontSize: 13, color: '#5A5A78', margin: '0 0 16px' }}>
@@ -801,7 +817,7 @@ export default function PurchaseAnalytics({ companyId }: PurchaseAnalyticsProps)
                 );
               })}
             </div>
-          </div>
+          </motion.div>
         </>
       )}
     </div>

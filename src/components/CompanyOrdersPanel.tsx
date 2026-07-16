@@ -1,7 +1,7 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { motion } from 'motion/react';
-import { Search, Check, X, Clock, Package, Phone, User, Receipt, DollarSign, RefreshCw, Calendar, MapPin, Navigation, Truck, TrendingUp } from 'lucide-react';
-import api from '../utils/api';
+import { Search, Check, X, Clock, Package, Phone, User, DollarSign, RefreshCw, Calendar, MapPin, Navigation, Truck, TrendingUp, Briefcase, SlidersHorizontal, Map } from 'lucide-react';
+import api, { getImageUrl } from '../utils/api';
 import { formatUzbekistanFullDateTime } from '../utils/uzbekTime';
 import { toast } from 'sonner@2.0.3';
 import { useResponsive, useResponsiveClasses } from '../hooks/useResponsive';
@@ -20,6 +20,7 @@ interface OrderItem {
   color?: string;
   size?: string;
   markupAmount?: number;
+  imageUrl?: string;
 }
 
 interface Order {
@@ -145,6 +146,7 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
               : item.selected_size && item.selected_size !== 'Любой' ? item.selected_size
               : undefined,
           markupAmount: item.markupAmount || item.markup_amount || 0,
+          imageUrl: item.image_url || item.imageUrl || (Array.isArray(item.images) ? item.images[0] : undefined),
         }));
 
         return {
@@ -311,45 +313,22 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
   };
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'confirmed':
-        return (
-          <span className="flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium" style={{ background: 'rgba(59,130,246,0.15)', color: '#60A5FA' }}>
-            <Check className="w-3 h-3" /> {t.statusConfirmed}
-          </span>
-        );
-      case 'processing':
-        return (
-          <span className="flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium" style={{ background: 'rgba(124,92,240,0.15)', color: '#A78BFA' }}>
-            <Clock className="w-3 h-3" /> {t.statusConfirmed}
-          </span>
-        );
-      case 'shipped':
-        return (
-          <span className="flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium" style={{ background: 'rgba(14,165,233,0.15)', color: '#38BDF8' }}>
-            <Truck className="w-3 h-3" /> {t.statusShipped}
-          </span>
-        );
-      case 'completed':
-      case 'delivered':
-        return (
-          <span className="flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium" style={{ background: 'rgba(34,197,94,0.15)', color: '#22C55E' }}>
-            <Check className="w-3 h-3" /> {t.completed}
-          </span>
-        );
-      case 'cancelled':
-        return (
-          <span className="flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium" style={{ background: 'rgba(248,113,113,0.15)', color: '#F87171' }}>
-            <X className="w-3 h-3" /> {t.cancelled}
-          </span>
-        );
-      default:
-        return (
-          <span className="flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium" style={{ background: 'rgba(251,191,36,0.15)', color: '#FBBF24' }}>
-            <Clock className="w-3 h-3" /> {t.waiting}
-          </span>
-        );
-    }
+    const cfg = (() => {
+      switch (status) {
+        case 'confirmed':  return { icon: <Check className="w-3.5 h-3.5" />, label: t.statusConfirmed, color: '#60A5FA', bg: 'rgba(59,130,246,0.13)',  border: 'rgba(59,130,246,0.3)' };
+        case 'processing': return { icon: <Clock className="w-3.5 h-3.5" />, label: t.statusConfirmed, color: '#A78BFA', bg: 'rgba(124,92,240,0.13)',  border: 'rgba(124,92,240,0.3)' };
+        case 'shipped':    return { icon: <Truck className="w-3.5 h-3.5" />, label: t.statusShipped,   color: '#38BDF8', bg: 'rgba(14,165,233,0.13)',  border: 'rgba(14,165,233,0.3)' };
+        case 'completed':
+        case 'delivered':  return { icon: <Check className="w-3.5 h-3.5" />, label: t.completed,       color: '#22C55E', bg: 'rgba(34,197,94,0.13)',   border: 'rgba(34,197,94,0.3)' };
+        case 'cancelled':  return { icon: <X className="w-3.5 h-3.5" />,     label: t.cancelled,       color: '#F87171', bg: 'rgba(248,113,113,0.13)', border: 'rgba(248,113,113,0.3)' };
+        default:           return { icon: <Clock className="w-3.5 h-3.5" />, label: t.waiting,         color: '#FBBF24', bg: 'rgba(251,191,36,0.13)',  border: 'rgba(251,191,36,0.3)' };
+      }
+    })();
+    return (
+      <span className="flex items-center gap-1.5 rounded-full font-semibold" style={{ padding: '8px 16px', fontSize: 13, background: cfg.bg, color: cfg.color, border: `1px solid ${cfg.border}`, whiteSpace: 'nowrap' }}>
+        {cfg.icon} {cfg.label}
+      </span>
+    );
   };
 
   const { start: periodStart, end: periodEnd } = getPeriodRange(periodFilter);
@@ -372,6 +351,30 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
   const periodRevenue = filteredOrders.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
   const periodProfit = filteredOrders.reduce((sum, o) => sum + (Number(o.markup_profit) || 0), 0);
 
+  // Мини-серия для спарклайна карточки «Заказы»: количество заказов по корзинам периода
+  const ordersSeries = (() => {
+    const buckets = 14;
+    const span = Math.max(periodEnd.getTime() - periodStart.getTime(), 1);
+    const arr = new Array(buckets).fill(0);
+    filteredOrders.forEach(o => {
+      const ds = o.order_date || o.created_at;
+      if (!ds) return;
+      const time = new Date(ds).getTime();
+      if (isNaN(time) || time < periodStart.getTime() || time > periodEnd.getTime()) return;
+      arr[Math.min(Math.floor(((time - periodStart.getTime()) / span) * buckets), buckets - 1)]++;
+    });
+    return arr;
+  })();
+
+  // Сброс всех фильтров (кнопка-иконка рядом с поиском)
+  const resetFilters = () => {
+    setSearchQuery('');
+    setStatusFilter('all');
+    setPeriodFilter('day');
+    setPeriodStartDate(null);
+    setPeriodEndDate(null);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -383,44 +386,36 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
   // ── ORDER LIST PANEL ──────────────────────────────────────────────────────
   const orderListPanel = (
     <div className={responsive.spacing} style={{ minWidth: 0 }}>
-      {/* ── НОВЫЙ КАРКАС: компактная шапка + строка-сводка + пилюли-статусы ── */}
-      <div style={{ position: 'sticky', top: 0, zIndex: 20, background: 'var(--ax-bg)', paddingBottom: 10, marginBottom: 4 }}>
-        {/* Row 1: заголовок + период + обновить */}
-        <div className="flex items-center justify-between gap-2" style={{ marginBottom: 12 }}>
-          <div className="flex items-center gap-2 min-w-0">
-            <span style={{ width: 34, height: 34, borderRadius: 10, background: 'var(--ax-primary-pale)', color: 'var(--ax-primary)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <Receipt className="w-4 h-4" />
-            </span>
-            <h2 className="font-bold truncate" style={{ color: 'var(--ax-text)', fontSize: isMobile ? 17 : 20 }}>
-              {isMobile ? t.orders : t.customerOrders}
-            </h2>
-            <span className="py-0.5 px-2 rounded-full font-semibold" style={{ background: 'var(--ax-primary-pale)', color: 'var(--ax-primary)', fontSize: 12, flexShrink: 0 }}>
-              {filteredOrders.length}
-            </span>
-          </div>
+      {/* ── ШАПКА: заголовок + период + обновить ── */}
+      <div style={{ paddingBottom: 6 }}>
+        <div className="flex items-center justify-between gap-2" style={{ marginBottom: 14, flexWrap: 'wrap' }}>
+          <h2 className="font-bold truncate" style={{ color: 'var(--ax-text)', fontSize: isMobile ? 20 : 24, fontWeight: 800, letterSpacing: '-0.01em', margin: 0 }}>
+            {language === 'uz' ? 'Buyurtmalar' : 'Заказы'}
+          </h2>
           <div className="flex items-center gap-2 flex-shrink-0">
             <CompactPeriodSelector value={periodFilter} onChange={setPeriodFilter} />
             <motion.button whileHover={{ rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={loadOrders}
-              className="rounded-lg" style={{ padding: 8, color: 'var(--ax-text-2)', background: 'rgba(255,255,255,0.05)', border: 'none', cursor: 'pointer' }} title={t.refreshList}>
+              style={{ width: 40, height: 40, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 11, color: 'var(--ax-text-2)', background: 'var(--ax-card)', border: '1px solid var(--ax-border)', cursor: 'pointer' }} title={t.refreshList}>
               <RefreshCw className="w-4 h-4" />
             </motion.button>
           </div>
         </div>
 
-        {/* Row 2: тонкая строка-сводка (компактные чипы вместо крупных карточек) */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+        {/* Стат-карты: заказы / выручка / прибыль */}
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, minmax(0, 1fr))', gap: 12, marginBottom: 14 }}>
           {[
-            { icon: <Receipt size={15} />,    label: language === 'uz' ? 'Buyurtma' : 'Заказов',  value: `${filteredOrders.length}`,     accent: '#7C5CF0' },
-            { icon: <DollarSign size={15} />, label: language === 'uz' ? 'Daromad' : 'Выручка',    value: formatPrice(periodRevenue),      accent: '#38BDF8' },
-            { icon: <TrendingUp size={15} />, label: language === 'uz' ? 'Foyda' : 'Прибыль',      value: `+${formatPrice(periodProfit)}`, accent: '#22C55E' },
+            { icon: <Briefcase size={19} />,  label: language === 'uz' ? 'Buyurtmalar' : 'Заказы',  value: `${filteredOrders.length}`,      accent: '#7C5CF0', spark: true },
+            { icon: <DollarSign size={19} />, label: language === 'uz' ? 'Daromad' : 'Выручка',     value: formatPrice(periodRevenue),       accent: '#38BDF8' },
+            { icon: <TrendingUp size={19} />, label: language === 'uz' ? 'Foyda' : 'Прибыль',       value: `+${formatPrice(periodProfit)}`,  accent: '#22C55E' },
           ].map((s, i) => (
-            <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
-              style={{ flex: '1 1 0', minWidth: 0, display: 'flex', alignItems: 'center', gap: 9, padding: '9px 11px', borderRadius: 12, background: 'var(--ax-card)', border: `1px solid ${s.accent}2A` }}>
-              <span style={{ width: 28, height: 28, borderRadius: 8, background: `${s.accent}1F`, color: s.accent, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{s.icon}</span>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: isMobile ? 13.5 : 15, fontWeight: 700, color: 'var(--ax-text)', lineHeight: 1.1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.value}</div>
-                <div style={{ fontSize: 10.5, color: 'var(--ax-text-3)' }}>{s.label}</div>
+            <motion.div key={i} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', stiffness: 300, damping: 26, delay: i * 0.05 }}
+              style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 13, padding: '16px 18px', borderRadius: 16, background: `linear-gradient(160deg, ${s.accent}10, var(--ax-card) 58%)`, border: `1px solid ${s.accent}26` }}>
+              <span style={{ width: 44, height: 44, borderRadius: 13, background: `${s.accent}1F`, color: s.accent, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{s.icon}</span>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 12.5, color: 'var(--ax-text-2)', fontWeight: 500 }}>{s.label}</div>
+                <div style={{ fontSize: isMobile ? 17 : 19, fontWeight: 800, color: 'var(--ax-text)', lineHeight: 1.15, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.value}</div>
               </div>
+              {s.spark && ordersSeries.some(v => v > 0) && <OrdersSparkline data={ordersSeries} color={s.accent} />}
             </motion.div>
           ))}
         </div>
@@ -437,16 +432,23 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
           </div>
         )}
 
-        {/* Row 3: поиск */}
-        <div className="relative" style={{ marginBottom: 10 }}>
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: 'var(--ax-text-3)' }} />
-          <input type="text" placeholder={isMobile ? t.searchDots : t.searchByCodeNamePhone} value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 rounded-xl focus:outline-none"
-            style={{ background: 'var(--ax-input)', border: '1px solid var(--ax-border)', color: 'var(--ax-text)', fontSize: 14 }} />
+        {/* Поиск + кнопка сброса фильтров */}
+        <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
+          <div className="relative" style={{ flex: 1, minWidth: 0 }}>
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: 'var(--ax-text-3)' }} />
+            <input type="text" placeholder={isMobile ? t.searchDots : (language === 'uz' ? "Kod, ism yoki telefon boʻyicha qidirish..." : 'Поиск по коду, имени или телефону...')} value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full focus:outline-none"
+              style={{ padding: '13px 16px 13px 44px', borderRadius: 13, background: 'var(--ax-card)', border: '1px solid var(--ax-border)', color: 'var(--ax-text)', fontSize: 14 }} />
+          </div>
+          <motion.button whileTap={{ scale: 0.92 }} onClick={resetFilters}
+            title={language === 'uz' ? 'Filtrlarni tozalash' : 'Сбросить фильтры'}
+            style={{ width: 46, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 13, background: 'var(--ax-card)', border: '1px solid var(--ax-border)', color: 'var(--ax-text-2)', cursor: 'pointer' }}>
+            <SlidersHorizontal className="w-4 h-4" />
+          </motion.button>
         </div>
 
-        {/* Row 4: статусы-пилюли (горизонтальная прокрутка) */}
+        {/* Статусы-пилюли (горизонтальная прокрутка) */}
         <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2, scrollbarWidth: 'none' }}>
           {([
             { key: 'all',       label: t.all,             accent: '#7C5CF0' },
@@ -459,13 +461,14 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
             return (
               <motion.button key={p.key} whileTap={{ scale: 0.94 }} onClick={() => setStatusFilter(p.key)}
                 style={{
-                  flexShrink: 0, padding: '7px 14px', borderRadius: 999, fontSize: 13, fontWeight: on ? 700 : 500, cursor: 'pointer', whiteSpace: 'nowrap',
-                  background: on ? p.accent : 'var(--ax-card)',
+                  flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 16px', borderRadius: 11, fontSize: 13, fontWeight: on ? 700 : 500, cursor: 'pointer', whiteSpace: 'nowrap',
+                  background: on ? (p.key === 'all' ? 'var(--ax-primary)' : p.accent) : 'var(--ax-card)',
                   color: on ? '#fff' : 'var(--ax-text-2)',
-                  border: `1px solid ${on ? p.accent : 'var(--ax-border)'}`,
+                  border: `1px solid ${on ? (p.key === 'all' ? 'var(--ax-primary)' : p.accent) : 'var(--ax-border)'}`,
                   boxShadow: on ? `0 4px 14px ${p.accent}55` : 'none',
                 }}>
                 {p.label}
+                {on && <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'rgba(255,255,255,0.85)', display: 'inline-block' }} />}
               </motion.button>
             );
           })}
@@ -508,54 +511,58 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
               >
                 <div
                   onClick={() => toggleExpand(order)}
-                  className={`${isMobile ? 'p-3' : 'p-5'} cursor-pointer flex flex-col ${!isMobile && 'md:flex-row md:items-center'} ${responsive.gap}`}
+                  style={{ padding: isMobile ? 14 : '20px 22px', cursor: 'pointer', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: isMobile ? 12 : 18 }}
                 >
-                  {/* Code & Date */}
-                  <div className={isMobile ? 'min-w-full' : 'min-w-[120px]'}>
-                    <div className={`font-mono font-bold ${isMobile ? 'text-base' : 'text-lg'}`} style={{ color: 'var(--ax-text)' }}>
+                  {/* Код, дата, доставка */}
+                  <div style={{ minWidth: 128 }}>
+                    <div style={{ fontFamily: 'ui-monospace, monospace', fontWeight: 800, fontSize: isMobile ? 17 : 20, color: 'var(--ax-text)', letterSpacing: '0.01em' }}>
                       #{order.order_code}
                     </div>
-                    <div className={`${responsive.small} flex items-center ${responsive.gap} mt-1`} style={{ color: 'var(--ax-text-2)' }}>
-                      <Calendar className={responsive.iconSmall} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, color: 'var(--ax-text-2)', fontSize: 13 }}>
+                      <Calendar className="w-3.5 h-3.5" />
                       {new Date(order.order_date || order.created_at || '').toLocaleDateString('ru-RU',
                         isMobile ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'long' }
                       )}
                     </div>
                     {hasDelivery && (
-                      <div className={`${responsive.small} flex items-center gap-1 mt-1`} style={{ color: '#38BDF8' }}>
-                        <Navigation className="w-3 h-3" />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5, color: '#38BDF8', fontSize: 13, fontWeight: 500 }}>
+                        <Navigation className="w-3.5 h-3.5" />
                         {language === 'uz' ? 'Yetkazib berish' : 'Доставка'}
                       </div>
                     )}
                   </div>
 
-                  {/* Customer Info */}
-                  <div className="flex-1">
-                    <div className={`flex items-center ${responsive.gap} font-medium`} style={{ color: 'var(--ax-text)' }}>
-                      <User className={responsive.iconSmall} />
-                      {order.user_name || order.user_phone || t.guest}
-                    </div>
-                    {order.user_phone && order.user_phone !== order.user_name && (
-                      <div className={`flex items-center ${responsive.gap} ${responsive.small} mt-1`} style={{ color: 'var(--ax-text-2)' }}>
-                        <Phone className={responsive.iconSmall} />
-                        {order.user_phone}
+                  {/* Клиент: аватар + имя + телефон */}
+                  <div style={{ flex: '1 1 200px', minWidth: 0, display: 'flex', alignItems: 'center', gap: 13 }}>
+                    <span style={{ width: 50, height: 50, borderRadius: '50%', flexShrink: 0, background: 'var(--ax-primary-pale)', border: '1.5px solid rgba(124,92,240,0.45)', color: 'var(--ax-primary)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <User className="w-5 h-5" />
+                    </span>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ color: 'var(--ax-text)', fontSize: 15.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {order.user_name || order.user_phone || t.guest}
                       </div>
-                    )}
+                      {order.user_phone && order.user_phone !== order.user_name && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, color: 'var(--ax-text-2)', fontSize: 13 }}>
+                          <Phone className="w-3.5 h-3.5" />
+                          {order.user_phone}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
-                  {/* Amount & Status */}
-                  <div className={`flex items-center justify-between ${!isMobile && 'md:justify-end'} gap-4 ${isMobile ? 'min-w-full' : 'min-w-[300px]'}`}>
-                    <div className="text-right">
-                      <div className={`font-bold ${isMobile ? 'text-base' : 'text-lg'}`} style={{ color: 'var(--ax-primary)' }}>
+                  {/* Сумма, прибыль, статус */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginLeft: 'auto', flexWrap: 'wrap' }}>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ color: 'var(--ax-primary)', fontSize: isMobile ? 16 : 18, fontWeight: 800 }}>
                         {formatPrice(order.total_amount)}
                       </div>
                       {(order.markup_profit ?? 0) > 0 && (
-                        <div className={`${responsive.small} font-medium`} style={{ color: '#22C55E' }}>
-                          <DollarSign className="inline w-3 h-3 mr-1" />
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, marginTop: 2, color: '#22C55E', fontSize: 13, fontWeight: 600 }}>
+                          <TrendingUp className="w-3.5 h-3.5" />
                           +{formatPrice(order.markup_profit!)}
                         </div>
                       )}
-                      <div className={`${responsive.small}`} style={{ color: 'var(--ax-text-2)' }}>
+                      <div style={{ color: 'var(--ax-text-3)', fontSize: 12, marginTop: 2 }}>
                         {order.items?.length || 0} {t.products}
                       </div>
                     </div>
@@ -565,164 +572,168 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
 
                 {/* Expanded Details */}
                 {isExpanded && (
-                  <div className={`${isMobile ? 'p-3' : 'p-5'} animate-in slide-in-from-top-2`} style={{ borderTop: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.03)' }}>
-                    <div className={`flex flex-col lg:flex-row ${responsive.gapLarge}`}>
-                      {/* Items List */}
-                      <div className={`flex-1 ${responsive.spacing}`}>
-                        <h4 className={`${responsive.small} font-medium uppercase tracking-wider mb-2`} style={{ color: 'var(--ax-text-2)' }}>{t.orderComposition}</h4>
-                        {order.items.map((item, idx) => (
-                          <div key={idx} className={`flex items-center justify-between ${responsive.cardCompact}`} style={{ background: 'var(--ax-card)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                            <div className={`flex items-center ${responsive.gap}`}>
-                              <div className={`${isMobile ? 'w-6 h-6' : 'w-8 h-8'} rounded-md flex items-center justify-center`} style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--ax-text-2)' }}>
-                                <Package className={responsive.iconSmall} />
-                              </div>
-                              <div>
-                                <div className={`font-medium ${responsive.body}`} style={{ color: 'var(--ax-text)' }}>{item.name}</div>
-                                {/* Variant info: color and/or size */}
-                                {(item.color || item.size) && (
-                                  <div className={`${responsive.small} flex flex-wrap gap-1 mt-0.5`}>
-                                    {item.color && (
-                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium" style={{ background: 'rgba(124,92,240,0.15)', color: '#A78BFA' }}>
-                                        🎨 {item.color}
-                                      </span>
-                                    )}
-                                    {item.size && (
-                                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium" style={{ background: 'rgba(34,197,94,0.12)', color: '#22C55E' }}>
-                                        📏 {item.size}
-                                      </span>
-                                    )}
-                                  </div>
+                  <div className="animate-in slide-in-from-top-2" style={{ borderTop: '1px solid var(--ax-border)', padding: isMobile ? 14 : 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+                    {/* Состав заказа */}
+                    <div style={{ background: 'var(--ax-input)', border: '1px solid var(--ax-border)', borderRadius: 14, padding: '14px 16px' }}>
+                      <h4 style={{ color: 'var(--ax-text-3)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 4px' }}>
+                        {t.orderComposition}
+                      </h4>
+                      {order.items.map((item, idx) => (
+                        <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 0', borderBottom: idx < order.items.length - 1 ? '1px solid var(--ax-border)' : 'none', flexWrap: 'wrap' }}>
+                          <div style={{ width: 54, height: 54, flexShrink: 0, borderRadius: 11, overflow: 'hidden', background: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            {item.imageUrl ? (
+                              <img src={getImageUrl(item.imageUrl) || item.imageUrl} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} loading="lazy" />
+                            ) : (
+                              <Package className="w-6 h-6" style={{ color: '#5A5A78' }} />
+                            )}
+                          </div>
+                          <div style={{ flex: '1 1 150px', minWidth: 0 }}>
+                            <div style={{ color: 'var(--ax-text)', fontSize: 15, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</div>
+                            {(item.color || item.size) && (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                                {item.color && (
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600, background: 'rgba(124,92,240,0.15)', color: '#A78BFA' }}>
+                                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#A78BFA', display: 'inline-block' }} />
+                                    {item.color}
+                                  </span>
+                                )}
+                                {item.size && (
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 999, fontSize: 12, fontWeight: 600, background: 'rgba(34,197,94,0.13)', color: '#22C55E' }}>
+                                    {item.size}
+                                  </span>
                                 )}
                               </div>
-                            </div>
-                            <div className="text-right">
-                              <div className={`font-medium ${responsive.small}`} style={{ color: 'var(--ax-text)' }}>
-                                {item.quantity} {t.pcs}. × {formatPrice(item.price)}
-                              </div>
-                              <div className={`font-bold ${responsive.body}`} style={{ color: 'var(--ax-primary)' }}>
-                                {formatPrice(item.total)}
-                              </div>
-                            </div>
+                            )}
                           </div>
-                        ))}
-                      </div>
-
-                      {/* Actions & Info */}
-                      <div className={`lg:w-80 ${responsive.spacing}`}>
-                        <div className={`${responsive.cardCompact}`} style={{ background: 'var(--ax-card)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                          <h4 className={`${responsive.small} font-medium mb-3`} style={{ color: 'var(--ax-text-2)' }}>{t.orderDetails}</h4>
-                          <div className={`${responsive.spacing} ${responsive.small}`}>
-                            <div className="flex justify-between">
-                              <span style={{ color: 'var(--ax-text-2)' }}>{t.orderTime}:</span>
-                              <span className="font-medium" style={{ color: 'var(--ax-text)' }}>
-                                {order.order_date ? formatUzbekistanFullDateTime(order.order_date) : '-'}
-                              </span>
+                          <div style={{ textAlign: 'right', marginLeft: 'auto' }}>
+                            <div style={{ color: 'var(--ax-text-2)', fontSize: 13 }}>
+                              {item.quantity} {language === 'uz' ? 'dona' : 'шт'} × {formatPrice(item.price)}
                             </div>
-                            <div className="flex justify-between">
-                              <span style={{ color: 'var(--ax-text-2)' }}>{t.paymentMethod}:</span>
-                              <span className="font-medium" style={{ color: 'var(--ax-text)' }}>
-                                {order.payment_method === 'demo_online' ? t.demoOnline :
-                                 order.payment_method === 'real_online' ? t.onlineCard : t.cashCheck}
-                              </span>
+                            <div style={{ color: 'var(--ax-primary)', fontSize: 15, fontWeight: 700, marginTop: 3 }}>
+                              {formatPrice(item.total)}
                             </div>
                           </div>
                         </div>
+                      ))}
+                    </div>
 
-                        {/* Delivery info */}
-                        {order.delivery_type === 'delivery' && (
-                          <div className={`${responsive.cardCompact}`} style={{ background: 'rgba(56,189,248,0.08)', border: '1px solid rgba(56,189,248,0.25)' }}>
-                            <h4 className={`${responsive.small} font-medium mb-3 flex items-center gap-2`} style={{ color: '#38BDF8' }}>
-                              <MapPin className={responsive.iconSmall} />
-                              {language === 'uz' ? 'Yetkazib berish' : 'Информация о доставке'}
-                            </h4>
-                            <div className={`${responsive.spacing} ${responsive.small}`}>
-                              {order.recipient_name && (
-                                <div className="flex justify-between">
-                                  <span style={{ color: 'var(--ax-text-2)' }}>{t.deliveryRecipient}:</span>
-                                  <span className="font-medium" style={{ color: 'var(--ax-text)' }}>{order.recipient_name}</span>
-                                </div>
-                              )}
-                              {order.delivery_address && (
-                                <div className="flex flex-col gap-0.5">
-                                  <span style={{ color: 'var(--ax-text-2)' }}>{t.deliveryAddress}:</span>
-                                  <span className="font-medium text-xs" style={{ color: 'var(--ax-text)' }}>{order.delivery_address}</span>
-                                </div>
-                              )}
-                              {(order.delivery_coordinates || order.delivery_address) && (
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); setMapOrder(order); }}
-                                  className="flex items-center gap-1.5 text-xs mt-2 px-3 py-2 rounded-lg font-medium transition-colors"
-                                  style={{ background: 'rgba(124,92,240,0.15)', border: '1px solid rgba(124,92,240,0.35)', color: '#7C5CF0' }}
-                                >
-                                  <Navigation className="w-3.5 h-3.5" />
-                                  {language === 'uz' ? 'Xaritada ko\'rsatish' : 'Показать на карте'}
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Action buttons */}
-                        {order.status === 'pending' && (
-                          <div className={`grid ${isMobile ? 'grid-cols-1' : 'grid-cols-2'} ${responsive.gap}`}>
-                            <button
-                              onClick={(e) => handleCancelOrder(order.id, e)}
-                              disabled={processingId === order.id}
-                              className={`flex items-center justify-center ${responsive.gap} ${responsive.button} rounded-lg font-medium transition-colors disabled:opacity-50 border border-red-500/30 text-red-400 hover:bg-red-500/10`}
-                            >
-                              <X className={responsive.iconSmall} />
-                              {t.cancel}
-                            </button>
-                            <button
-                              onClick={(e) => handleAcceptOrder(order.id, e)}
-                              disabled={processingId === order.id}
-                              className={`flex items-center justify-center ${responsive.gap} ${responsive.button} bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium transition-colors shadow-sm disabled:opacity-50`}
-                            >
-                              <Check className={responsive.iconSmall} />
-                              {t.acceptOrder}
-                            </button>
-                          </div>
-                        )}
-
-                        {order.status === 'confirmed' && (
-                          <div className={`grid ${isMobile ? 'grid-cols-1' : 'grid-cols-2'} ${responsive.gap}`}>
-                            <button
-                              onClick={(e) => handleCancelOrder(order.id, e)}
-                              disabled={processingId === order.id}
-                              className={`flex items-center justify-center ${responsive.gap} ${responsive.button} rounded-lg font-medium transition-colors disabled:opacity-50 border border-red-500/30 text-red-400 hover:bg-red-500/10`}
-                            >
-                              <X className={responsive.iconSmall} />
-                              {t.cancel}
-                            </button>
-                            <button
-                              onClick={(e) => handleMarkAsShipped(order.id, e)}
-                              disabled={processingId === order.id}
-                              className={`flex items-center justify-center ${responsive.gap} ${responsive.button} bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors shadow-sm disabled:opacity-50`}
-                            >
-                              <Truck className={responsive.iconSmall} />
-                              {t.markAsShipped}
-                            </button>
-                          </div>
-                        )}
-
-                        {order.status === 'shipped' && (
-                          <button
-                            onClick={(e) => openCompleteModal(order, e)}
-                            disabled={processingId === order.id}
-                            className={`w-full flex items-center justify-center ${responsive.gap} ${responsive.button} bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium transition-colors shadow-sm disabled:opacity-50`}
-                          >
-                            <Check className={responsive.iconSmall} />
-                            {language === 'uz' ? 'Yakunlash (topshirildi)' : 'Завершить (выдан)'}
-                          </button>
-                        )}
-
-                        {processingId === order.id && (
-                          <div className={`text-center ${responsive.small} text-blue-600 animate-pulse`}>
-                            {t.processing}
-                          </div>
-                        )}
+                    {/* Время заказа + способ оплаты */}
+                    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', border: '1px solid var(--ax-border)', borderRadius: 14, overflow: 'hidden' }}>
+                      <div style={{ padding: '14px 16px', borderRight: isMobile ? 'none' : '1px solid var(--ax-border)', borderBottom: isMobile ? '1px solid var(--ax-border)' : 'none' }}>
+                        <div style={{ color: 'var(--ax-text-2)', fontSize: 13 }}>{t.orderTime}:</div>
+                        <div style={{ color: 'var(--ax-text)', fontSize: 15, fontWeight: 600, marginTop: 5 }}>
+                          {order.order_date ? formatUzbekistanFullDateTime(order.order_date) : '-'}
+                        </div>
+                      </div>
+                      <div style={{ padding: '14px 16px' }}>
+                        <div style={{ color: 'var(--ax-text-2)', fontSize: 13 }}>{t.paymentMethod}:</div>
+                        <div style={{ color: 'var(--ax-text)', fontSize: 15, fontWeight: 600, marginTop: 5 }}>
+                          {order.payment_method === 'demo_online' ? t.demoOnline :
+                           order.payment_method === 'real_online' ? t.onlineCard : t.cashCheck}
+                        </div>
                       </div>
                     </div>
+
+                    {/* Информация о доставке */}
+                    {order.delivery_type === 'delivery' && (
+                      <div style={{ background: 'rgba(56,189,248,0.07)', border: '1px solid rgba(56,189,248,0.22)', borderRadius: 14, padding: '14px 16px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                          <h4 style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#38BDF8', fontSize: 14, fontWeight: 700, margin: 0 }}>
+                            <MapPin className="w-4 h-4" />
+                            {language === 'uz' ? 'Yetkazib berish' : 'Доставка'}
+                          </h4>
+                          {order.recipient_name && (
+                            <span style={{ color: 'var(--ax-text)', fontSize: 14, fontWeight: 700 }}>{order.recipient_name}</span>
+                          )}
+                        </div>
+                        {order.recipient_name && (
+                          <div style={{ marginTop: 10, color: 'var(--ax-text-2)', fontSize: 13 }}>
+                            {t.deliveryRecipient}:
+                          </div>
+                        )}
+                        {order.delivery_address && (
+                          <div style={{ marginTop: 8 }}>
+                            <div style={{ color: 'var(--ax-text-2)', fontSize: 13 }}>{t.deliveryAddress}:</div>
+                            <div style={{ color: 'var(--ax-text)', fontSize: 14, marginTop: 3 }}>{order.delivery_address}</div>
+                          </div>
+                        )}
+                        {(order.delivery_coordinates || order.delivery_address) && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setMapOrder(order); }}
+                            style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, padding: '9px 16px', borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: 'rgba(124,92,240,0.13)', border: '1px solid rgba(124,92,240,0.35)', color: '#A78BFA' }}
+                          >
+                            <Map className="w-4 h-4" />
+                            {language === 'uz' ? 'Xaritada koʻrsatish' : 'Показать на карте'}
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Кнопки действий */}
+                    {order.status === 'pending' && (
+                      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1.4fr', gap: 12 }}>
+                        <motion.button
+                          whileTap={{ scale: 0.97 }}
+                          onClick={(e) => handleCancelOrder(order.id, e)}
+                          disabled={processingId === order.id}
+                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9, padding: '15px 0', borderRadius: 13, fontSize: 15, fontWeight: 700, cursor: 'pointer', background: 'transparent', border: '1px solid rgba(248,113,113,0.4)', color: '#F87171', opacity: processingId === order.id ? 0.5 : 1 }}
+                        >
+                          <X className="w-4.5 h-4.5" style={{ width: 18, height: 18 }} />
+                          {language === 'uz' ? 'Bekor qilish' : 'Отменить'}
+                        </motion.button>
+                        <motion.button
+                          whileTap={{ scale: 0.97 }}
+                          onClick={(e) => handleAcceptOrder(order.id, e)}
+                          disabled={processingId === order.id}
+                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9, padding: '15px 0', borderRadius: 13, fontSize: 15, fontWeight: 700, cursor: 'pointer', background: 'linear-gradient(135deg, #8B6CF5, #6D48E5)', border: 'none', color: '#FFFFFF', boxShadow: '0 8px 22px rgba(124,92,240,0.4)', opacity: processingId === order.id ? 0.5 : 1 }}
+                        >
+                          <Check style={{ width: 18, height: 18 }} />
+                          {language === 'uz' ? 'Buyurtmani qabul qilish' : 'Принять заказ'}
+                        </motion.button>
+                      </div>
+                    )}
+
+                    {order.status === 'confirmed' && (
+                      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1.4fr', gap: 12 }}>
+                        <motion.button
+                          whileTap={{ scale: 0.97 }}
+                          onClick={(e) => handleCancelOrder(order.id, e)}
+                          disabled={processingId === order.id}
+                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9, padding: '15px 0', borderRadius: 13, fontSize: 15, fontWeight: 700, cursor: 'pointer', background: 'transparent', border: '1px solid rgba(248,113,113,0.4)', color: '#F87171', opacity: processingId === order.id ? 0.5 : 1 }}
+                        >
+                          <X style={{ width: 18, height: 18 }} />
+                          {language === 'uz' ? 'Bekor qilish' : 'Отменить'}
+                        </motion.button>
+                        <motion.button
+                          whileTap={{ scale: 0.97 }}
+                          onClick={(e) => handleMarkAsShipped(order.id, e)}
+                          disabled={processingId === order.id}
+                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9, padding: '15px 0', borderRadius: 13, fontSize: 15, fontWeight: 700, cursor: 'pointer', background: 'linear-gradient(135deg, #38BDF8, #0EA5E9)', border: 'none', color: '#FFFFFF', boxShadow: '0 8px 22px rgba(14,165,233,0.35)', opacity: processingId === order.id ? 0.5 : 1 }}
+                        >
+                          <Truck style={{ width: 18, height: 18 }} />
+                          {t.markAsShipped}
+                        </motion.button>
+                      </div>
+                    )}
+
+                    {order.status === 'shipped' && (
+                      <motion.button
+                        whileTap={{ scale: 0.97 }}
+                        onClick={(e) => openCompleteModal(order, e)}
+                        disabled={processingId === order.id}
+                        style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9, padding: '15px 0', borderRadius: 13, fontSize: 15, fontWeight: 700, cursor: 'pointer', background: 'linear-gradient(135deg, #34D399, #16A34A)', border: 'none', color: '#FFFFFF', boxShadow: '0 8px 22px rgba(34,197,94,0.35)', opacity: processingId === order.id ? 0.5 : 1 }}
+                      >
+                        <Check style={{ width: 18, height: 18 }} />
+                        {language === 'uz' ? 'Yakunlash (topshirildi)' : 'Завершить (выдан)'}
+                      </motion.button>
+                    )}
+
+                    {processingId === order.id && (
+                      <div style={{ textAlign: 'center', fontSize: 13, color: '#38BDF8' }} className="animate-pulse">
+                        {t.processing}
+                      </div>
+                    )}
                   </div>
                 )}
               </motion.div>
@@ -927,5 +938,22 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
       {mapModal}
       {completeModal}
     </div>
+  );
+}
+
+// Мини-график тренда для карточки «Заказы» (чистый SVG)
+function OrdersSparkline({ data, color, width = 88, height = 30 }: { data: number[]; color: string; width?: number; height?: number }) {
+  const max = Math.max(...data, 1);
+  const stepX = width / Math.max(data.length - 1, 1);
+  const pad = 2;
+  const points = data.map((v, i) => {
+    const x = i * stepX;
+    const y = pad + (1 - v / max) * (height - pad * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ display: 'block', flexShrink: 0 }} aria-hidden="true">
+      <polyline points={points} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
