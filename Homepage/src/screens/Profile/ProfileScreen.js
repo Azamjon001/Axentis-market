@@ -60,7 +60,15 @@ export default function ProfileScreen() {
   const handleLogout = () => {
     Alert.alert(t('logoutConfirmTitle'), t('logoutConfirmMsg'), [
       { text: t('cancel'), style: 'cancel' },
-      { text: t('logoutBtn'), style: 'destructive', onPress: logout },
+      {
+        text: t('logoutBtn'),
+        style: 'destructive',
+        // После выхода уводим пользователя на экран входа/регистрации
+        onPress: async () => {
+          await logout();
+          navigation.navigate('Login');
+        },
+      },
     ]);
   };
 

@@ -88,7 +88,8 @@ func SearchProducts(db *sql.DB) gin.HandlerFunc {
 			       c.name AS company_name,
 			       GREATEST(
 			           word_similarity($1, p.name),
-			           CASE WHEN p.article = $1 THEN 1.0 ELSE 0 END,
+			           CASE WHEN COALESCE(p.article, '') ILIKE $1 THEN 1.0 ELSE 0 END,
+			           CASE WHEN COALESCE(p.article, '') ILIKE '%' || $1 || '%' THEN 0.9 ELSE 0 END,
 			           CASE WHEN p.name ILIKE '%' || $1 || '%' THEN 0.95 ELSE 0 END,
 			           CASE WHEN COALESCE(p.category, '') ILIKE '%' || $1 || '%' THEN 0.6 ELSE 0 END,
 			           CASE WHEN COALESCE(p.brand, '') ILIKE '%' || $1 || '%' THEN 0.6 ELSE 0 END
@@ -99,7 +100,8 @@ func SearchProducts(db *sql.DB) gin.HandlerFunc {
 			  AND `+modeCond+`
 			  AND p.name NOT LIKE '__CATEGORY_MARKER__%'
 			  AND (
-			        p.article = $1
+			        COALESCE(p.article, '') ILIKE $1
+			     OR COALESCE(p.article, '') ILIKE '%' || $1 || '%'
 			     OR p.name ILIKE '%' || $1 || '%'
 			     OR word_similarity($1, p.name) > 0.3
 			     OR COALESCE(p.category, '') ILIKE '%' || $1 || '%'

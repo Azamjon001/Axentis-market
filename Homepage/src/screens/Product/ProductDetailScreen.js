@@ -128,7 +128,8 @@ export default function ProductDetailScreen() {
     const colors2 = [...new Set(variants.map(v => v.color).filter(Boolean))];
     const sizes2 = [...new Set(variants.map(v => v.size).filter(Boolean))];
     add(t('colorLabel') || 'Цвет', colors2.length ? colors2.join(', ') : product.color);
-    add(t('sizeLabel') || 'Размер', sizes2.length ? sizes2.join(', ') : product.size);
+    // Размеры разделяем точкой с запятой — читается аккуратнее, чем запятая.
+    add(t('sizeLabel') || 'Размер', sizes2.length ? sizes2.join('; ') : product.size);
 
     // Разбор названия+описания по словарю (чистый алгоритм).
     const text = `${product.name || ''} ${product.description || ''}`.toLowerCase();
@@ -271,8 +272,11 @@ export default function ProductDetailScreen() {
     const next = selectedSize === size ? null : size;
     setSelectedSize(next);
     if (next) {
-      const match = variants.find(v => v.color === selectedColor && v.size === next)
-        ?? variants.find(v => v.size === next);
+      // Сначала цвет, потом размер: если у товара есть цвета, размер ищем строго
+      // внутри выбранного цвета (без автоподстановки «первого» цвета).
+      const match = uniqueColors.length > 0
+        ? variants.find(v => v.color === selectedColor && v.size === next)
+        : variants.find(v => v.size === next);
       setSelectedVariant(match ?? null);
     } else {
       setSelectedVariant(null);
@@ -700,7 +704,15 @@ export default function ProductDetailScreen() {
                 </View>
               )}
 
-              {sizesForColor(selectedColor).length > 0 && (
+              {/* Сначала выбираем цвет — размеры показываем только после выбора цвета */}
+              {uniqueColors.length > 0 && !selectedColor && (
+                <View style={[styles.variantInfo, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+                  <Ionicons name="color-palette-outline" size={16} color={colors.primary} />
+                  <Text style={[styles.variantInfoText, { color: colors.textSecondary }]}>{t('selectColorFirst')}</Text>
+                </View>
+              )}
+
+              {(uniqueColors.length === 0 || selectedColor) && sizesForColor(selectedColor).length > 0 && (
                 <View>
                   <Text style={[styles.variantLabel, { color: colors.text }]}>
                     {sizesForColor(selectedColor).some(s => /gb|гб|tb|тб|\d\/\d/i.test(String(s))) ? t('memoryLabel') : t('sizeLabel')}
@@ -758,9 +770,9 @@ export default function ProductDetailScreen() {
                 </View>
               )}
 
-              {!selectedVariant && (
+              {!selectedVariant && (uniqueColors.length === 0 || selectedColor) && (
                 <Text style={[styles.variantHint, { color: colors.textMuted }]}>
-                  {uniqueColors.length > 0 ? t('selectColorSize') : t('selectSize')}
+                  {t('selectSize')}
                 </Text>
               )}
             </View>

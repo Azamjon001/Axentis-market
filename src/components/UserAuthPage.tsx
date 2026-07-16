@@ -22,11 +22,10 @@ export default function UserAuthPage({ onLoginSuccess, isPrivateMode, onBack, on
   const [loginCompanyId, setLoginCompanyId] = useState('');
   const [loginError, setLoginError] = useState('');
   
-  // Register fields — только 4 поля: имя, телефон, пароль, подтверждение
+  // Register fields — только 3 поля: имя, телефон, пароль
   const [firstName, setFirstName] = useState('');
   const [registerPhone, setRegisterPhone] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [registerCompanyId, setRegisterCompanyId] = useState('');
   const [registerError, setRegisterError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -89,18 +88,13 @@ export default function UserAuthPage({ onLoginSuccess, isPrivateMode, onBack, on
     e.preventDefault();
     setRegisterError('');
 
-    if (!firstName.trim() || !registerPassword || !confirmPassword || !registerPhone) {
+    if (!firstName.trim() || !registerPassword || !registerPhone) {
       setRegisterError('Пожалуйста, заполните все поля');
       return;
     }
 
     if (isPrivateMode && !registerCompanyId) {
       setRegisterError('Введите ID компании для приватной регистрации');
-      return;
-    }
-
-    if (registerPassword !== confirmPassword) {
-      setRegisterError('Пароли не совпадают');
       return;
     }
 
@@ -298,22 +292,14 @@ export default function UserAuthPage({ onLoginSuccess, isPrivateMode, onBack, on
               className="w-full bg-white/90 text-center py-4 px-4 rounded-xl placeholder-gray-400 text-gray-800 outline-none focus:ring-2 focus:ring-pink-300 transition-all shadow-sm"
             />
 
-            <div className="grid grid-cols-2 gap-3">
-              <input
-                type="password"
-                value={registerPassword}
-                onChange={(e) => setRegisterPassword(e.target.value)}
-                placeholder="Пароль"
-                className="w-full bg-white/90 text-center py-4 px-3 rounded-xl placeholder-gray-400 text-gray-800 outline-none focus:ring-2 focus:ring-pink-300 transition-all shadow-sm text-sm"
-              />
-              <input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Повторите"
-                className="w-full bg-white/90 text-center py-4 px-3 rounded-xl placeholder-gray-400 text-gray-800 outline-none focus:ring-2 focus:ring-pink-300 transition-all shadow-sm text-sm"
-              />
-            </div>
+            {/* Пароль при регистрации всегда открыт (type=text), подтверждение убрано */}
+            <input
+              type="text"
+              value={registerPassword}
+              onChange={(e) => setRegisterPassword(e.target.value)}
+              placeholder="Пароль"
+              className="w-full bg-white/90 text-center py-4 px-4 rounded-xl placeholder-gray-400 text-gray-800 outline-none focus:ring-2 focus:ring-pink-300 transition-all shadow-sm"
+            />
 
             {isPrivateMode && (
               <input

@@ -159,6 +159,16 @@ const translations = {
 
     // ─── Product questions ───────────────────────────────────
     questionsTitle: 'Вопросы о товаре',
+    reportTitle: 'Пожаловаться',
+    reportSubtitle: 'Выберите причину жалобы',
+    reportFake: 'Подделка / контрафакт',
+    reportProhibited: 'Запрещённый товар',
+    reportWrongInfo: 'Неверная информация',
+    reportOther: 'Другое',
+    reportSentTitle: 'Жалоба отправлена',
+    reportSentMsg: 'Спасибо! Мы рассмотрим вашу жалобу.',
+    reportFailMsg: 'Не удалось отправить жалобу. Попробуйте позже.',
+    selectColorFirst: 'Сначала выберите цвет',
     askQuestionBtn: 'Задать вопрос о товаре',
     askPlaceholder: 'Задайте вопрос продавцу...',
     loginToAskPlaceholder: 'Войдите, чтобы задать вопрос',
@@ -579,6 +589,16 @@ const translations = {
 
     // ─── Product questions ───────────────────────────────────
     questionsTitle: 'Mahsulot haqida savollar',
+    reportTitle: 'Shikoyat qilish',
+    reportSubtitle: 'Shikoyat sababini tanlang',
+    reportFake: 'Soxta / kontrafakt',
+    reportProhibited: 'Taqiqlangan mahsulot',
+    reportWrongInfo: 'Notoʻgʻri maʼlumot',
+    reportOther: 'Boshqa',
+    reportSentTitle: 'Shikoyat yuborildi',
+    reportSentMsg: 'Rahmat! Shikoyatingizni koʻrib chiqamiz.',
+    reportFailMsg: 'Shikoyatni yuborib boʻlmadi. Keyinroq urinib koʻring.',
+    selectColorFirst: 'Avval rangni tanlang',
     askQuestionBtn: 'Mahsulot haqida savol berish',
     askPlaceholder: 'Sotuvchiga savol bering...',
     loginToAskPlaceholder: 'Savol berish uchun tizimga kiring',
