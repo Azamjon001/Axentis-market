@@ -649,12 +649,12 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
                         </div>
                         {order.recipient_name && (
                           <div style={{ marginTop: 10, color: 'var(--ax-text-2)', fontSize: 13 }}>
-                            {t.deliveryRecipient}:
+                            {t.deliveryRecipient}
                           </div>
                         )}
                         {order.delivery_address && (
                           <div style={{ marginTop: 8 }}>
-                            <div style={{ color: 'var(--ax-text-2)', fontSize: 13 }}>{t.deliveryAddress}:</div>
+                            <div style={{ color: 'var(--ax-text-2)', fontSize: 13 }}>{t.deliveryAddress}</div>
                             <div style={{ color: 'var(--ax-text)', fontSize: 14, marginTop: 3 }}>{order.delivery_address}</div>
                           </div>
                         )}
