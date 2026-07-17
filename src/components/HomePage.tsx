@@ -201,6 +201,9 @@ export default function HomePage({ onLogout, userName, userPhone, userCompanyId,
     return localStorage.getItem('selectedRegion') || "Barcha viloyatlar";
   });
   const [showRegionPicker, setShowRegionPicker] = useState(false);
+  // 📍 Зоны платформы, нарисованные админом — показываются в выборе региона
+  // вместе с областями (как в мобильном приложении)
+  const [platformZones, setPlatformZones] = useState<any[]>([]);
   const [bannerIndex, setBannerIndex] = useState(0);
 
   const [cartTab, setCartTab] = useState<'cart' | 'orders'>('cart');
@@ -586,7 +589,17 @@ export default function HomePage({ onLogout, userName, userPhone, userCompanyId,
       clearInterval(interval);
       window.removeEventListener('productsUpdated', handleProductsUpdate);
     };
-  }, [userCompanyId]);
+  }, [userCompanyId, selectedRegion]);
+
+  // 📍 Зоны платформы для выпадающего списка региона (грузим один раз)
+  useEffect(() => {
+    api.regions.list()
+      .then((list: any) => {
+        const zones = (Array.isArray(list) ? list : []).filter((z: any) => z?.name);
+        setPlatformZones(zones);
+      })
+      .catch(() => setPlatformZones([]));
+  }, []);
 
   useEffect(() => {
     loadPaymentConfig();
@@ -716,6 +729,11 @@ export default function HomePage({ onLogout, userName, userPhone, userCompanyId,
         } else {
           // Публичный режим: загружаем все публичные товары
           console.log('🌍 [HomePage] Публичный режим: загружаем товары всех публичных компаний');
+          // 📍 Регион из шапки реально фильтрует выдачу (как в приложении):
+          // «Barcha viloyatlar» = без фильтра
+          if (selectedRegion && selectedRegion !== 'Barcha viloyatlar') {
+            params.region = selectedRegion;
+          }
         }
         
         // Новый API
@@ -745,8 +763,9 @@ export default function HomePage({ onLogout, userName, userPhone, userCompanyId,
         );
         console.log(`✅ [HomePage] После фильтрации: ${filtered.length} товаров доступно для покупателей`);
         
-        // Кэшируем только в публичном режиме
-        if (mode === 'public') {
+        // Кэшируем только в публичном режиме без регионального фильтра —
+        // иначе кэш одного региона показался бы в другом
+        if (mode === 'public' && !params.region) {
           setCachedProducts(normalizedProducts);
         }
         
@@ -1637,9 +1656,43 @@ export default function HomePage({ onLogout, userName, userPhone, userCompanyId,
               <span className="text-[10px] opacity-50">▾</span>
             </button>
             {showRegionPicker && (
-              <div className={`absolute left-4 right-4 top-full mt-2 z-50 rounded-2xl shadow-2xl border overflow-hidden ${
+              <div className={`absolute left-4 right-4 top-full mt-2 z-50 rounded-2xl shadow-2xl border overflow-hidden max-h-[60vh] overflow-y-auto ${
                 isNight ? 'bg-[#1c0e19] border-white/10' : 'bg-white border-gray-100'
               }`}>
+                {/* 📍 Зоны платформы из админ-панели — первыми, как в приложении */}
+                {platformZones.length > 0 && (
+                  <p className={`px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide ${
+                    isNight ? 'text-gray-500' : 'text-gray-400'
+                  }`}>
+                    Зоны доставки
+                  </p>
+                )}
+                {platformZones.map((zone: any) => (
+                  <button
+                    key={`zone-${zone.id}`}
+                    onClick={() => {
+                      setSelectedRegion(zone.name);
+                      localStorage.setItem('selectedRegion', zone.name);
+                      setShowRegionPicker(false);
+                    }}
+                    className={`w-full text-left px-4 py-3 text-sm transition-colors flex items-center gap-2 ${
+                      selectedRegion === zone.name
+                        ? isNight ? 'bg-indigo-900/60 text-indigo-300 font-semibold' : 'bg-indigo-50 text-indigo-700 font-semibold'
+                        : isNight ? 'text-gray-300 hover:bg-white/5' : 'text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    {selectedRegion === zone.name && <span className="text-indigo-500">✓</span>}
+                    <span className="text-indigo-400">📍</span>
+                    {zone.name}
+                  </button>
+                ))}
+                {platformZones.length > 0 && (
+                  <p className={`px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide ${
+                    isNight ? 'text-gray-500' : 'text-gray-400'
+                  }`}>
+                    Области
+                  </p>
+                )}
                 {UZ_REGIONS.map(region => (
                   <button
                     key={region}

@@ -81,7 +81,7 @@ export default function HomeScreen() {
   }, [search]);
 
   // 🗺️ Регион покупателя (GPS ИЛИ выбранный вручную). Товары строго его региона.
-  const { region, manualRegion, coords, status: locStatus, requestLocation, setManualRegion } = useLocationRegion();
+  const { region, displayRegion, manualRegion, coords, status: locStatus, requestLocation, setManualRegion } = useLocationRegion();
   const [regionPickerOpen, setRegionPickerOpen] = useState(false);
   const [adminZones, setAdminZones] = useState([]); // зоны, нарисованные админом (для ручного выбора)
   // В приватном режиме (закрытая компания) фильтрация по региону не нужна.
@@ -356,6 +356,22 @@ export default function HomeScreen() {
             <Text style={[styles.greetingName, { color: colors.text }]} numberOfLines={1}>
               {user?.name ? user.name : 'Axentis Market'}
             </Text>
+            {/* 📍 Регион всегда можно сменить вручную — например, покупатель
+                зарегистрировался в поездке, а дома магазины «пропали» */}
+            {!isPrivateMode && (
+              <TouchableOpacity
+                style={styles.regionChip}
+                onPress={() => setRegionPickerOpen(true)}
+                activeOpacity={0.7}
+                hitSlop={{ top: 6, bottom: 6, left: 4, right: 4 }}
+              >
+                <Ionicons name="location-outline" size={13} color={colors.primary} />
+                <Text style={[styles.regionChipText, { color: colors.primary }]} numberOfLines={1}>
+                  {displayRegion || (language === 'uz' ? 'Hududni tanlash' : 'Выбрать регион')}
+                </Text>
+                <Ionicons name="chevron-down" size={12} color={colors.primary} />
+              </TouchableOpacity>
+            )}
           </View>
           <TouchableOpacity
             style={[styles.iconBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
@@ -692,6 +708,16 @@ const styles = StyleSheet.create({
   greetingName: {
     ...Typography.h2,
   },
+  // 📍 Чип текущего региона — всегда виден, тап открывает выбор региона
+  regionChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 3,
+    marginTop: 3,
+    maxWidth: '100%',
+  },
+  regionChipText: { fontSize: 12.5, fontWeight: '600', flexShrink: 1 },
   searchRow: {
     flexDirection: 'row',
     alignItems: 'center',
