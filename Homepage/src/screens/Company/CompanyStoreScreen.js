@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, FlatList,
-  Image, ActivityIndicator, Alert, Share, RefreshControl,
+  Image, ActivityIndicator, Share, RefreshControl,
 } from 'react-native';
+import { Alert } from '../../utils/alert';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Video, ResizeMode } from 'expo-av';

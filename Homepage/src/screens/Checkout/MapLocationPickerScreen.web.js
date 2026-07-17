@@ -1,8 +1,9 @@
 import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ActivityIndicator,
-  Alert, TextInput,
+  TextInput,
 } from 'react-native';
+import { Alert } from '../../utils/alert';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';

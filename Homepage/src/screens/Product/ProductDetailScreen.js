@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView, Image,
-  FlatList, Dimensions, ActivityIndicator, Alert, Share, TextInput, Modal, Platform, Animated,
+  FlatList, Dimensions, ActivityIndicator, Share, TextInput, Modal, Platform, Animated,
 } from 'react-native';
+import { Alert } from '../../utils/alert';
 import { StatusBar } from 'expo-status-bar';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';

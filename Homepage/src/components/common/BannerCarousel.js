@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  Image, Dimensions, Linking, Alert,
+  Image, Dimensions, Linking, 
 } from 'react-native';
+import { Alert } from '../../utils/alert';
 import { useNavigation } from '@react-navigation/native';
 import { getImageUrl } from '../../utils/imageUrl';
 import { useLanguage } from '../../context/LanguageContext';

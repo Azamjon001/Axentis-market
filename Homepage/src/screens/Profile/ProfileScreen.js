@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView,
-  Alert, Switch, Image, ActivityIndicator, Modal,
+  Switch, Image, ActivityIndicator, Modal,
 } from 'react-native';
+import { Alert } from '../../utils/alert';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';

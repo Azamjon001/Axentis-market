@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, FlatList,
-  Image, ActivityIndicator, Alert, RefreshControl, TextInput,
+  Image, ActivityIndicator, RefreshControl, TextInput,
 } from 'react-native';
+import { Alert } from '../../utils/alert';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
