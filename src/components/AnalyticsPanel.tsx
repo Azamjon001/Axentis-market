@@ -412,6 +412,51 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
     return series;
   };
 
+  // Диапазон дат ПРЕДЫДУЩЕГО периода (для дельт и расходов прошлого периода)
+  const getPreviousPeriodRange = (period: PeriodType): { start: Date; end: Date } | null => {
+    const now = new Date();
+    const start = new Date();
+    const end = new Date();
+    if (period === 'day') {
+      start.setDate(now.getDate() - 1); start.setHours(0, 0, 0, 0);
+      end.setDate(now.getDate() - 1);   end.setHours(23, 59, 59, 999);
+    } else if (period === 'week') {
+      start.setDate(now.getDate() - 14); start.setHours(0, 0, 0, 0);
+      end.setDate(now.getDate() - 7);
+    } else if (period === 'month') {
+      start.setMonth(now.getMonth() - 2); start.setHours(0, 0, 0, 0);
+      end.setMonth(now.getMonth() - 1);
+    } else if (period === 'year') {
+      start.setFullYear(now.getFullYear() - 2); start.setHours(0, 0, 0, 0);
+      end.setFullYear(now.getFullYear() - 1);
+    } else {
+      return null;
+    }
+    return { start, end };
+  };
+
+  // Операционные расходы ПРЕДЫДУЩЕГО периода — чтобы дельта «Общей прибыли»
+  // сравнивала сопоставимые величины (наценка − расходы в обоих периодах)
+  const getPreviousOperatingExpenses = (period: PeriodType, prevRevenue: number) => {
+    const range = getPreviousPeriodRange(period);
+    if (!range) return 0;
+    let multiplier = 1;
+    if (period === 'day') multiplier = 1 / 30;
+    else if (period === 'week') multiplier = 7 / 30;
+    else if (period === 'month') multiplier = 1;
+    else if (period === 'year') multiplier = 12;
+    return operatingExpensesList.reduce((total, exp) => {
+      const type: string = exp.expense_type || 'monthly';
+      if (type === 'monthly') return total + (exp.monthly_amount || 0) * multiplier;
+      if (type === 'percentage') return total + prevRevenue * ((exp.percentage_value || 0) / 100);
+      if (type === 'one_time') {
+        const d = new Date(exp.expense_date || exp.created_at);
+        if (!isNaN(d.getTime()) && d >= range.start && d <= range.end) return total + (exp.amount || 0);
+      }
+      return total;
+    }, 0);
+  };
+
   // ═══════════════════════════════════════════════════════════
   // РАСХОДЫ КОМПАНИИ за период (операционные)
   //   monthly    → пропорционально периоду
@@ -1000,7 +1045,11 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
                               + prevSales.reduce((s, x) => s + (parseFloat(x.markupProfit) || parseFloat(x.markup_profit) || 0), 0);
             const prevOnline  = prevOrders.reduce((s, o) => s + (parseFloat(o.total_amount) || 0), 0);
             const prevOffline = prevSales.reduce((s, x) => s + (parseFloat(x.total_amount || x.totalAmount) || 0), 0);
-            const profitDelta  = pctChange(profit, prevProfit);
+            // «Общая прибыль» = наценка − расходы компании; дельту считаем к
+            // такому же «чистому» показателю прошлого периода
+            const prevOpEx     = getPreviousOperatingExpenses(financialTimePeriod, prevOnline + prevOffline);
+            const prevBalance  = prevProfit - prevOpEx;
+            const profitDelta  = pctChange(balance, prevBalance);
             const onlineDelta  = pctChange(onlineSales, prevOnline);
             const offlineDelta = pctChange(offlineSales, prevOffline);
             const profitSeries  = getMetricSeries('profit');
@@ -1027,13 +1076,19 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
 
                 {/* ── СТАТ-КАРТЫ: ПРИБЫЛЬ / РАСХОДЫ / ОНЛАЙН / ОФЛАЙН ── */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(225px, 1fr))', gap: 14 }}>
+                  {/* Общая прибыль = наценка (онлайн + офлайн) − расходы компании.
+                      Добавленный расход сразу уменьшает эту цифру; формула
+                      расшифрована в подписи под значением. */}
                   <MetricCard
                     index={0}
                     label={language === 'uz' ? 'Jami foyda' : 'Общая прибыль'}
-                    value={`+${formatPrice(profit)}`}
-                    accent="#22C55E"
+                    value={`${isPositive ? '+' : '−'}${formatPrice(Math.abs(balance))}`}
+                    accent={isPositive ? '#22C55E' : '#F87171'}
                     delta={profitDelta}
                     series={profitSeries}
+                    sub={language === 'uz'
+                      ? `Ustama ${formatPrice(profit)} − xarajat ${formatPrice(companyExpenses)}`
+                      : `Наценка ${formatPrice(profit)} − расходы ${formatPrice(companyExpenses)}`}
                   />
                   <MetricCard
                     index={1}
