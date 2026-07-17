@@ -88,15 +88,18 @@ func GetInventoryInsights(db *sql.DB) gin.HandlerFunc {
 		sales90 := loadSales("90")
 
 		// Текущие остатки (сумма по вариантам, если они есть, иначе quantity).
+		// Цена нужна для умных порогов «низкого остатка» (см. ниже).
 		type prodInfo struct {
 			ID    int64
 			Name  string
 			Stock int
+			Price float64
 		}
 		products := []prodInfo{}
 		rows, err := db.Query(`
 			SELECT p.id, p.name,
-			       COALESCE(NULLIF((SELECT SUM(pv.stock_quantity) FROM product_variants pv WHERE pv.product_id = p.id), 0), p.quantity, 0)
+			       COALESCE(NULLIF((SELECT SUM(pv.stock_quantity) FROM product_variants pv WHERE pv.product_id = p.id), 0), p.quantity, 0),
+			       COALESCE(p.price, 0)
 			FROM products p
 			WHERE p.company_id = $1 AND p.name NOT LIKE '__CATEGORY_MARKER__%'
 		`, companyID)
@@ -107,7 +110,7 @@ func GetInventoryInsights(db *sql.DB) gin.HandlerFunc {
 		defer rows.Close()
 		for rows.Next() {
 			var p prodInfo
-			if err := rows.Scan(&p.ID, &p.Name, &p.Stock); err == nil {
+			if err := rows.Scan(&p.ID, &p.Name, &p.Stock, &p.Price); err == nil {
 				products = append(products, p)
 			}
 		}
@@ -224,18 +227,31 @@ func GetInventoryInsights(db *sql.DB) gin.HandlerFunc {
 		}
 
 		// ── Товары с низким остатком ───────────────────────────────────────
-		// Все товары с остатком ≤ 5, отсортированы по возрастанию (сначала
-		// самые критичные). Скорость продаж берём из 30-дневных данных.
+		// Умная логика — та же, что в «Расширенной аналитике» на фронте:
+		// дешёвые товары (цена ниже средней) уходят быстрее, их порог 20 шт;
+		// дорогие — 10 шт. Товары с нулевым остатком сюда не попадают (они
+		// живут в прогнозе остатков как outOfStock). Скорость продаж — за 30 дней.
 		type lowStockRow struct {
 			ProductID  int64   `json:"productId"`
 			Name       string  `json:"name"`
 			Stock      int     `json:"stock"`
 			SoldPerDay float64 `json:"soldPerDay"`
 		}
-		const lowStockThreshold = 5
+		var avgPrice float64
+		if len(products) > 0 {
+			var sum float64
+			for _, p := range products {
+				sum += p.Price
+			}
+			avgPrice = sum / float64(len(products))
+		}
 		lowStock := []lowStockRow{}
 		for _, p := range products {
-			if p.Stock > lowStockThreshold {
+			threshold := 10
+			if p.Price < avgPrice {
+				threshold = 20
+			}
+			if p.Stock <= 0 || p.Stock > threshold {
 				continue
 			}
 			perDay := float64(sales30[p.ID].Units) / 30.0

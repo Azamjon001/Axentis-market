@@ -30,6 +30,10 @@ interface CustomExpense {
 interface ExpensesManagerProps {
   companyId: number;
   onCustomExpensesUpdate?: (totalAccumulated: number, expenses: CustomExpense[]) => void;
+  // 📌 Внешний сигнал «открыть форму добавления»: кнопка «Добавить расход»
+  // живёт в карточке «Расходы компании» (AnalyticsPanel) и при каждом клике
+  // увеличивает счётчик — здесь по нему открывается модальная форма.
+  openAddFormSignal?: number;
 }
 
 const TYPE_LABELS: Record<ExpenseType, { ru: string; uz: string; color: string }> = {
@@ -38,7 +42,7 @@ const TYPE_LABELS: Record<ExpenseType, { ru: string; uz: string; color: string }
   one_time:   { ru: 'Разовый',     uz: 'Bir martalik', color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300' },
 };
 
-export default function ExpensesManager({ companyId, onCustomExpensesUpdate }: ExpensesManagerProps) {
+export default function ExpensesManager({ companyId, onCustomExpensesUpdate, openAddFormSignal }: ExpensesManagerProps) {
   const [language, setLanguage] = useState<Language>(getCurrentLanguage());
   const t = useTranslation(language);
 
@@ -96,6 +100,11 @@ export default function ExpensesManager({ companyId, onCustomExpensesUpdate }: E
   );
 
   useEffect(() => { loadExpenses(); }, [companyId]);
+
+  // Открытие формы по сигналу извне (кнопка «Добавить расход» в аналитике)
+  useEffect(() => {
+    if (openAddFormSignal) setShowAddForm(true);
+  }, [openAddFormSignal]);
 
   useEffect(() => {
     if (onCustomExpensesUpdate) {
@@ -404,7 +413,8 @@ export default function ExpensesManager({ companyId, onCustomExpensesUpdate }: E
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-6 mb-6">
-      {/* Header */}
+      {/* Header — добавление расхода живёт на кнопке «Добавить расход»
+          в карточке «Расходы компании» (открывает эту же форму) */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <TrendingDown className="w-6 h-6 text-red-600 dark:text-red-400" />
@@ -421,13 +431,6 @@ export default function ExpensesManager({ companyId, onCustomExpensesUpdate }: E
             </p>
           </div>
         </div>
-        <button
-          onClick={() => setShowAddForm(!showAddForm)}
-          className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          {t.addExpense}
-        </button>
       </div>
 
       {/* Month progress bar */}

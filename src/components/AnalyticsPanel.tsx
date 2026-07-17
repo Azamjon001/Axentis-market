@@ -7,7 +7,7 @@ import CompanyPayoutsPanel from './CompanyPayoutsPanel';
 import AdvancedInsightsPanel from './AdvancedInsightsPanel';
 import PurchaseAnalytics from './PurchaseAnalytics';
 import CompactPeriodSelector from './CompactPeriodSelector';
-import { ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid, ComposedChart, Area } from 'recharts';
+import AxAreaChart from './charts/AxAreaChart';
 import { getCurrentLanguage, useTranslation, type Language } from '../utils/translations';
 
 interface Product {
@@ -759,11 +759,11 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
     }));
   };
 
-  // 📌 Прокрутка к менеджеру расходов по кнопке «+ Добавить расход»
+  // 📌 «+ Добавить расход» открывает форму добавления в ExpensesManager
+  // напрямую (счётчик-сигнал пробрасывается пропом openAddFormSignal)
   const expensesRef = useRef<HTMLDivElement>(null);
-  const scrollToExpenses = () => {
-    expensesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
+  const [addExpenseSignal, setAddExpenseSignal] = useState(0);
+  const openAddExpenseForm = () => setAddExpenseSignal(n => n + 1);
 
   // ⚡ Быстрая статистика за период: заказы приложения (с клиентами и статусами)
   const getPeriodCustomerOrders = () => {
@@ -1093,47 +1093,25 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
                           {language === 'uz' ? 'Joriy davr' : 'Текущий период'}
                         </span>
                         <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--ax-text-2)', fontSize: 12.5 }}>
-                          <span style={{ width: 22, height: 0, display: 'inline-block', borderTop: '3px dashed #5B3DD4', borderRadius: 2 }} />
+                          <span style={{ width: 22, height: 0, display: 'inline-block', borderTop: '3px dashed #0284C7', borderRadius: 2 }} />
                           {language === 'uz' ? 'Oldingi davr' : 'Предыдущий период'}
                         </span>
                       </div>
                     </div>
 
-                    <ResponsiveContainer width="100%" height={290}>
-                      <ComposedChart data={getCombinedChartData()} margin={{ top: 5, right: 16, left: 0, bottom: 5 }}>
-                        <defs>
-                          <linearGradient id="revCurGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#7C5CF0" stopOpacity={0.28} />
-                            <stop offset="95%" stopColor="#7C5CF0" stopOpacity={0} />
-                          </linearGradient>
-                          <linearGradient id="revPrevGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#5B3DD4" stopOpacity={0.12} />
-                            <stop offset="95%" stopColor="#5B3DD4" stopOpacity={0} />
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(139,139,170,0.15)" vertical={false} />
-                        <XAxis dataKey="period" tick={{ fill: '#8B8BAA', fontSize: 10 }} axisLine={{ stroke: 'rgba(139,139,170,0.3)' }} tickLine={false} interval="preserveStartEnd" />
-                        <YAxis yAxisId="rev" orientation="left" tick={{ fill: '#8B8BAA', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => formatShortPrice(v)} width={58} />
-                        <Tooltip
-                          contentStyle={{ background: '#13132A', border: '1px solid rgba(124,92,240,0.4)', borderRadius: '12px', color: '#FFFFFF', fontSize: '13px' }}
-                          labelStyle={{ color: '#8B8BAA', marginBottom: '6px' }}
-                          itemStyle={{ color: '#FFFFFF' }}
-                          formatter={(value: number, name: string) => {
-                            return [formatPrice(value), name === 'revCurrent' ? (language === 'uz' ? 'Joriy davr' : 'Текущий период') : (language === 'uz' ? 'Oldingi davr' : 'Предыдущий период')];
-                          }}
-                        />
-                        {/* Как на макете: плавная фиолетовая кривая с заливкой (текущий
-                            период) + тонкий пунктир без заливки (предыдущий период) */}
-                        <Area yAxisId="rev" type="natural" dataKey="revCurrent" stroke="#8B5CF6" strokeWidth={3} fill="url(#revCurGrad)"
-                          dot={false} activeDot={{ r: 5.5, fill: '#8B5CF6', stroke: '#FFFFFF', strokeWidth: 2 }}
-                          animationDuration={1100} animationEasing="ease-out" legendType="none"
-                        />
-                        <Area yAxisId="rev" type="natural" dataKey="revPrevious" stroke="#6D5DFB" strokeWidth={1.5} strokeDasharray="6 5" strokeOpacity={0.65} fill="transparent"
-                          dot={false} activeDot={{ r: 3.5, fill: '#6D5DFB' }}
-                          animationDuration={1300} animationEasing="ease-out" legendType="none"
-                        />
-                      </ComposedChart>
-                    </ResponsiveContainer>
+                    {/* Единый стиль линейных диаграмм: monotone-кривая, тихая
+                        сетка, crosshair и общий тултип — см. AxAreaChart */}
+                    <AxAreaChart
+                      data={getCombinedChartData()}
+                      xKey="period"
+                      height={290}
+                      series={[
+                        { key: 'revCurrent', name: language === 'uz' ? 'Joriy davr' : 'Текущий период', color: '#7C5CF0', fill: true },
+                        { key: 'revPrevious', name: language === 'uz' ? 'Oldingi davr' : 'Предыдущий период', color: '#0284C7', dashed: true },
+                      ]}
+                      valueFormatter={formatPrice}
+                      yTickFormatter={formatShortPrice}
+                    />
                   </motion.div>
 
                   {/* Правая колонка: расходы компании + быстрая статистика */}
@@ -1166,7 +1144,7 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
                         <Donut percent={expensePercent} />
                       </div>
                       <button
-                        onClick={scrollToExpenses}
+                        onClick={openAddExpenseForm}
                         style={{ marginTop: 14, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '11px 0', borderRadius: 11, border: 'none', cursor: 'pointer', background: 'linear-gradient(135deg, #7C5CF0, #5B3DD4)', color: '#FFFFFF', fontSize: 13.5, fontWeight: 700, boxShadow: '0 6px 16px rgba(124,92,240,0.35)' }}
                       >
                         <Plus style={{ width: 15, height: 15 }} />
@@ -1401,6 +1379,7 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
             <SectionLabel>{language === 'uz' ? 'Xarajatlaringiz' : 'Ваши расходы'}</SectionLabel>
             <ExpensesManager
               companyId={companyId}
+              openAddFormSignal={addExpenseSignal}
               onCustomExpensesUpdate={(totalCustomExpenses, expensesList) => {
                 setCustomExpenses(totalCustomExpenses);
                 setOperatingExpensesList(expensesList || []);

@@ -36,9 +36,22 @@ func GetCompanyDashboard(db *sql.DB) gin.HandlerFunc {
 		var pendingReturns int
 		db.QueryRow(`SELECT COUNT(*) FROM order_returns WHERE company_id = $1 AND status = 'requested'`, companyID).Scan(&pendingReturns)
 
-		// Low stock (available products with quantity at or below 5).
+		// Low stock — умная логика, консистентная с inventory-insights и
+		// «Расширенной аналитикой»: остаток берём с учётом SKU-вариантов,
+		// порог 20 шт для товаров дешевле средней цены и 10 шт для дорогих;
+		// нулевые остатки не считаются (это «закончился», не «мало»).
 		var lowStock int
-		db.QueryRow(`SELECT COUNT(*) FROM products WHERE company_id = $1 AND available_for_customers = TRUE AND quantity <= 5`, companyID).Scan(&lowStock)
+		db.QueryRow(`
+			WITH prods AS (
+				SELECT COALESCE(p.price, 0) AS price,
+				       COALESCE(NULLIF((SELECT SUM(pv.stock_quantity) FROM product_variants pv WHERE pv.product_id = p.id), 0), p.quantity, 0) AS stock
+				FROM products p
+				WHERE p.company_id = $1 AND p.name NOT LIKE '__CATEGORY_MARKER__%'
+			)
+			SELECT COUNT(*) FROM prods
+			WHERE stock > 0
+			  AND stock <= CASE WHEN price < (SELECT COALESCE(AVG(price), 0) FROM prods) THEN 20 ELSE 10 END
+		`, companyID).Scan(&lowStock)
 
 		// Unanswered product questions.
 		var unansweredQuestions int

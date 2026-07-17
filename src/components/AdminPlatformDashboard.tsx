@@ -3,7 +3,7 @@ import {
   TrendingUp, ShoppingCart, Users, Building2, Package, Megaphone,
   Clock, RotateCcw, Flag, Tag, AlertTriangle, RefreshCw,
 } from 'lucide-react';
-import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
+import AxAreaChart from './charts/AxAreaChart';
 import api from '../utils/api';
 
 // 📊 Дашборд платформы: оборот, заказы, пользователи, топ-магазины, доход
@@ -91,21 +91,15 @@ export default function AdminPlatformDashboard({ onNavigate }: Props) {
       {/* График выручки */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
         <div className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">Выручка за 14 дней</div>
-        <ResponsiveContainer width="100%" height={200}>
-          <AreaChart data={data.revenueChart || []} margin={{ top: 6, right: 10, left: 0, bottom: 0 }}>
-            <defs>
-              <linearGradient id="adminRev" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#7C5CF0" stopOpacity={0.4} />
-                <stop offset="95%" stopColor="#7C5CF0" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(120,120,140,0.15)" />
-            <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#94A3B8' }} tickFormatter={(d) => String(d).slice(5)} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 10, fill: '#94A3B8' }} tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v} axisLine={false} tickLine={false} />
-            <Tooltip formatter={(v: number) => [`${fmt(v)} сум`, 'Выручка']} />
-            <Area type="monotone" dataKey="revenue" stroke="#7C5CF0" strokeWidth={2} fill="url(#adminRev)" />
-          </AreaChart>
-        </ResponsiveContainer>
+        {/* Единый стиль линейных диаграмм проекта — см. AxAreaChart */}
+        <AxAreaChart
+          data={data.revenueChart || []}
+          xKey="date"
+          height={200}
+          xTickFormatter={(d) => String(d).slice(5)}
+          series={[{ key: 'revenue', name: 'Выручка', color: '#7C5CF0', fill: true }]}
+          valueFormatter={(v) => `${fmt(v)} сум`}
+        />
       </div>
 
       {/* Топ-магазины */}

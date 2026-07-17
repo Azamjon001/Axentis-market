@@ -7,9 +7,9 @@ import {
   Wallet, PiggyBank, Percent, Store, Globe, ChevronRight,
 } from 'lucide-react';
 import {
-  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip,
-  CartesianGrid, PieChart, Pie, Cell,
+  ResponsiveContainer, Tooltip, PieChart, Pie, Cell,
 } from 'recharts';
+import AxAreaChart from './charts/AxAreaChart';
 import api from '../utils/api';
 import { useUiLang } from '../hooks/useUiLang';
 
@@ -51,25 +51,6 @@ const STATUS_COLOR: Record<string, { bg: string; text: string; dot: string }> = 
 };
 
 const PIE_COLORS = ['#7C5CF0', '#22C55E', '#38BDF8', '#FBBF24', '#F87171', '#A78BFA', '#34D399'];
-
-const CustomTooltip = ({ active, payload, label }: any) => {
-  if (active && payload && payload.length) {
-    return (
-      <div style={{
-        background: '#13132A', border: '1px solid rgba(124,92,240,0.4)',
-        borderRadius: 10, padding: '10px 14px',
-      }}>
-        <p style={{ color: '#8B8BAA', fontSize: 12, marginBottom: 4 }}>{label}</p>
-        {payload.map((p: any, i: number) => (
-          <p key={i} style={{ color: p.color, fontSize: 13, fontWeight: 600 }}>
-            {fmt(p.value)} сум
-          </p>
-        ))}
-      </div>
-    );
-  }
-  return null;
-};
 
 interface ForecastRow { productId: number; name: string; stock: number; soldPerDay: number; daysLeft: number; outOfStock: boolean }
 interface AbcRow { productId: number; name: string; revenue: number; revenueShare: number; class: string }
@@ -153,14 +134,12 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
     totalRevenue: isUz ? 'Jami tushum' : 'Выручка всего',
     netProfit: isUz ? 'Sof foyda (ustama)' : 'Чистая прибыль',
     soldUnits: isUz ? 'Sotilgan dona' : 'Продано единиц',
-    lowStockCard: isUz ? 'Kam qolgan tovarlar' : 'Мало на складе',
     // Короткие человеческие подсказки под карточками
     hintTodayOrders: isUz ? 'bugun tushgan' : 'поступило сегодня',
     hintTodayRevenue: isUz ? 'bugungi savdo' : 'продажи за сегодня',
     hintSoldUnits: isUz ? 'jami dona' : 'штук всего',
     hintRevenue: isUz ? 'bosing — pul qayerdan' : 'нажмите — откуда деньги',
     hintProfit: isUz ? 'bosing — qancha ishladingiz' : 'нажмите — сколько заработали',
-    hintLowStock: isUz ? 'toʻldirish kerak' : 'пора докупить',
     tapHint: isUz ? 'Bosib batafsil koʻring' : 'Нажмите, чтобы увидеть детали',
     attention: isUz ? 'Eʼtibor talab qiladi' : 'Требует внимания',
     newOrders: isUz ? 'Yangi buyurtmalar' : 'Новые заказы',
@@ -312,7 +291,6 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
     { icon: <Package size={20} />,      label: L.soldUnits,    value: fmt(data.soldUnits),                 hint: L.hintSoldUnits,    accent: '#FBBF24', accentBg: 'rgba(251,191,36,0.12)', onClick: () => onNavigate?.('warehouse') },
     { icon: <Wallet size={20} />,       label: L.totalRevenue, value: `${fmt(totalRevenueVal)} ${L.sum}`,   hint: L.hintRevenue,      accent: '#38BDF8', accentBg: 'rgba(56,189,248,0.12)', onClick: () => setProfitOpen('revenue'), clickable: true },
     { icon: <PiggyBank size={20} />,    label: L.netProfit,    value: `${fmt(netProfitVal)} ${L.sum}`,     hint: L.hintProfit,       accent: '#34D399', accentBg: 'rgba(52,211,153,0.15)', onClick: () => setProfitOpen('profit'),  clickable: true },
-    { icon: <AlertTriangle size={20} />, label: L.lowStockCard, value: fmt(data.lowStock),                 hint: L.hintLowStock,     accent: '#FB923C', accentBg: 'rgba(251,146,60,0.14)', onClick: () => onNavigate?.('warehouse'), alert: data.lowStock > 0 },
   ];
 
   const attentionItems = [
@@ -415,21 +393,16 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
             <span style={{ fontSize: 12, color: '#5A5A78' }}>7 {isUz ? 'kun · har 12 soat' : 'дней · каждые 12 ч'}</span>
           </div>
           <div style={{ padding: '0 8px 16px' }}>
-            <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#7C5CF0" stopOpacity={0.4} />
-                    <stop offset="95%" stopColor="#7C5CF0" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                <XAxis dataKey="date" interval={1} tickFormatter={(v: string) => v.replace(' 00:00', '')} tick={{ fill: '#5A5A78', fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: '#5A5A78', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
-                <Tooltip content={<CustomTooltip />} />
-                <Area type="monotone" dataKey="revenue" stroke="#7C5CF0" strokeWidth={2} fill="url(#revGrad)" dot={{ fill: '#7C5CF0', r: 2.5 }} activeDot={{ r: 5 }} />
-              </AreaChart>
-            </ResponsiveContainer>
+            {/* Единый стиль линейных диаграмм проекта — см. AxAreaChart */}
+            <AxAreaChart
+              data={chartData}
+              xKey="date"
+              height={200}
+              xInterval={1}
+              xTickFormatter={(v: string) => v.replace(' 00:00', '')}
+              series={[{ key: 'revenue', name: isUz ? 'Tushum' : 'Выручка', color: '#7C5CF0', fill: true }]}
+              valueFormatter={(v) => `${fmt(v)} ${L.sum}`}
+            />
           </div>
         </motion.div>
 

@@ -5,10 +5,7 @@ import api from '../utils/api';
 import { downloadCSV } from '../utils/csv';
 import CompactPeriodSelector from './CompactPeriodSelector';
 import { getCurrentLanguage, type Language } from '../utils/translations';
-import {
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  AreaChart, Area,
-} from 'recharts';
+import AxAreaChart from './charts/AxAreaChart';
 
 interface PurchaseAnalyticsProps {
   companyId: number;
@@ -671,54 +668,19 @@ export default function PurchaseAnalytics({ companyId }: PurchaseAnalyticsProps)
                 ? "Tanlangan davr boʻyicha xarajatlar oqimi"
                 : 'Поток затрат за выбранный период'}
             </p>
-            <ResponsiveContainer width="100%" height={300}>
-              <AreaChart data={chartData} margin={{ left: 0, right: 8 }}>
-                <defs>
-                  <linearGradient id="purchaseGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#7C5CF0" stopOpacity={0.4} />
-                    <stop offset="95%" stopColor="#7C5CF0" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                <XAxis
-                  dataKey="date"
-                  tick={{ fill: '#5A5A78', fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                  minTickGap={24}
-                />
-                <YAxis
-                  tick={{ fill: '#5A5A78', fontSize: 12 }}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={v =>
-                    v >= 1_000_000
-                      ? `${(v / 1_000_000).toFixed(1)}M`
-                      : v >= 1000
-                      ? `${(v / 1000).toFixed(0)}K`
-                      : String(v)
-                  }
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#13132A',
-                    border: '1px solid rgba(255,255,255,0.07)',
-                    borderRadius: 10,
-                    color: 'var(--ax-text)',
-                  }}
-                  labelStyle={{ color: '#8B8BAA' }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="cost"
-                  stroke="#7C5CF0"
-                  strokeWidth={2}
-                  fill="url(#purchaseGrad)"
-                  dot={false}
-                  name={language === 'uz' ? 'Summa (so\'m)' : 'Сумма (сум)'}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            {/* Единый стиль линейных диаграмм проекта — см. AxAreaChart */}
+            <AxAreaChart
+              data={chartData}
+              xKey="date"
+              height={300}
+              series={[{
+                key: 'cost',
+                name: language === 'uz' ? 'Xarid summasi' : 'Сумма закупок',
+                color: '#7C5CF0',
+                fill: true,
+              }]}
+              valueFormatter={v => `${Math.round(v).toLocaleString('ru-RU')} ${language === 'uz' ? "so'm" : 'сум'}`}
+            />
           </motion.div>
           </div>
 

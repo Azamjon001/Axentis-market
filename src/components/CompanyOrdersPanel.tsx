@@ -181,10 +181,10 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
     }
   };
 
+  // Подтверждающий диалог показываем только при ОТМЕНЕ заказа — остальные
+  // действия (принять, отправить, завершить) выполняются сразу, без вопросов.
   const handleAcceptOrder = async (orderId: number, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm(t.acceptOrderConfirm)) return;
-
     setProcessingId(orderId);
     try {
       await api.orders.updateStatus(String(orderId), 'confirmed');
@@ -200,8 +200,6 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
 
   const handleMarkAsShipped = async (orderId: number, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm(t.markAsShippedConfirm)) return;
-
     setProcessingId(orderId);
     try {
       await api.orders.confirmPayment(orderId);
@@ -242,15 +240,8 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
       .map(([idx, q]) => ({ index: Number(idx), quantity: Number(q) }))
       .filter(r => r.quantity > 0);
 
-    const confirmMsg = returns.length > 0
-      ? (language === 'uz'
-          ? 'Belgilangan tovarlar qaytariladi (sotilmagan) va omborga qaytadi. Davom etasizmi?'
-          : 'Отмеченные товары будут возвращены (не проданы) и вернутся на склад. Продолжить?')
-      : (language === 'uz'
-          ? 'Buyurtma to\'liq topshirildimi? Summa hisobotga qo\'shiladi.'
-          : 'Заказ выдан полностью? Сумма попадёт в аналитику.');
-    if (!confirm(confirmMsg)) return;
-
+    // Без confirm(): продавец уже осознанно отметил возвраты в модальном окне
+    // выдачи и нажал кнопку — дополнительный вопрос только раздражает.
     setProcessingId(order.id);
     try {
       await api.orders.markDelivered(order.id, returns);
