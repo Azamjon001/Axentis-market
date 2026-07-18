@@ -457,3 +457,59 @@ func DeleteAllUsers(db *sql.DB) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{"success": true, "deleted": n, "scope": scope})
 	}
 }
+
+// PurgeUsers — POST /users/purge («Опасная зона» админ-панели).
+// scope="users" удаляет только аккаунты; scope="all" — вместе с корзинами,
+// избранным, уведомлениями, адресами и подписками. Только для админа.
+func PurgeUsers(db *sql.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Scope string `json:"scope"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil || (req.Scope != "users" && req.Scope != "all") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "scope must be users or all"})
+			return
+		}
+
+		tx, err := db.Begin()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start transaction"})
+			return
+		}
+		defer tx.Rollback()
+
+		deleted := map[string]int64{}
+		exec := func(table, query string) {
+			res, execErr := tx.Exec(query)
+			if execErr != nil {
+				log.Printf("⚠️ PurgeUsers %s: %v", table, execErr)
+				return
+			}
+			n, _ := res.RowsAffected()
+			deleted[table] = n
+		}
+
+		if req.Scope == "all" {
+			exec("cart_items", `DELETE FROM cart_items`)
+			exec("user_favorites", `DELETE FROM user_favorites`)
+			exec("notifications", `DELETE FROM notifications`)
+			exec("user_delivery_addresses", `DELETE FROM user_delivery_addresses`)
+			exec("subscriptions", `DELETE FROM subscriptions`)
+		}
+		res, err := tx.Exec(`DELETE FROM users`)
+		if err != nil {
+			log.Printf("❌ PurgeUsers users: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete users"})
+			return
+		}
+		n, _ := res.RowsAffected()
+		deleted["users"] = n
+
+		if err := tx.Commit(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to commit"})
+			return
+		}
+		log.Printf("🗑️ PurgeUsers (scope=%s): %v", req.Scope, deleted)
+		c.JSON(http.StatusOK, gin.H{"success": true, "deleted": deleted})
+	}
+}

@@ -87,7 +87,7 @@ func GetCompanies(db *sql.DB) gin.HandlerFunc {
 			// 🔒 Закрытые компании не показываются в публичном списке магазинов.
 			// Их видят: админ, сама компания и её собственные покупатели
 			// (запрос с mode=private&privateCompanyId=<id>).
-			if comp.Mode == "private" && !admin &&
+			if comp.Mode == "private" && !isAdmin(c) &&
 				!(ctxRole(c) == "company" && ctxCompanyID(c) == comp.ID) &&
 				!(c.Query("mode") == "private" && c.Query("privateCompanyId") == strconv.FormatInt(comp.ID, 10)) {
 				continue
