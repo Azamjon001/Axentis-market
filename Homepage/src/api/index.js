@@ -137,6 +137,17 @@ export const notifyWhenInStock = async (productId, phone) => {
   return res.data;
 };
 
+// 🧩 Комплекты «вместе дешевле», в которые входит товар:
+// [{ id, companyId, name, discountPercent, items: [{ id, name, price, image }] }]
+export const getProductBundles = async (productId) => {
+  try {
+    const res = await api.get(`/products/${productId}/bundles`);
+    return Array.isArray(res.data) ? res.data : [];
+  } catch {
+    return [];
+  }
+};
+
 // ⚡ Флеш-распродажа товара (скидка с таймером). Возвращает { active, endsAt, ... }
 export const getFlashSale = async (productId) => {
   try {

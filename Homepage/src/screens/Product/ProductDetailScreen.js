@@ -18,7 +18,7 @@ import {
   getSimilarProducts, submitReview, voteReview, getProductVariants,
   getProductQuestions, askProductQuestion, getFrequentlyBoughtWith,
   getCompanyDetail, uploadReviewImage, trackProductView, submitComplaint,
-  getFlashSale, notifyWhenInStock,
+  getFlashSale, notifyWhenInStock, getProductBundles,
 } from '../../api';
 import { getImageUrl } from '../../utils/imageUrl';
 import { tryOpenInApp } from '../../utils/openInApp';
@@ -93,13 +93,40 @@ export default function ProductDetailScreen() {
   const [nowTick, setNowTick] = useState(Date.now());
   const [stockNotified, setStockNotified] = useState(false);
 
+  // 🧩 Комплекты «вместе дешевле», в которые входит этот товар
+  const [bundles, setBundles] = useState([]);
+  const [addingBundleId, setAddingBundleId] = useState(null);
+
   useEffect(() => {
     loadAll();
     getFlashSale(productId).then((fs) => setFlashSale(fs?.active ? fs : null)).catch(() => {});
+    getProductBundles(productId).then(setBundles).catch(() => setBundles([]));
     setStockNotified(false);
     // 🔗 Ссылка «Поделиться» открыта в браузере → пробуем открыть приложение.
     tryOpenInApp(`product/${productId}`);
   }, [productId]);
+
+  // Добавить весь комплект в корзину — скидка применится сама при оформлении.
+  const handleAddBundle = async (bundle) => {
+    if (!bundle?.items?.length) return;
+    setAddingBundleId(bundle.id);
+    tapMedium();
+    try {
+      for (const it of bundle.items) {
+        if (!items.some((ci) => ci.productId === it.id)) {
+          await addItem(it.id, 1);
+        }
+      }
+      notifySuccess();
+      setAddedToCart(true);
+      setTimeout(() => setAddedToCart(false), 2000);
+    } catch (err) {
+      notifyError();
+      Alert.alert(t('error'), err?.response?.data?.error || t('addToCartFail'));
+    } finally {
+      setAddingBundleId(null);
+    }
+  };
 
   // Тикаем раз в секунду, пока идёт флеш-распродажа — для обратного отсчёта.
   useEffect(() => {
@@ -154,6 +181,14 @@ export default function ProductDetailScreen() {
       return !variants.some((v) => (v.stockQuantity || 0) > 0);
     }
     return product ? (product.quantity || 0) <= 0 : false;
+  }, [product, variants]);
+
+  // Суммарный остаток (по вариантам, если они есть) — для метки «Осталось N шт.»
+  const totalStock = React.useMemo(() => {
+    if (variants && variants.length > 0) {
+      return variants.reduce((s, v) => s + (v.stockQuantity || 0), 0);
+    }
+    return product ? (product.quantity || 0) : 0;
   }, [product, variants]);
 
   // 🔔 Подписаться на уведомление о поступлении
@@ -673,6 +708,15 @@ export default function ProductDetailScreen() {
               {originalPrice && !selectedVariant && (
                 <Text style={[styles.oldPrice, { color: colors.textMuted }]}>{fmtSum(originalPrice)}</Text>
               )}
+              {/* 🔥 Срочность: честный низкий остаток подталкивает к покупке */}
+              {!isOutOfStock && totalStock > 0 && totalStock <= 5 && (
+                <View style={styles.lowStockRow}>
+                  <Ionicons name="flame" size={14} color="#F97316" />
+                  <Text style={styles.lowStockText}>
+                    {(t('onlyLeftStock') || 'Осталось всего {n} шт.').replace('{n}', String(totalStock))}
+                  </Text>
+                </View>
+              )}
           </View>
 
           {/* ⚡ Флеш-распродажа с обратным отсчётом */}
@@ -795,6 +839,68 @@ export default function ProductDetailScreen() {
             </View>
             <Text style={[styles.deliveryFree, { color: colors.success }]}>{t('free')}</Text>
           </View>
+
+          {/* 🧩 Комплекты «вместе дешевле» */}
+          {bundles.map((b) => {
+            const setSum = (b.items || []).reduce((s, it) => s + (it.price || 0), 0);
+            const discounted = Math.round(setSum * (1 - (b.discountPercent || 0) / 100));
+            return (
+              <View key={`bundle-${b.id}`} style={[styles.bundleCard, { backgroundColor: colors.surface, borderColor: colors.primary + '55' }]}>
+                <View style={styles.bundleHeader}>
+                  <Text style={[styles.bundleTitle, { color: colors.text }]}>
+                    🧩 {b.name || t('bundleTitle') || 'Вместе дешевле'}
+                  </Text>
+                  <View style={[styles.bundleBadge, { backgroundColor: colors.primary }]}>
+                    <Text style={styles.bundleBadgeText}>−{Math.round(b.discountPercent)}%</Text>
+                  </View>
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.bundleItemsRow}>
+                  {(b.items || []).map((it, i) => (
+                    <React.Fragment key={it.id}>
+                      {i > 0 && <Text style={[styles.bundlePlus, { color: colors.textMuted }]}>+</Text>}
+                      <TouchableOpacity
+                        style={styles.bundleItem}
+                        activeOpacity={0.8}
+                        onPress={() => it.id !== productId && navigation.push('ProductDetail', { productId: it.id })}
+                      >
+                        <View style={[styles.bundleImgWrap, { backgroundColor: colors.cardAlt, borderColor: it.id === productId ? colors.primary : colors.border }]}>
+                          {it.image ? (
+                            <Image source={{ uri: getImageUrl(it.image) || '' }} style={styles.bundleImg} resizeMode="cover" />
+                          ) : (
+                            <Ionicons name="cube-outline" size={24} color={colors.textMuted} />
+                          )}
+                        </View>
+                        <Text style={[styles.bundleItemName, { color: colors.text }]} numberOfLines={2}>{it.name}</Text>
+                        <Text style={[styles.bundleItemPrice, { color: colors.textMuted }]}>{fmtSum(it.price)}</Text>
+                      </TouchableOpacity>
+                    </React.Fragment>
+                  ))}
+                </ScrollView>
+                <View style={styles.bundleTotalRow}>
+                  <Text style={[styles.bundleOldSum, { color: colors.textMuted }]}>{fmtSum(setSum)}</Text>
+                  <Text style={[styles.bundleNewSum, { color: colors.primary }]}>{fmtSum(discounted)}</Text>
+                </View>
+                <TouchableOpacity
+                  style={[styles.bundleBtn, { backgroundColor: colors.primary, opacity: addingBundleId === b.id ? 0.6 : 1 }]}
+                  onPress={() => handleAddBundle(b)}
+                  disabled={addingBundleId === b.id}
+                  activeOpacity={0.85}
+                >
+                  {addingBundleId === b.id ? (
+                    <ActivityIndicator color="#FFF" size="small" />
+                  ) : (
+                    <>
+                      <Ionicons name="cart" size={16} color="#FFF" />
+                      <Text style={styles.bundleBtnText}>{t('bundleAddAll') || 'Добавить комплект в корзину'}</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+                <Text style={[styles.bundleHint, { color: colors.textMuted }]}>
+                  {t('bundleHint') || 'Скидка применится автоматически при оформлении заказа'}
+                </Text>
+              </View>
+            );
+          })}
 
           <View style={[styles.aboutCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <Text style={[styles.sectionLabel, { color: colors.text, marginBottom: 12 }]}>{t('aboutProduct')}</Text>
@@ -1443,6 +1549,27 @@ const styles = StyleSheet.create({
   priceRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 12, marginBottom: 16 },
   price: { fontSize: 20, fontWeight: '800', letterSpacing: -0.3 },
   oldPrice: { fontSize: 14, textDecorationLine: 'line-through', marginTop: 2 },
+  lowStockRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6 },
+  lowStockText: { fontSize: 13, fontWeight: '700', color: '#F97316' },
+  // 🧩 Комплект «вместе дешевле»
+  bundleCard: { borderRadius: 16, borderWidth: 1.5, padding: 14, marginBottom: 16 },
+  bundleHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  bundleTitle: { fontSize: 15.5, fontWeight: '800', flex: 1 },
+  bundleBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
+  bundleBadgeText: { color: '#FFF', fontSize: 13, fontWeight: '800' },
+  bundleItemsRow: { alignItems: 'center', gap: 8, paddingBottom: 4 },
+  bundleItem: { width: 92 },
+  bundleImgWrap: { width: 92, height: 92, borderRadius: 12, borderWidth: 1.5, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  bundleImg: { width: '100%', height: '100%' },
+  bundleItemName: { fontSize: 11.5, fontWeight: '600', marginTop: 5, lineHeight: 14 },
+  bundleItemPrice: { fontSize: 11, marginTop: 2 },
+  bundlePlus: { fontSize: 20, fontWeight: '700', marginHorizontal: 2 },
+  bundleTotalRow: { flexDirection: 'row', alignItems: 'baseline', gap: 10, marginTop: 10 },
+  bundleOldSum: { fontSize: 13.5, textDecorationLine: 'line-through' },
+  bundleNewSum: { fontSize: 18, fontWeight: '800' },
+  bundleBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 12, paddingVertical: 12, marginTop: 10 },
+  bundleBtnText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
+  bundleHint: { fontSize: 11.5, marginTop: 8, textAlign: 'center' },
   sectionLabel: { fontSize: 16, fontWeight: '600', marginBottom: 10 },
   variantSection: { marginBottom: 16 },
   variantLabel: { fontSize: 14, fontWeight: '700', marginBottom: 10 },

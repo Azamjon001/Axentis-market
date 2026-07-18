@@ -5,6 +5,7 @@ import {
   MessageCircleQuestion, Package, ArrowRight, CheckCircle2,
   Crown, Coins, PackageX, X, Boxes, Gauge, Timer,
   Wallet, PiggyBank, Percent, Store, Globe, ChevronRight,
+  Snowflake, Users,
 } from 'lucide-react';
 import {
   ResponsiveContainer, Tooltip, PieChart, Pie, Cell,
@@ -57,13 +58,20 @@ interface AbcRow { productId: number; name: string; revenue: number; revenueShar
 interface SellerRow { productId: number; name: string; units: number; revenue: number }
 interface LowStockRow { productId: number; name: string; stock: number; soldPerDay: number }
 
+interface DeadStockRow { productId: number; name: string; stock: number; frozenValue: number }
+
 interface InsightsData {
   stockForecast: ForecastRow[];
   abcAnalysis: AbcRow[];
   topSellers?: SellerRow[];
   lowStock?: LowStockRow[];
+  deadStock?: DeadStockRow[];
+  deadStockTotal?: number;
   totalRevenue90: number;
 }
+
+interface SegmentClient { phone: string; name: string; orders: number; total: number; daysSince: number }
+interface SegmentsData { vip: SegmentClient[]; regular: SegmentClient[]; new: SegmentClient[]; sleeping: SegmentClient[]; lost: SegmentClient[] }
 
 // Собранная карточка одного товара из всех источников аналитики
 interface ProductDetail {
@@ -99,6 +107,8 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
   const [allOrders, setAllOrders] = useState<any[]>([]);
   const [insights, setInsights] = useState<InsightsData | null>(null);
   const [profit, setProfit] = useState<ProfitData | null>(null);
+  const [segments, setSegments] = useState<SegmentsData | null>(null);
+  const [openSegment, setOpenSegment] = useState<keyof SegmentsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<ProductDetail | null>(null);
   // Открытая мини-панель разбора прибыли (null = закрыта)
@@ -111,13 +121,15 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
       api.orders.list({ companyId }).catch(() => []),
       api.analytics.inventoryInsights(companyId).catch(() => null),
       api.analytics.profit(companyId).catch(() => null),
-    ]).then(([dashData, ordersData, insightsData, profitData]) => {
+      api.analytics.customerSegments(companyId).catch(() => null),
+    ]).then(([dashData, ordersData, insightsData, profitData, segmentsData]) => {
       if (!active) return;
       setData(dashData);
       const orders = Array.isArray(ordersData) ? ordersData : (ordersData?.orders || []);
       setAllOrders(orders);
       setInsights(insightsData);
       setProfit(profitData);
+      setSegments(segmentsData);
     }).catch((e) => console.error('Dashboard load failed:', e))
       .finally(() => active && setLoading(false));
     return () => { active = false; };
@@ -194,6 +206,27 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
     pOps: isUz ? 'sotuv' : 'продаж',
     pNoData: isUz ? 'Hali sotuvlar yoʻq' : 'Продаж пока нет',
     pWhatIsThis: isUz ? 'Bu nima?' : 'Что это?',
+    // ── Залежавшийся товар ──
+    deadTitle: isUz ? 'Yotib qolgan tovarlar' : 'Залежавшийся товар',
+    deadHint: isUz ? '60 kun sotilmagan — chegirma qiling' : '60 дней без продаж — пора делать скидку',
+    frozen: isUz ? 'muzlatilgan' : 'заморожено',
+    noDead: isUz ? 'Yotib qolgan tovar yoʻq' : 'Залежавшихся товаров нет',
+    // ── RFM-сегменты клиентов ──
+    segTitle: isUz ? 'Sizning mijozlaringiz' : 'Ваши клиенты',
+    segHint: isUz ? 'Tizim mijozlarni oʻzi guruhlarga ajratdi' : 'Система сама разложила покупателей по группам',
+    segVip: 'VIP',
+    segVipHint: isUz ? '4+ buyurtma — ularni asrang' : '4+ заказа — их надо беречь',
+    segRegular: isUz ? 'Doimiylar' : 'Постоянные',
+    segRegularHint: isUz ? '2-3 buyurtma' : '2–3 заказа',
+    segNew: isUz ? 'Yangilar' : 'Новые',
+    segNewHint: isUz ? 'Birinchi buyurtma' : 'Первый заказ',
+    segSleeping: isUz ? 'Uxlayotganlar' : 'Засыпающие',
+    segSleepingHint: isUz ? '45-90 kun kelmagan — eslating!' : '45–90 дней не покупали — напомните о себе!',
+    segLost: isUz ? 'Yoʻqotilganlar' : 'Потерянные',
+    segLostHint: isUz ? '90+ kun kelmagan' : '90+ дней не покупали',
+    segOrders: isUz ? 'buyurtma' : 'заказов',
+    segDays: isUz ? 'kun oldin' : 'дн. назад',
+    segEmpty: isUz ? 'Bu guruhda hech kim yoʻq' : 'В этой группе пока никого',
   };
 
   const statusLabel: Record<string, string> = isUz ? {
@@ -303,6 +336,26 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
   const topSellers = insights?.topSellers || [];
   const profitable = (insights?.abcAnalysis || []).slice(0, 8);
   const lowStockList = insights?.lowStock || [];
+  const deadStockList = insights?.deadStock || [];
+
+  // 📊 Сводка ABC: сколько товаров в каждом классе и какую долю выручки они дают
+  const abcSummary = useMemo(() => {
+    const all = insights?.abcAnalysis || [];
+    const sum = (cls: string) => ({
+      count: all.filter(a => a.class === cls).length,
+      share: Math.round(all.filter(a => a.class === cls).reduce((s, a) => s + (a.revenueShare || 0), 0)),
+    });
+    return { A: sum('A'), B: sum('B'), C: sum('C'), total: all.length };
+  }, [insights]);
+
+  // 👥 Конфигурация RFM-сегментов для отрисовки
+  const segmentDefs: Array<{ key: keyof SegmentsData; label: string; hint: string; color: string }> = [
+    { key: 'vip',      label: L.segVip,      hint: L.segVipHint,      color: '#FBBF24' },
+    { key: 'regular',  label: L.segRegular,  hint: L.segRegularHint,  color: '#22C55E' },
+    { key: 'new',      label: L.segNew,      hint: L.segNewHint,      color: '#38BDF8' },
+    { key: 'sleeping', label: L.segSleeping, hint: L.segSleepingHint, color: '#FB923C' },
+    { key: 'lost',     label: L.segLost,     hint: L.segLostHint,     color: '#F87171' },
+  ];
 
   const cardBase: React.CSSProperties = {
     background: 'var(--ax-card)', border: '1px solid rgba(255,255,255,0.07)',
@@ -485,6 +538,21 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
         {/* Самые прибыльные */}
         <motion.div {...springIn} style={cardBase}>
           {panelHeader(<Coins size={17} />, L.profitable, L.profitableHint, '#22C55E')}
+          {/* Сводка ABC: A кормит магазин, C — балласт */}
+          {abcSummary.total > 0 && (
+            <div style={{ display: 'flex', gap: 6, padding: '0 16px 8px' }}>
+              {(['A', 'B', 'C'] as const).map((cls) => {
+                const clr = cls === 'A' ? '#22C55E' : cls === 'B' ? '#FBBF24' : '#8B8BAA';
+                const s = abcSummary[cls];
+                return (
+                  <div key={cls} style={{ flex: 1, padding: '6px 8px', borderRadius: 9, background: `${clr}12`, border: `1px solid ${clr}30`, textAlign: 'center' }}>
+                    <div style={{ fontSize: 11, fontWeight: 800, color: clr }}>{cls} · {s.count}</div>
+                    <div style={{ fontSize: 10, color: '#8B8BAA' }}>{s.share}% {isUz ? 'tushum' : 'выручки'}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
           <div style={{ padding: '2px 8px 12px' }}>
             {profitable.length === 0 ? (
               <div style={{ padding: '20px', textAlign: 'center', color: '#5A5A78', fontSize: 13 }}>{L.noData}</div>
@@ -524,7 +592,93 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
             })}
           </div>
         </motion.div>
+
+        {/* ❄️ Залежавшийся товар: 60 дней без продаж, деньги заморожены */}
+        <motion.div {...springIn} style={cardBase}>
+          {panelHeader(<Snowflake size={17} />, L.deadTitle, L.deadHint, '#38BDF8')}
+          <div style={{ padding: '2px 8px 12px' }}>
+            {deadStockList.length === 0 ? (
+              <div style={{ padding: '20px', textAlign: 'center', color: '#22C55E', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                <CheckCircle2 size={15} />{L.noDead}
+              </div>
+            ) : (
+              <>
+                {(insights?.deadStockTotal || 0) > 0 && (
+                  <div style={{ margin: '2px 10px 6px', padding: '7px 12px', borderRadius: 10, background: 'rgba(56,189,248,0.1)', border: '1px solid rgba(56,189,248,0.25)', fontSize: 12, color: '#38BDF8', fontWeight: 700 }}>
+                    {fmt(insights!.deadStockTotal!)} {L.sum} {L.frozen}
+                  </div>
+                )}
+                {deadStockList.slice(0, 8).map((d, i) => productRow(
+                  d.productId, i + 1, d.name,
+                  <span style={{ fontSize: 11.5, fontWeight: 700, color: '#38BDF8', background: 'rgba(56,189,248,0.12)', padding: '3px 9px', borderRadius: 12, whiteSpace: 'nowrap' }}>
+                    {fmt(d.frozenValue)} {L.sum}
+                  </span>,
+                  `${d.stock} ${L.units}`, '#38BDF8',
+                ))}
+              </>
+            )}
+          </div>
+        </motion.div>
       </div>
+
+      {/* 👥 Ваши клиенты (RFM-сегменты) */}
+      {segments && (
+        <motion.div {...springIn} style={cardBase}>
+          {panelHeader(<Users size={17} />, L.segTitle, L.segHint, '#A78BFA')}
+          <div style={{ padding: '0 16px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8 }}>
+              {segmentDefs.map((s) => {
+                const list = segments[s.key] || [];
+                const open = openSegment === s.key;
+                return (
+                  <motion.button
+                    key={s.key}
+                    whileTap={{ scale: 0.97 }}
+                    onClick={() => setOpenSegment(open ? null : s.key)}
+                    style={{
+                      padding: '10px 12px', borderRadius: 12, cursor: 'pointer', textAlign: 'left',
+                      background: open ? `${s.color}1F` : `${s.color}0F`,
+                      border: `1px solid ${s.color}${open ? '66' : '30'}`,
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                      <span style={{ fontSize: 12.5, fontWeight: 700, color: s.color }}>{s.label}</span>
+                      <span style={{ fontSize: 17, fontWeight: 800, color: 'var(--ax-text)' }}>{list.length}</span>
+                    </div>
+                    <div style={{ fontSize: 10.5, color: '#8B8BAA', marginTop: 2 }}>{s.hint}</div>
+                  </motion.button>
+                );
+              })}
+            </div>
+
+            {/* Раскрытый сегмент: список клиентов, самые ценные первыми */}
+            <AnimatePresence>
+              {openSegment && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  style={{ overflow: 'hidden' }}
+                >
+                  <div style={{ border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, maxHeight: 280, overflowY: 'auto' }}>
+                    {(segments[openSegment] || []).length === 0 ? (
+                      <div style={{ padding: 16, textAlign: 'center', color: '#5A5A78', fontSize: 13 }}>{L.segEmpty}</div>
+                    ) : (segments[openSegment] || []).map((cl, i) => (
+                      <div key={cl.phone} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderTop: i === 0 ? 'none' : '1px solid rgba(255,255,255,0.05)' }}>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ fontSize: 13, color: 'var(--ax-text)', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cl.name || cl.phone}</div>
+                          <div style={{ fontSize: 11, color: '#5A5A78' }}>{cl.phone} · {cl.orders} {L.segOrders} · {cl.daysSince} {L.segDays}</div>
+                        </div>
+                        <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ax-text)', whiteSpace: 'nowrap' }}>{fmt(cl.total)} {L.sum}</span>
+                      </div>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </motion.div>
+      )}
 
       {/* Recent orders */}
       <motion.div {...springIn} style={cardBase}>

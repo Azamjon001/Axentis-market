@@ -795,6 +795,13 @@ export const companies = {
   deleteStory: async (id: string | number, storyId: number) =>
     apiCall(`/companies/${id}/stories/${storyId}`, { method: 'DELETE' }),
 
+  // 🧩 Комплекты «вместе дешевле»
+  listBundles: async (id: string | number) => apiCall(`/companies/${id}/bundles`),
+  createBundle: async (id: string | number, data: { name?: string; discountPercent: number; productIds: number[] }) =>
+    apiCall(`/companies/${id}/bundles`, { method: 'POST', body: JSON.stringify(data) }),
+  deleteBundle: async (id: string | number, bundleId: number) =>
+    apiCall(`/companies/${id}/bundles/${bundleId}`, { method: 'DELETE' }),
+
   // 🤖 Telegram-оповещения магазина: статус/ссылка привязки и отключение
   telegramStatus: async (id: string | number) => apiCall(`/companies/${id}/telegram`),
   telegramDisconnect: async (id: string | number) =>
@@ -1503,6 +1510,11 @@ export const analytics = {
   // 📦 Инсайты склада: прогноз остатков (дней до нуля) + ABC-анализ по выручке
   inventoryInsights: async (companyId: string | number) => {
     return apiCall(`/analytics/company/${companyId}/inventory-insights`);
+  },
+
+  // 👥 RFM-сегменты клиентов: { vip, regular, new, sleeping, lost }
+  customerSegments: async (companyId: string | number) => {
+    return apiCall(`/analytics/company/${companyId}/customer-segments`);
   },
 
   // 💰 Разложение прибыли: онлайн (заказы) / офлайн (касса) / итого + маржа

@@ -3,6 +3,7 @@ import CompanyDiscountsPanel from './CompanyDiscountsPanel';
 import CompanyAggressiveDiscountsPanel from './CompanyAggressiveDiscountsPanel';
 import CompanyPromoCodesPanel from './CompanyPromoCodesPanel';
 import CompanyCampaignsPanel from './CompanyCampaignsPanel';
+import CompanyBundlesPanel from './CompanyBundlesPanel';
 import { getCurrentLanguage, useTranslation, type Language } from '../utils/translations';
 import api from '../utils/api';
 
@@ -12,7 +13,7 @@ interface CompanyDiscountsManagerProps {
 }
 
 export default function CompanyDiscountsManager({ companyId, products = [] }: CompanyDiscountsManagerProps) {
-  const [activeTab, setActiveTab] = useState<'regular' | 'aggressive' | 'promo' | 'campaigns'>('regular');
+  const [activeTab, setActiveTab] = useState<'regular' | 'aggressive' | 'promo' | 'campaigns' | 'bundles'>('regular');
   const [language, setLanguage] = useState<Language>(getCurrentLanguage());
   const t = useTranslation(language);
   // 🎟️ Промокоды доступны только закрытым (приватным) магазинам: у публичных
@@ -133,6 +134,25 @@ export default function CompanyDiscountsManager({ companyId, products = [] }: Co
         >
           🎉 {language === 'uz' ? 'Aksiyalar' : 'Кампании'}
         </button>
+        <button
+          className={`discounts-tab ${activeTab === 'bundles' ? 'discounts-tab-active' : 'discounts-tab-inactive'}`}
+          style={{
+            padding: '12px 24px',
+            fontSize: '16px',
+            fontWeight: '600',
+            border: 'none',
+            borderRadius: '8px 8px 0 0',
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+            whiteSpace: 'nowrap',
+            ...(activeTab === 'bundles'
+              ? { borderBottom: '3px solid #3b82f6', marginBottom: '-2px' }
+              : {})
+          }}
+          onClick={() => setActiveTab('bundles')}
+        >
+          🧩 {language === 'uz' ? 'Toʻplamlar' : 'Комплекты'}
+        </button>
       </div>
 
       {/* Content */}
@@ -148,6 +168,9 @@ export default function CompanyDiscountsManager({ companyId, products = [] }: Co
         )}
         {activeTab === 'campaigns' && (
           <CompanyCampaignsPanel companyId={companyId} products={products} />
+        )}
+        {activeTab === 'bundles' && (
+          <CompanyBundlesPanel companyId={companyId} />
         )}
       </div>
     </div>

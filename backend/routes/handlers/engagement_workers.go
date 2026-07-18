@@ -44,6 +44,100 @@ func RunEngagementWorkers(db *sql.DB) {
 			}
 		}
 	}()
+
+	// «Пора обновить запас?» — редкая проверка: циклы покупок меряются днями.
+	go func() {
+		ticker := time.NewTicker(6 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			if n := runRepeatPurchaseReminders(db); n > 0 {
+				log.Printf("🔁 RepeatPurchase: напомнено %d покупателям", n)
+			}
+		}
+	}()
+}
+
+// runRepeatPurchaseReminders — «пора обновить запас» (Amazon-классика для
+// расходников). Товар куплен 2+ раза → считаем средний цикл покупки; если с
+// последней покупки прошло больше цикла и товар в наличии — шлём push.
+// Повторное напоминание по той же паре (покупатель, товар) — только после
+// НОВОЙ покупки либо спустя два цикла.
+func runRepeatPurchaseReminders(db *sql.DB) int {
+	rows, err := db.Query(`
+		WITH purchases AS (
+			SELECT o.customer_phone AS phone,
+			       CASE
+			           WHEN item->>'productId'  ~ '^\d+$' THEN (item->>'productId')::bigint
+			           WHEN item->>'product_id' ~ '^\d+$' THEN (item->>'product_id')::bigint
+			       END AS pid,
+			       o.created_at
+			FROM orders o, jsonb_array_elements(o.items) item
+			WHERE o.status NOT IN ('cancelled')
+			  AND jsonb_typeof(o.items) = 'array'
+			  AND o.created_at > NOW() - INTERVAL '180 days'
+			  AND COALESCE(o.customer_phone, '') <> ''
+		),
+		agg AS (
+			SELECT phone, pid,
+			       COUNT(*) AS times,
+			       MAX(created_at) AS last_buy,
+			       GREATEST(
+			           EXTRACT(EPOCH FROM (MAX(created_at) - MIN(created_at))) / 86400.0
+			               / GREATEST(COUNT(*) - 1, 1),
+			           3
+			       ) AS cycle_days
+			FROM purchases
+			WHERE pid IS NOT NULL
+			GROUP BY phone, pid
+			HAVING COUNT(*) >= 2
+		)
+		SELECT a.phone, a.pid, p.name, COALESCE(u.expo_push_token, '')
+		FROM agg a
+		JOIN products p ON p.id = a.pid
+			AND p.quantity > 0 AND p.available_for_customers = TRUE
+		LEFT JOIN users u ON u.phone = a.phone
+		LEFT JOIN repeat_reminders r ON r.user_phone = a.phone AND r.product_id = a.pid
+		WHERE a.last_buy < NOW() - make_interval(days => CEIL(a.cycle_days)::int)
+		  AND (r.last_notified_at IS NULL
+		       OR r.last_notified_at < a.last_buy
+		       OR r.last_notified_at < NOW() - make_interval(days => CEIL(a.cycle_days * 2)::int))
+		LIMIT 300
+	`)
+	if err != nil {
+		log.Printf("⚠️ RepeatPurchase query: %v", err)
+		return 0
+	}
+	defer rows.Close()
+
+	type hit struct {
+		phone   string
+		product int64
+		name    string
+		token   string
+	}
+	var hits []hit
+	for rows.Next() {
+		var h hit
+		if rows.Scan(&h.phone, &h.product, &h.name, &h.token) == nil {
+			hits = append(hits, h)
+		}
+	}
+
+	for _, h := range hits {
+		title := "🔁 Пора обновить запас?"
+		body := h.name + " — вы обычно покупаете его примерно в это время"
+		db.Exec(`INSERT INTO notifications (user_phone, type, title, message, product_id)
+			VALUES ($1, 'repeat_purchase', $2, $3, $4)`, h.phone, title, body, h.product)
+		if h.token != "" {
+			SendExpoPushNotificationData([]string{h.token}, title, body,
+				map[string]interface{}{"type": "product", "productId": h.product})
+		}
+		db.Exec(`INSERT INTO repeat_reminders (user_phone, product_id, last_notified_at)
+			VALUES ($1, $2, NOW())
+			ON CONFLICT (user_phone, product_id) DO UPDATE SET last_notified_at = NOW()`,
+			h.phone, h.product)
+	}
+	return len(hits)
 }
 
 // runPriceDropAlerts уведомляет, если на товар из «Избранного» появилась

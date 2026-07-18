@@ -11,7 +11,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/CartContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { createOrder, getPaymentCards, addPaymentCard, getCompanyDetail, getUserAddresses, getFrequentLocations, validatePromo, redeemPromo } from '../../api';
+import { createOrder, getPaymentCards, addPaymentCard, getCompanyDetail, getUserAddresses, getFrequentLocations, validatePromo, redeemPromo, getProductBundles } from '../../api';
 
 // Парсит строку координат "lat,lng" в объект { lat, lng }
 function parseCoords(str) {
@@ -164,7 +164,48 @@ export default function CheckoutScreen() {
     }
   };
 
-  const grandTotal = Math.max(0, total + deliveryCost - promoDiscount);
+  // 🧩 Комплекты «вместе дешевле»: если ВСЕ товары комплекта в корзине —
+  // скидка применяется автоматически (по одному набору на комплект).
+  const [bundleDeal, setBundleDeal] = useState({ total: 0, byCompany: {}, applied: [] });
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const empty = { total: 0, byCompany: {}, applied: [] };
+      try {
+        const ids = [...new Set(items.map((i) => i.productId))];
+        if (ids.length < 2) { if (active) setBundleDeal(empty); return; }
+        const seen = new Set();
+        const bundles = [];
+        for (const id of ids) {
+          const bs = await getProductBundles(id);
+          for (const b of bs) {
+            if (!seen.has(b.id)) { seen.add(b.id); bundles.push(b); }
+          }
+        }
+        const idSet = new Set(ids);
+        const byCompany = {};
+        const applied = [];
+        let totalDisc = 0;
+        for (const b of bundles) {
+          const bItems = b.items || [];
+          if (bItems.length < 2 || !bItems.every((it) => idSet.has(it.id))) continue;
+          const setSum = bItems.reduce((s, it) => s + (it.price || 0), 0);
+          const disc = Math.round(setSum * ((b.discountPercent || 0) / 100));
+          if (disc <= 0) continue;
+          totalDisc += disc;
+          byCompany[b.companyId] = (byCompany[b.companyId] || 0) + disc;
+          applied.push({ id: b.id, percent: b.discountPercent, discount: disc });
+        }
+        if (active) setBundleDeal({ total: totalDisc, byCompany, applied });
+      } catch {
+        if (active) setBundleDeal(empty);
+      }
+    })();
+    return () => { active = false; };
+  }, [items]);
+  const bundleDiscount = bundleDeal.total;
+
+  const grandTotal = Math.max(0, total + deliveryCost - promoDiscount - bundleDiscount);
 
   const formatPrice = (p) => `${p.toLocaleString(dateLocale)} ${t('sum')}`;
 
@@ -333,10 +374,13 @@ export default function CheckoutScreen() {
           : Math.round(totalDiscount * (grandSubtotal > 0 ? groupSubtotal / grandSubtotal : 0));
         distributedDiscount += groupDiscount;
 
+        // 🧩 Скидка комплекта — строго у компании, чей комплект собран.
+        const groupBundleDiscount = bundleDeal.byCompany[companyId] || 0;
+
         // Доставку считаем только для первой компании (companyInfo относится
         // к первому товару корзины) — не дублируем её на каждый заказ.
         const groupDelivery = g === 0 ? deliveryCost : 0;
-        const groupTotal = Math.max(0, groupSubtotal - groupDiscount + groupDelivery);
+        const groupTotal = Math.max(0, groupSubtotal - groupDiscount - groupBundleDiscount + groupDelivery);
 
         const order = await createOrder({
           companyId: companyId || undefined,
@@ -900,6 +944,17 @@ export default function CheckoutScreen() {
                 <View style={styles.summaryRow}>
                   <Text style={[styles.summaryLabel, { color: '#22C55E' }]}>🎟️ {promo.code}</Text>
                   <Text style={[styles.summaryValue, { color: '#22C55E' }]}>−{formatPrice(promoDiscount)}</Text>
+                </View>
+              )}
+
+              {/* 🧩 Скидка за собранный комплект «вместе дешевле» */}
+              {bundleDiscount > 0 && (
+                <View style={styles.summaryRow}>
+                  <Text style={[styles.summaryLabel, { color: '#38BDF8' }]}>
+                    🧩 {t('bundleWord') || 'Комплект'}
+                    {bundleDeal.applied.length === 1 ? ` −${Math.round(bundleDeal.applied[0].percent)}%` : ''}
+                  </Text>
+                  <Text style={[styles.summaryValue, { color: '#38BDF8' }]}>−{formatPrice(bundleDiscount)}</Text>
                 </View>
               )}
 

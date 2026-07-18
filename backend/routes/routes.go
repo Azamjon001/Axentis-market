@@ -100,6 +100,7 @@ func Setup(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 			products.GET("/:id/similar", handlers.GetSimilarProducts(db))
 			products.GET("/:id/frequently-bought-with", handlers.GetFrequentlyBoughtWith(db))
 			products.GET("/:id/flash-sale", handlers.GetProductFlashSale(db))
+			products.GET("/:id/bundles", handlers.GetProductBundles(db)) // 🧩 Комплекты «вместе дешевле» с этим товаром
 			products.POST("/:id/notify-stock", handlers.SubscribeStockNotification(db)) // 🔔 Сообщить о поступлении
 			products.POST("/:id/view", handlers.TrackProductView(db))
 			products.GET("/personalized", handlers.GetPersonalizedFeed(db))
@@ -201,6 +202,9 @@ func Setup(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 			companies.PUT("/:id/privacy", middleware.RequireAdminOrOwnCompany(), handlers.ToggleCompanyPrivacy(db)) // 🔐 Переключение приватности
 			companies.PUT("/:id/region", middleware.RequireAdminOrOwnCompany(), handlers.SetCompanyRegion(db)) // 🗺️ Компания выбирает регион доставки
 			companies.PUT("/:id/delivery", middleware.RequireAdminOrOwnCompany(), handlers.ToggleCompanyDelivery(db)) // 🚚 Переключение доставки
+			companies.GET("/:id/bundles", middleware.RequireAdminOrOwnCompany(), handlers.GetCompanyBundles(db))           // 🧩 Комплекты «вместе дешевле» (панель)
+			companies.POST("/:id/bundles", middleware.RequireAdminOrOwnCompany(), handlers.CreateBundle(db))               // 🧩 Создать комплект
+			companies.DELETE("/:id/bundles/:bundleId", middleware.RequireAdminOrOwnCompany(), handlers.DeleteBundle(db))   // 🧩 Удалить комплект
 			companies.GET("/:id/telegram", middleware.RequireAdminOrOwnCompany(), handlers.GetCompanyTelegramStatus(db))    // 🤖 Статус/ссылка привязки Telegram
 			companies.DELETE("/:id/telegram", middleware.RequireAdminOrOwnCompany(), handlers.DisconnectCompanyTelegram(db)) // 🤖 Отвязать Telegram
 			companies.POST("/verify-private-code", handlers.VerifyPrivateCode(db)) // 🔍 Проверка кода
@@ -393,7 +397,8 @@ func Setup(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 		{
 			analytics.GET("/company/:companyId", middleware.RequireAdminOrOwnCompanyParam("companyId"), handlers.GetCompanyAnalytics(db))
 			analytics.GET("/company/:companyId/dashboard", middleware.RequireAdminOrOwnCompanyParam("companyId"), handlers.GetCompanyDashboard(db)) // 📊 Единый дашборд продавца
-			analytics.GET("/company/:companyId/inventory-insights", middleware.RequireAdminOrOwnCompanyParam("companyId"), handlers.GetInventoryInsights(db)) // 📦 Прогноз остатков + ABC-анализ
+			analytics.GET("/company/:companyId/inventory-insights", middleware.RequireAdminOrOwnCompanyParam("companyId"), handlers.GetInventoryInsights(db)) // 📦 Прогноз остатков + ABC-анализ + залежавшийся товар
+			analytics.GET("/company/:companyId/customer-segments", middleware.RequireAdminOrOwnCompanyParam("companyId"), handlers.GetCustomerSegments(db))  // 👥 RFM-сегменты клиентов
 			analytics.GET("/company/:companyId/profit", middleware.RequireAdminOrOwnCompanyParam("companyId"), handlers.GetCompanyProfit(db)) // 💰 Разложение прибыли (онлайн/офлайн)
 			analytics.GET("/revenue", middleware.RequireCompany(cfg), middleware.RequireCompanyScope("companyId"), handlers.GetRevenueAnalytics(db))
 			analytics.GET("/admin/overview", middleware.RequireAdmin(cfg), handlers.GetAdminOverview(db)) // 📊 Дашборд платформы

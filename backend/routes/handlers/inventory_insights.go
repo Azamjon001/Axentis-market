@@ -85,6 +85,7 @@ func GetInventoryInsights(db *sql.DB) gin.HandlerFunc {
 		}
 
 		sales30 := loadSales("30")
+		sales60 := loadSales("60")
 		sales90 := loadSales("90")
 
 		// Текущие остатки (сумма по вариантам, если они есть, иначе quantity).
@@ -265,11 +266,40 @@ func GetInventoryInsights(db *sql.DB) gin.HandlerFunc {
 			lowStock = lowStock[:30]
 		}
 
+		// ── Залежавшийся товар (dead stock) ────────────────────────────────
+		// Товар лежит на складе, но за 60 дней не продано ни одной штуки.
+		// «Заморожено» = остаток × закупочная цена: деньги, которые не работают.
+		// Классика ритейла: такие позиции — кандидаты на скидку/распродажу.
+		type deadStockRow struct {
+			ProductID   int64   `json:"productId"`
+			Name        string  `json:"name"`
+			Stock       int     `json:"stock"`
+			FrozenValue float64 `json:"frozenValue"`
+		}
+		deadStock := []deadStockRow{}
+		var deadStockTotal float64
+		for _, p := range products {
+			if p.Stock <= 0 || sales60[p.ID].Units > 0 {
+				continue
+			}
+			frozen := float64(p.Stock) * p.Price
+			deadStock = append(deadStock, deadStockRow{
+				ProductID: p.ID, Name: p.Name, Stock: p.Stock, FrozenValue: math.Round(frozen),
+			})
+			deadStockTotal += frozen
+		}
+		sort.Slice(deadStock, func(i, j int) bool { return deadStock[i].FrozenValue > deadStock[j].FrozenValue })
+		if len(deadStock) > 30 {
+			deadStock = deadStock[:30]
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"stockForecast":  forecast,
 			"abcAnalysis":    abc,
 			"topSellers":     sellers,
 			"lowStock":       lowStock,
+			"deadStock":      deadStock,
+			"deadStockTotal": math.Round(deadStockTotal),
 			"totalRevenue90": math.Round(totalRevenue),
 		})
 	}
