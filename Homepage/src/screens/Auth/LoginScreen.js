@@ -2,10 +2,10 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator,
-  Animated, Dimensions, Modal,
+  Alert, Animated, Dimensions, Modal,
 } from 'react-native';
-import { Alert } from '../../utils/alert';
 import { StatusBar } from 'expo-status-bar';
+import Constants from 'expo-constants';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -35,7 +35,7 @@ function getCleanPhone(formatted) {
 
 export default function LoginScreen() {
   const { colors, isDark } = useTheme();
-  const { login, register, user } = useAuth();
+  const { login, register, loginWithOtp, user } = useAuth();
   const { t } = useLanguage();
   const navigation = useNavigation();
 
@@ -52,22 +52,41 @@ export default function LoginScreen() {
   const [tab, setTab] = useState('login');
   const tabAnim = useRef(new Animated.Value(0)).current;
 
-  // 🔒 Режим маркетплейса — как на веб-версии: публичный (все магазины региона)
-  // или закрытый (только товары компании, чей код дал магазин).
-  const [isPrivateMode, setIsPrivateMode] = useState(false);
-  const [privateCode, setPrivateCode] = useState('');
-
   const [loginPhone, setLoginPhone] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginPassVisible, setLoginPassVisible] = useState(false);
   const [loginLoading, setLoginLoading] = useState(false);
 
+  // 🔒 Закрытая компания: вход/регистрация по уникальному ID компании.
+  // В этом режиме пользователь видит ТОЛЬКО товары своей компании.
+  // В сборке «Axentis Private» (APP_VARIANT=private) доступен только этот режим.
+  const isPrivateApp = Constants.expoConfig?.extra?.appVariant === 'private';
+  const [accessMode, setAccessMode] = useState(isPrivateApp ? 'private' : 'public'); // 'public' | 'private'
+  const [privateCode, setPrivateCode] = useState('');
+  const [privateCompany, setPrivateCompany] = useState(null); // { companyId, name }
+  const [checkingCode, setCheckingCode] = useState(false);
+
+  // 📲 Вход по SMS-коду (без пароля)
+  const [loginMethod, setLoginMethod] = useState('password'); // 'password' | 'sms'
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [resendTimer, setResendTimer] = useState(0);
+
+  useEffect(() => {
+    if (resendTimer <= 0) return undefined;
+    const id = setInterval(() => setResendTimer(s => (s > 0 ? s - 1 : 0)), 1000);
+    return () => clearInterval(id);
+  }, [resendTimer]);
+
   const [regName, setRegName] = useState('');
+  const [regSurname, setRegSurname] = useState('');
   const [regPhone, setRegPhone] = useState('');
   const [regPassword, setRegPassword] = useState('');
+  const [regConfirm, setRegConfirm] = useState('');
+  const [regPassVisible, setRegPassVisible] = useState(false);
+  const [regConfirmVisible, setRegConfirmVisible] = useState(false);
   const [regLoading, setRegLoading] = useState(false);
-  // Ширина таб-бара для точной позиции индикатора (без «вылезания» за рамку)
-  const [tabBarWidth, setTabBarWidth] = useState(0);
   // 📜 Политика конфиденциальности: согласие обязательно для регистрации
   const [policyAccepted, setPolicyAccepted] = useState(false);
   const [policyVisible, setPolicyVisible] = useState(false);
@@ -114,24 +133,86 @@ export default function LoginScreen() {
 
   const loginPhoneDigits = loginPhone.replace(/\D/g, '');
   const isLoginPhoneValid = loginPhoneDigits.length >= 9;
-  const isPrivateCodeValid = !isPrivateMode || privateCode.trim().length > 0;
-  const isLoginValid = isLoginPhoneValid && loginPassword.length >= 4 && isPrivateCodeValid;
+  const isLoginValid = isLoginPhoneValid && loginPassword.length >= 4;
 
   const regPhoneDigits = regPhone.replace(/\D/g, '');
   const isRegPhoneValid = regPhoneDigits.length >= 9;
   const isRegValid =
     regName.trim().length >= 2 &&
+    regSurname.trim().length >= 2 &&
     isRegPhoneValid &&
     regPassword.length >= 6 &&
-    isPrivateCodeValid &&
+    regPassword === regConfirm &&
     policyAccepted; // 📜 без согласия с политикой регистрация недоступна
+
+  // Доп. параметры входа/регистрации для закрытой компании.
+  const authExtra = () =>
+    accessMode === 'private' && privateCode.trim()
+      ? { mode: 'private', privateCode: privateCode.trim() }
+      : {};
+
+  // Проверка ID закрытой компании (показывает название до входа).
+  const handleCheckPrivateCode = async () => {
+    if (!privateCode.trim()) return;
+    setCheckingCode(true);
+    try {
+      const res = await verifyPrivateCode(privateCode.trim());
+      setPrivateCompany({ companyId: res.companyId, name: res.name });
+    } catch {
+      setPrivateCompany(null);
+      Alert.alert(t('error'), t('companyNotFound'));
+    } finally {
+      setCheckingCode(false);
+    }
+  };
+
+  // 📲 Запросить SMS-код
+  const handleRequestOtp = async () => {
+    if (!isLoginPhoneValid) return;
+    setOtpLoading(true);
+    try {
+      const phone = getCleanPhone(loginPhone);
+      const res = await requestOtp(phone);
+      setOtpSent(true);
+      setResendTimer(60);
+      if (res?.devCode) {
+        // Провайдер не настроен (dev): код приходит в ответе, подставляем сами.
+        setOtpCode(String(res.devCode));
+      } else {
+        Alert.alert(
+          res?.channel === 'telegram' ? t('smsCodeSentTelegram') : t('smsCodeSent'),
+          `+${phone}`,
+        );
+      }
+    } catch (err) {
+      const serverMsg = err?.response?.data?.error;
+      Alert.alert(t('error'), serverMsg || err?.message || t('loginError'));
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  // 📲 Подтвердить SMS-код → вход (аккаунт создаётся автоматически)
+  const handleVerifyOtp = async () => {
+    if (otpCode.trim().length !== 6) return;
+    setOtpLoading(true);
+    try {
+      const phone = getCleanPhone(loginPhone);
+      await loginWithOtp(phone, otpCode.trim(), authExtra());
+    } catch (err) {
+      const serverMsg = err?.response?.data?.error;
+      Alert.alert(t('invalidCode'), serverMsg || t('loginError'));
+    } finally {
+      setOtpLoading(false);
+    }
+  };
 
   const handleLogin = async () => {
     if (!isLoginValid) return;
     setLoginLoading(true);
     try {
       const phone = getCleanPhone(loginPhone);
-      await login(phone, loginPassword, isPrivateMode ? 'private' : 'public', privateCode.trim());
+      await login(phone, loginPassword, authExtra());
     } catch (err) {
       const status = err?.response?.status;
       const serverMsg = err?.response?.data?.error;
@@ -141,14 +222,6 @@ export default function LoginScreen() {
         Alert.alert(
           t('noServerConnection'),
           `${t('connectFailMsg')}\n\n(${err?.message || 'Network Error'})`,
-        );
-      } else if (status === 404 && /private code/i.test(serverMsg || '')) {
-        // Неверный код закрытого магазина — не путаем с «пользователь не найден»
-        Alert.alert(
-          language === 'uz' ? 'Kod notoʻgʻri' : 'Неверный код',
-          language === 'uz'
-            ? 'Yopiq doʻkon kodi topilmadi. Kodni doʻkondan qayta soʻrang.'
-            : 'Код закрытого магазина не найден. Уточните код у магазина.',
         );
       } else if (status === 404) {
         Alert.alert(t('userNotFound'), t('userNotRegistered'), [
@@ -170,15 +243,20 @@ export default function LoginScreen() {
 
   const handleRegister = async () => {
     if (!isRegValid) {
+      if (regPassword !== regConfirm) {
+        Alert.alert(t('error'), t('passwordMismatch'));
+        return;
+      }
       if (regPassword.length < 6) {
         Alert.alert(t('error'), t('passwordTooShort'));
+        return;
       }
       return;
     }
     setRegLoading(true);
     try {
       const phone = getCleanPhone(regPhone);
-      await register(phone, regName.trim(), '', regPassword, isPrivateMode ? 'private' : 'public', privateCode.trim());
+      await register(phone, regName.trim(), regSurname.trim(), regPassword);
       // 📜 Фиксируем принятие политики (документальное подтверждение согласия)
       acceptPolicy('customer', phone).catch(() => { /* не критично */ });
     } catch (err) {
@@ -194,12 +272,9 @@ export default function LoginScreen() {
     }
   };
 
-  // Половина ширины таб-бара минус внутренние отступы (padding 4 с каждой стороны).
-  // Пока ширина не измерена — консервативная оценка, чтобы индикатор не «вылезал».
-  const halfTab = (tabBarWidth > 0 ? tabBarWidth : width - 88) / 2 - 4;
   const indicatorLeft = tabAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [4, halfTab + 4],
+    outputRange: [4, (width - 48) / 2 + 4],
   });
 
   return (
@@ -229,12 +304,9 @@ export default function LoginScreen() {
           </View>
 
           <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View
-              style={[styles.tabBar, { backgroundColor: colors.inputBg }]}
-              onLayout={(e) => setTabBarWidth(e.nativeEvent.layout.width)}
-            >
+            <View style={[styles.tabBar, { backgroundColor: colors.inputBg }]}>
               <Animated.View
-                style={[styles.tabIndicator, { backgroundColor: colors.primary, left: indicatorLeft, width: halfTab }]}
+                style={[styles.tabIndicator, { backgroundColor: colors.primary, left: indicatorLeft }]}
               />
               <TouchableOpacity style={styles.tabBtn} onPress={() => switchTab('login')} activeOpacity={0.8}>
                 <Text style={[styles.tabText, { color: tab === 'login' ? '#fff' : colors.textSecondary }]}>
@@ -248,69 +320,74 @@ export default function LoginScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* 🔒 Режим: публичный маркетплейс или закрытый магазин по коду
-                компании — тот же выбор, что на веб-версии */}
-            <View style={styles.modeRow}>
+            {/* 🔒 Режим доступа: общий маркет или закрытая компания по ID.
+                В сборке «Axentis Private» переключатель скрыт — только закрытый режим. */}
+            <View style={[styles.modeRow, isPrivateApp && { display: 'none' }]}>
               <TouchableOpacity
                 style={[
-                  styles.modeBtn,
+                  styles.modeChip,
                   {
-                    borderColor: !isPrivateMode ? colors.primary : colors.border,
-                    backgroundColor: !isPrivateMode ? colors.primary + '15' : 'transparent',
+                    backgroundColor: accessMode === 'public' ? colors.primary + '22' : colors.inputBg,
+                    borderColor: accessMode === 'public' ? colors.primary : colors.border,
                   },
                 ]}
-                onPress={() => setIsPrivateMode(false)}
+                onPress={() => { setAccessMode('public'); setPrivateCompany(null); setPrivateCode(''); }}
                 activeOpacity={0.8}
               >
-                <Ionicons name="globe-outline" size={16} color={!isPrivateMode ? colors.primary : colors.textMuted} />
-                <Text style={[styles.modeText, { color: !isPrivateMode ? colors.primary : colors.textSecondary }]}>
-                  {language === 'uz' ? 'Ochiq bozor' : 'Публичный'}
+                <Ionicons name="globe-outline" size={15} color={accessMode === 'public' ? colors.primary : colors.textMuted} />
+                <Text style={[styles.modeChipText, { color: accessMode === 'public' ? colors.primary : colors.textSecondary }]}>
+                  {t('publicMarketMode')}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[
-                  styles.modeBtn,
+                  styles.modeChip,
                   {
-                    borderColor: isPrivateMode ? colors.primary : colors.border,
-                    backgroundColor: isPrivateMode ? colors.primary + '15' : 'transparent',
+                    backgroundColor: accessMode === 'private' ? colors.primary + '22' : colors.inputBg,
+                    borderColor: accessMode === 'private' ? colors.primary : colors.border,
                   },
                 ]}
-                onPress={() => setIsPrivateMode(true)}
+                onPress={() => setAccessMode('private')}
                 activeOpacity={0.8}
               >
-                <Ionicons name="lock-closed-outline" size={16} color={isPrivateMode ? colors.primary : colors.textMuted} />
-                <Text style={[styles.modeText, { color: isPrivateMode ? colors.primary : colors.textSecondary }]}>
-                  {language === 'uz' ? 'Yopiq doʻkon' : 'Закрытый магазин'}
+                <Ionicons name="lock-closed-outline" size={15} color={accessMode === 'private' ? colors.primary : colors.textMuted} />
+                <Text style={[styles.modeChipText, { color: accessMode === 'private' ? colors.primary : colors.textSecondary }]}>
+                  {t('privateCompanyMode')}
                 </Text>
               </TouchableOpacity>
             </View>
-            {isPrivateMode && (
+
+            {accessMode === 'private' && (
               <View style={{ marginTop: 12 }}>
-                <Text style={[styles.label, { color: colors.textSecondary }]}>
-                  {language === 'uz' ? 'Doʻkon kodi' : 'Код магазина'}
-                </Text>
-                <View style={[styles.inputRow, { backgroundColor: colors.inputBg, borderColor: colors.border, marginBottom: 0 }]}>
+                <Text style={[styles.label, { color: colors.textSecondary }]}>{t('companyIdLabel')}</Text>
+                <View style={[styles.inputRow, { backgroundColor: colors.inputBg, borderColor: privateCompany ? '#22C55E' : colors.border }]}>
                   <Ionicons name="key-outline" size={18} color={colors.textMuted} style={styles.inputIcon} />
                   <TextInput
                     style={[styles.input, { color: colors.text }]}
                     value={privateCode}
-                    onChangeText={setPrivateCode}
-                    placeholder={language === 'uz' ? 'Doʻkon bergan kod' : 'Код, который дал магазин'}
+                    onChangeText={(v) => { setPrivateCode(v); setPrivateCompany(null); }}
+                    placeholder={t('companyIdPlaceholder')}
                     placeholderTextColor={colors.textMuted}
-                    autoCapitalize="characters"
-                    autoCorrect={false}
+                    keyboardType="number-pad"
+                    autoCapitalize="none"
                   />
-                  {privateCode.length > 0 && (
-                    <TouchableOpacity onPress={() => setPrivateCode('')}>
-                      <Ionicons name="close-circle" size={18} color={colors.textMuted} />
-                    </TouchableOpacity>
-                  )}
+                  <TouchableOpacity onPress={handleCheckPrivateCode} disabled={checkingCode || !privateCode.trim()}>
+                    {checkingCode
+                      ? <ActivityIndicator size="small" color={colors.primary} />
+                      : <Text style={{ color: colors.primary, fontWeight: '600', fontSize: 13 }}>{t('checkCompanyId')}</Text>
+                    }
+                  </TouchableOpacity>
                 </View>
-                <Text style={[styles.modeHint, { color: colors.textMuted }]}>
-                  {language === 'uz'
-                    ? 'Faqat shu doʻkonning mahsulotlari koʻrsatiladi'
-                    : 'Будут видны товары только этого магазина'}
-                </Text>
+                {privateCompany ? (
+                  <View style={styles.companyFoundRow}>
+                    <Ionicons name="checkmark-circle" size={16} color="#22C55E" />
+                    <Text style={{ color: '#22C55E', fontSize: 13, fontWeight: '600', marginLeft: 6 }}>
+                      {t('companyFound')}: {privateCompany.name}
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={[styles.privateHint, { color: colors.textMuted }]}>{t('privateModeHint')}</Text>
+                )}
               </View>
             )}
 
@@ -337,38 +414,111 @@ export default function LoginScreen() {
                   )}
                 </View>
 
-                <Text style={[styles.label, { color: colors.textSecondary }]}>{t('password')}</Text>
-                <View style={[styles.inputRow, { backgroundColor: colors.inputBg, borderColor: colors.border }]}>
-                  <Ionicons name="lock-closed-outline" size={18} color={colors.textMuted} style={styles.inputIcon} />
-                  <TextInput
-                    style={[styles.input, { color: colors.text }]}
-                    value={loginPassword}
-                    onChangeText={setLoginPassword}
-                    placeholder={t('enterPassword')}
-                    placeholderTextColor={colors.textMuted}
-                    secureTextEntry={!loginPassVisible}
-                    autoCapitalize="none"
-                  />
-                  <TouchableOpacity onPress={() => setLoginPassVisible(v => !v)}>
-                    <Ionicons
-                      name={loginPassVisible ? 'eye-off-outline' : 'eye-outline'}
-                      size={18}
-                      color={colors.textMuted}
-                    />
-                  </TouchableOpacity>
-                </View>
+                {loginMethod === 'password' ? (
+                  <>
+                    <Text style={[styles.label, { color: colors.textSecondary }]}>{t('password')}</Text>
+                    <View style={[styles.inputRow, { backgroundColor: colors.inputBg, borderColor: colors.border }]}>
+                      <Ionicons name="lock-closed-outline" size={18} color={colors.textMuted} style={styles.inputIcon} />
+                      <TextInput
+                        style={[styles.input, { color: colors.text }]}
+                        value={loginPassword}
+                        onChangeText={setLoginPassword}
+                        placeholder={t('enterPassword')}
+                        placeholderTextColor={colors.textMuted}
+                        secureTextEntry={!loginPassVisible}
+                        autoCapitalize="none"
+                      />
+                      <TouchableOpacity onPress={() => setLoginPassVisible(v => !v)}>
+                        <Ionicons
+                          name={loginPassVisible ? 'eye-off-outline' : 'eye-outline'}
+                          size={18}
+                          color={colors.textMuted}
+                        />
+                      </TouchableOpacity>
+                    </View>
 
-                <TouchableOpacity
-                  style={[styles.btn, { backgroundColor: isLoginValid ? colors.primary : colors.border }]}
-                  onPress={handleLogin}
-                  disabled={!isLoginValid || loginLoading}
-                  activeOpacity={0.85}
-                >
-                  {loginLoading
-                    ? <ActivityIndicator color="#fff" />
-                    : <Text style={styles.btnText}>{t('login')}</Text>
-                  }
-                </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.btn, { backgroundColor: isLoginValid ? colors.primary : colors.border }]}
+                      onPress={handleLogin}
+                      disabled={!isLoginValid || loginLoading}
+                      activeOpacity={0.85}
+                    >
+                      {loginLoading
+                        ? <ActivityIndicator color="#fff" />
+                        : <Text style={styles.btnText}>{t('login')}</Text>
+                      }
+                    </TouchableOpacity>
+
+                    {/* 📲 Переключение на вход по SMS-коду */}
+                    <TouchableOpacity
+                      onPress={() => { setLoginMethod('sms'); setOtpSent(false); setOtpCode(''); }}
+                      style={styles.switchHint}
+                    >
+                      <Text style={[styles.switchText, { color: colors.primary, fontWeight: '600' }]}>
+                        {t('smsLogin')}
+                      </Text>
+                      <Text style={[styles.switchText, { color: colors.textMuted, marginTop: 2 }]}>
+                        {t('smsLoginHint')}
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <>
+                    {otpSent && (
+                      <>
+                        <Text style={[styles.label, { color: colors.textSecondary }]}>{t('smsCodeLabel')}</Text>
+                        <View style={[styles.inputRow, { backgroundColor: colors.inputBg, borderColor: colors.border }]}>
+                          <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.textMuted} style={styles.inputIcon} />
+                          <TextInput
+                            style={[styles.input, { color: colors.text, letterSpacing: 6, fontWeight: '700' }]}
+                            value={otpCode}
+                            onChangeText={(v) => setOtpCode(v.replace(/\D/g, '').slice(0, 6))}
+                            placeholder="••••••"
+                            placeholderTextColor={colors.textMuted}
+                            keyboardType="number-pad"
+                            maxLength={6}
+                          />
+                        </View>
+                      </>
+                    )}
+
+                    <TouchableOpacity
+                      style={[styles.btn, {
+                        backgroundColor:
+                          (otpSent ? otpCode.length === 6 : isLoginPhoneValid) ? colors.primary : colors.border,
+                      }]}
+                      onPress={otpSent ? handleVerifyOtp : handleRequestOtp}
+                      disabled={otpLoading || (otpSent ? otpCode.length !== 6 : !isLoginPhoneValid)}
+                      activeOpacity={0.85}
+                    >
+                      {otpLoading
+                        ? <ActivityIndicator color="#fff" />
+                        : <Text style={styles.btnText}>{otpSent ? t('confirmCode') : t('sendCode')}</Text>
+                      }
+                    </TouchableOpacity>
+
+                    {otpSent && (
+                      <TouchableOpacity
+                        onPress={handleRequestOtp}
+                        disabled={resendTimer > 0 || otpLoading}
+                        style={styles.switchHint}
+                      >
+                        <Text style={[styles.switchText, { color: resendTimer > 0 ? colors.textMuted : colors.primary, fontWeight: '600' }]}>
+                          {resendTimer > 0 ? `${t('resendIn')} ${resendTimer}s` : t('resendCode')}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+
+                    <TouchableOpacity
+                      onPress={() => { setLoginMethod('password'); setOtpSent(false); setOtpCode(''); }}
+                      style={styles.switchHint}
+                    >
+                      <Text style={[styles.switchText, { color: colors.primary, fontWeight: '600' }]}>
+                        {t('backToPassword')}
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                )}
 
                 <TouchableOpacity onPress={() => switchTab('register')} style={styles.switchHint}>
                   <Text style={[styles.switchText, { color: colors.textSecondary }]}>
@@ -394,6 +544,19 @@ export default function LoginScreen() {
                   />
                 </View>
 
+                <Text style={[styles.label, { color: colors.textSecondary }]}>{t('lastName')}</Text>
+                <View style={[styles.inputRow, { backgroundColor: colors.inputBg, borderColor: colors.border }]}>
+                  <Ionicons name="person-outline" size={18} color={colors.textMuted} style={styles.inputIcon} />
+                  <TextInput
+                    style={[styles.input, { color: colors.text }]}
+                    value={regSurname}
+                    onChangeText={setRegSurname}
+                    placeholder={t('yourLastName')}
+                    placeholderTextColor={colors.textMuted}
+                    autoCapitalize="words"
+                  />
+                </View>
+
                 <Text style={[styles.label, { color: colors.textSecondary }]}>{t('phoneNumber')}</Text>
                 <View style={[styles.inputRow, { backgroundColor: colors.inputBg, borderColor: colors.border }]}>
                   <Ionicons name="call-outline" size={18} color={colors.textMuted} style={styles.inputIcon} />
@@ -413,8 +576,6 @@ export default function LoginScreen() {
                   )}
                 </View>
 
-                {/* Пароль при регистрации всегда открыт — так пользователю проще
-                    ввести его без ошибок (подтверждение пароля убрано). */}
                 <Text style={[styles.label, { color: colors.textSecondary }]}>{t('password')}</Text>
                 <View style={[styles.inputRow, { backgroundColor: colors.inputBg, borderColor: colors.border }]}>
                   <Ionicons name="lock-closed-outline" size={18} color={colors.textMuted} style={styles.inputIcon} />
@@ -424,10 +585,54 @@ export default function LoginScreen() {
                     onChangeText={setRegPassword}
                     placeholder={t('minChars')}
                     placeholderTextColor={colors.textMuted}
-                    secureTextEntry={false}
+                    secureTextEntry={!regPassVisible}
                     autoCapitalize="none"
                   />
+                  <TouchableOpacity onPress={() => setRegPassVisible(v => !v)}>
+                    <Ionicons
+                      name={regPassVisible ? 'eye-off-outline' : 'eye-outline'}
+                      size={18}
+                      color={colors.textMuted}
+                    />
+                  </TouchableOpacity>
                 </View>
+
+                <Text style={[styles.label, { color: colors.textSecondary }]}>{t('confirmPassword')}</Text>
+                <View style={[
+                  styles.inputRow,
+                  {
+                    backgroundColor: colors.inputBg,
+                    borderColor: regConfirm.length > 0 && regConfirm !== regPassword
+                      ? colors.error
+                      : colors.border,
+                  },
+                ]}>
+                  <Ionicons name="lock-closed-outline" size={18} color={colors.textMuted} style={styles.inputIcon} />
+                  <TextInput
+                    style={[styles.input, { color: colors.text }]}
+                    value={regConfirm}
+                    onChangeText={setRegConfirm}
+                    placeholder={t('repeatPassword')}
+                    placeholderTextColor={colors.textMuted}
+                    secureTextEntry={!regConfirmVisible}
+                    autoCapitalize="none"
+                  />
+                  <TouchableOpacity onPress={() => setRegConfirmVisible(v => !v)}>
+                    <Ionicons
+                      name={regConfirmVisible ? 'eye-off-outline' : 'eye-outline'}
+                      size={18}
+                      color={
+                        regConfirm.length > 0 && regConfirm !== regPassword
+                          ? colors.error
+                          : colors.textMuted
+                      }
+                    />
+                  </TouchableOpacity>
+                </View>
+
+                {regConfirm.length > 0 && regConfirm !== regPassword && (
+                  <Text style={[styles.errorHint, { color: colors.error }]}>{t('passwordMismatch')}</Text>
+                )}
 
                 {/* 📜 Согласие с политикой конфиденциальности */}
                 <TouchableOpacity
@@ -564,19 +769,12 @@ const styles = StyleSheet.create({
   tabIndicator: {
     position: 'absolute',
     top: 4,
+    width: '50%',
     height: 38,
     borderRadius: 11,
   },
   tabBtn: { flex: 1, alignItems: 'center', justifyContent: 'center', zIndex: 1 },
   tabText: { fontSize: 14, fontWeight: '600' },
-  // 🔒 Переключатель «публичный / закрытый магазин»
-  modeRow: { flexDirection: 'row', gap: 8, marginTop: 14 },
-  modeBtn: {
-    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 6, height: 42, borderRadius: 12, borderWidth: 1.5,
-  },
-  modeText: { fontSize: 13, fontWeight: '600' },
-  modeHint: { fontSize: 11.5, marginTop: 6 },
   formTitle: { fontSize: 20, fontWeight: '700', marginBottom: 20 },
   label: { fontSize: 13, fontWeight: '500', marginBottom: 6 },
   inputRow: {
@@ -594,6 +792,21 @@ const styles = StyleSheet.create({
   btnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   switchHint: { alignItems: 'center', marginTop: 16 },
   switchText: { fontSize: 13 },
+  // 🔒 Режим доступа (общий маркет / закрытая компания)
+  modeRow: { flexDirection: 'row', gap: 8, marginTop: 16 },
+  modeChip: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    height: 40,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  modeChipText: { fontSize: 13, fontWeight: '600' },
+  companyFoundRow: { flexDirection: 'row', alignItems: 'center', marginTop: -6, marginBottom: 8 },
+  privateHint: { fontSize: 12, marginTop: -6, marginBottom: 8 },
   errorHint: { fontSize: 12, marginTop: -10, marginBottom: 10 },
   disclaimer: { textAlign: 'center', fontSize: 12, marginTop: 24, lineHeight: 18 },
   // 📜 Политика конфиденциальности
@@ -603,13 +816,13 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', marginTop: 1,
   },
   policyText: { flex: 1, fontSize: 13, lineHeight: 19 },
-  // Убрали затемняющий чёрный слой: политика открывается как полноэкранная
-  // страница (сплошной фон), без «третьего» полупрозрачного слоя поверх формы.
-  policyOverlay: { flex: 1, backgroundColor: 'transparent', justifyContent: 'flex-end' },
+  policyOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
   policySheet: {
-    padding: 20, paddingTop: 48, paddingBottom: 28,
-    // Полноэкранная высота — фон политики закрывает форму регистрации целиком.
-    height: '100%',
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    padding: 20, paddingBottom: 28,
+    // Фиксированная высота (не maxHeight): даёт ScrollView внутри реальную
+    // границу — прокрутка текста работает и на native, и в веб-сборке.
+    height: '85%',
   },
   policyHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   policyTitle: { fontSize: 17, fontWeight: '700' },

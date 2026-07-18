@@ -260,6 +260,11 @@ func GetProductsByCategory(db *sql.DB) http.HandlerFunc {
 			conds = append(conds, "(p.quantity > 0 OR EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_id = p.id AND pv.stock_quantity > 0))")
 		}
 
+		// Видимость: публичным — только публичные компании, покупателю
+		// закрытой компании — только её товары.
+		visArgN := len(args) + 1
+		conds = append(conds, visibilityCondValues(q, "c", &args, &visArgN))
+
 		orderBy := "p.created_at DESC"
 		switch q.Get("sort") {
 		case "price_asc":

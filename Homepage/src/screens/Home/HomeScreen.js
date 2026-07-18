@@ -61,10 +61,12 @@ export default function HomeScreen() {
   const [recommendations, setRecommendations] = useState([]);
   const [campaigns, setCampaigns] = useState([]);
 
-  // 🎉 Активные скидочные кампании (именованные ряды на главной)
+  // 🎉 Активные скидочные кампании (именованные ряды на главной).
+  // В закрытом режиме публичные кампании не показываем.
   useEffect(() => {
+    if (user?.mode === 'private' && user?.privateCompanyId) { setCampaigns([]); return; }
     getCampaigns().then(setCampaigns).catch(() => setCampaigns([]));
-  }, []);
+  }, [user?.mode, user?.privateCompanyId]);
 
   // Drawer
   const DRAWER_WIDTH = Math.min(width * 0.82, 340);
@@ -122,7 +124,8 @@ export default function HomeScreen() {
       const [prodRes, catRes, adsRes] = await Promise.allSettled([
         prodPromise,
         getCategories(),
-        getApprovedAds(),
+        // Реклама публичных магазинов не показывается в закрытом режиме.
+        isPrivateMode ? Promise.resolve([]) : getApprovedAds(),
       ]);
       if (prodRes.status === 'fulfilled') {
         setProducts(prodRes.value);
@@ -134,7 +137,7 @@ export default function HomeScreen() {
     } finally {
       setIsLoading(false);
     }
-  }, [getModeParams, regionReady]);
+  }, [getModeParams, regionReady, isPrivateMode]);
 
   useEffect(() => { loadInitial(); }, [loadInitial]);
 
@@ -164,7 +167,8 @@ export default function HomeScreen() {
       const [prodRes, catRes, adsRes] = await Promise.allSettled([
         prodPromise,
         getCategories(),
-        getApprovedAds(),
+        // Реклама публичных магазинов не показывается в закрытом режиме.
+        isPrivateMode ? Promise.resolve([]) : getApprovedAds(),
       ]);
       if (prodRes.status === 'fulfilled') {
         setProducts(prodRes.value);
@@ -176,7 +180,7 @@ export default function HomeScreen() {
     } finally {
       setRefreshing(false);
     }
-  }, [getModeParams, regionReady]);
+  }, [getModeParams, regionReady, isPrivateMode]);
 
   const loadMore = useCallback(async () => {
     if (isLoadingMore || !hasMore || debouncedSearch.trim() || activeCategory || !regionReady) return;

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -80,6 +81,15 @@ func GetCompanies(db *sql.DB) gin.HandlerFunc {
 			if err := rows.Scan(&comp.ID, &comp.Name, &comp.Phone, &comp.PasswordHash, &comp.PasswordPlain, &comp.AccessKey, &comp.Mode, &comp.PrivateCode, &comp.Status,
 				&comp.LogoURL, &comp.Address, &comp.Description, &comp.ProductsDescription, &comp.Latitude, &comp.Longitude, &comp.DeliveryEnabled, &comp.IsEnabled, &comp.PlatformCommission, &comp.IsVerified); err != nil {
 				log.Printf("❌ GetCompanies: Failed to scan row: %v", err)
+				continue
+			}
+
+			// 🔒 Закрытые компании не показываются в публичном списке магазинов.
+			// Их видят: админ, сама компания и её собственные покупатели
+			// (запрос с mode=private&privateCompanyId=<id>).
+			if comp.Mode == "private" && !admin &&
+				!(ctxRole(c) == "company" && ctxCompanyID(c) == comp.ID) &&
+				!(c.Query("mode") == "private" && c.Query("privateCompanyId") == strconv.FormatInt(comp.ID, 10)) {
 				continue
 			}
 

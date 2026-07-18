@@ -62,14 +62,24 @@ func GetUserByPhone(db *sql.DB) gin.HandlerFunc {
 			Name      string `json:"name"`
 			Role      string `json:"role"`
 			AvatarURL string `json:"avatarUrl,omitempty"`
+			// Приватный режим: без этих полей приложение «теряло» закрытую
+			// компанию при обновлении профиля после перезапуска.
+			Mode             string `json:"mode"`
+			PrivateCompanyID *int64 `json:"privateCompanyId,omitempty"`
 		}
 
+		var privateCompanyID sql.NullInt64
 		err := db.QueryRow(`
-			SELECT id, phone, COALESCE(name, ''), COALESCE(role, 'user'), COALESCE(avatar_url, '')
+			SELECT id, phone, COALESCE(name, ''), COALESCE(role, 'user'), COALESCE(avatar_url, ''),
+			       COALESCE(mode, 'public'), private_company_id
 			FROM users
 			WHERE phone = $1
-		`, phone).Scan(&user.ID, &user.Phone, &user.Name, &user.Role, &user.AvatarURL)
+		`, phone).Scan(&user.ID, &user.Phone, &user.Name, &user.Role, &user.AvatarURL,
+			&user.Mode, &privateCompanyID)
 		// Note: 'role' column added in base schema; defaults to 'user' for customers.
+		if privateCompanyID.Valid {
+			user.PrivateCompanyID = &privateCompanyID.Int64
+		}
 
 		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})

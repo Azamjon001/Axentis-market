@@ -31,28 +31,20 @@ func GetFrequentlyBoughtWith(db *sql.DB) gin.HandlerFunc {
 		modeCond := modeCondition(c, "c", &args)
 		rows, err := db.Query(`
 			WITH orders_with_product AS (
-				SELECT id FROM orders
+				SELECT id, items FROM orders
 				WHERE status NOT IN ('cancelled', 'pending')
-				  AND items::text LIKE '%"productId":' || $1 || '%'
-				  OR  items::text LIKE '%"product_id":' || $1 || '%'
+				  AND EXISTS (
+				      SELECT 1 FROM jsonb_array_elements(items) e
+				      WHERE COALESCE(e->>'productId', e->>'product_id') = $1::text
+				  )
 				LIMIT 500
 			),
 			other_items AS (
-				SELECT elem->>'productId'  AS pid
+				SELECT COALESCE(e->>'productId', e->>'product_id') AS pid
 				FROM   orders_with_product o,
-				       jsonb_array_elements(
-				           (SELECT items FROM orders WHERE id = o.id)
-				       ) AS elem
-				WHERE  (elem->>'productId')::bigint <> $1
-				  AND  (elem->>'productId') IS NOT NULL
-				UNION ALL
-				SELECT elem->>'product_id' AS pid
-				FROM   orders_with_product o,
-				       jsonb_array_elements(
-				           (SELECT items FROM orders WHERE id = o.id)
-				       ) AS elem
-				WHERE  (elem->>'product_id')::bigint <> $1
-				  AND  (elem->>'product_id') IS NOT NULL
+				       jsonb_array_elements(o.items) AS e
+				WHERE  COALESCE(e->>'productId', e->>'product_id') ~ '^[0-9]+$'
+				  AND  COALESCE(e->>'productId', e->>'product_id') <> $1::text
 			)
 			SELECT p.id, p.name,
 			       COALESCE(

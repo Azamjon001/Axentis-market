@@ -15,6 +15,8 @@ import (
 	"sync"
 	"time"
 
+	"azaton-backend/sms"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -40,7 +42,15 @@ var (
 	tgToken    string
 	tgBotName  string
 	tgInitOnce sync.Once
+	// 📲 OTP-доставка (вход по SMS-коду): не-«/start <код>» сообщения из
+	// long polling передаются сюда — тот же обработчик, что у webhook.
+	// Так один бот обслуживает и магазины (оповещения), и покупателей (коды).
+	tgOTPSender *sms.Sender
 )
+
+// SetTelegramOTPSender подключает OTP-доставку к long polling боту.
+// Вызывается из routes.Setup после создания sms.Sender.
+func SetTelegramOTPSender(s *sms.Sender) { tgOTPSender = s }
 
 const tzTashkentOffset = 5 * 3600 // UTC+5, DST в Узбекистане нет
 
@@ -203,17 +213,12 @@ func pollTelegramUpdates(db *sql.DB) {
 			time.Sleep(10 * time.Second)
 			continue
 		}
+		// Каждое обновление держим и в разобранном, и в сыром виде: свои
+		// команды («/start <код>» магазина) обрабатываем сами, всё остальное
+		// (контакты покупателей для OTP-кодов) отдаём sms.Sender.
 		var out struct {
-			OK     bool `json:"ok"`
-			Result []struct {
-				UpdateID int64 `json:"update_id"`
-				Message  *struct {
-					Text string `json:"text"`
-					Chat struct {
-						ID int64 `json:"id"`
-					} `json:"chat"`
-				} `json:"message"`
-			} `json:"result"`
+			OK     bool              `json:"ok"`
+			Result []json.RawMessage `json:"result"`
 		}
 		decodeErr := json.NewDecoder(resp.Body).Decode(&out)
 		resp.Body.Close()
@@ -221,24 +226,41 @@ func pollTelegramUpdates(db *sql.DB) {
 			time.Sleep(10 * time.Second)
 			continue
 		}
-		for _, upd := range out.Result {
+		for _, raw := range out.Result {
+			var upd struct {
+				UpdateID int64 `json:"update_id"`
+				Message  *struct {
+					Text string `json:"text"`
+					Chat struct {
+						ID int64 `json:"id"`
+					} `json:"chat"`
+				} `json:"message"`
+			}
+			if json.Unmarshal(raw, &upd) != nil {
+				continue
+			}
 			offset = upd.UpdateID + 1
 			if upd.Message == nil {
 				continue
 			}
-			handleTelegramMessage(db, upd.Message.Chat.ID, strings.TrimSpace(upd.Message.Text))
+			handleTelegramMessage(db, upd.Message.Chat.ID, strings.TrimSpace(upd.Message.Text), raw)
 		}
 	}
 }
 
-func handleTelegramMessage(db *sql.DB, chatID int64, text string) {
-	if !strings.HasPrefix(text, "/start") {
-		sendTelegramMessage(chatID, "Это бот-оповещатель Axentis Market для магазинов.\nПодключите его в панели компании: Настройки → Telegram-оповещения.")
-		return
+func handleTelegramMessage(db *sql.DB, chatID int64, text string, raw []byte) {
+	code := ""
+	if strings.HasPrefix(text, "/start") {
+		code = strings.TrimSpace(strings.TrimPrefix(text, "/start"))
 	}
-	code := strings.TrimSpace(strings.TrimPrefix(text, "/start"))
 	if code == "" {
-		sendTelegramMessage(chatID, "Чтобы привязать магазин, откройте панель компании на сайте:\nНастройки → Telegram-оповещения → «Подключить» — и вернитесь сюда по ссылке.")
+		// Не привязка магазина → это покупатель: OTP-доставщик попросит
+		// поделиться номером и запомнит chat_id (вход по SMS-коду бесплатно).
+		if tgOTPSender != nil {
+			tgOTPSender.HandleTelegramUpdate(raw)
+			return
+		}
+		sendTelegramMessage(chatID, "Это бот Axentis Market.\nМагазины подключают его в панели: Настройки → Telegram-оповещения.")
 		return
 	}
 	var companyID int64
@@ -246,6 +268,11 @@ func handleTelegramMessage(db *sql.DB, chatID int64, text string) {
 	err := db.QueryRow(`SELECT id, name FROM companies WHERE telegram_connect_code = $1`, code).
 		Scan(&companyID, &companyName)
 	if err != nil {
+		// Код не компании — возможно, это deep-link OTP-потока; отдаём доставщику.
+		if tgOTPSender != nil {
+			tgOTPSender.HandleTelegramUpdate(raw)
+			return
+		}
 		sendTelegramMessage(chatID, "❌ Код привязки не найден или устарел. Откройте настройки панели и получите новую ссылку.")
 		return
 	}

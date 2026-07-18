@@ -62,28 +62,32 @@ api.interceptors.request.use(async (config) => {
 });
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
-// mode/privateCode — закрытый режим (как на веб-версии): пользователь входит с
-// кодом компании и видит только её товары. Без кода — публичный режим.
-export const loginUser = async (phone, password, mode = 'public', privateCode) => {
-  const res = await api.post(ENDPOINTS.loginUser, {
-    phone,
-    password,
-    mode,
-    privateCode: mode === 'private' ? privateCode : undefined,
-  });
+// extra: { mode: 'private', privateCode: '...' } — вход в закрытую компанию.
+export const loginUser = async (phone, password, extra = {}) => {
+  const res = await api.post(ENDPOINTS.loginUser, { phone, password, ...extra });
   return res.data;
 };
 
-export const registerUser = async (phone, name, surname, password, mode = 'public', privateCode) => {
-  const res = await api.post(ENDPOINTS.registerUser, {
-    phone,
-    name,
-    surname,
-    password,
-    mode,
-    privateCode: mode === 'private' ? privateCode : undefined,
-  });
+export const registerUser = async (phone, name, surname, password, extra = {}) => {
+  const res = await api.post(ENDPOINTS.registerUser, { phone, name, surname, password, ...extra });
   return res.data;
+};
+
+// 📲 Вход по SMS-коду
+export const requestOtp = async (phone) => {
+  const res = await api.post('/auth/otp/request', { phone });
+  return res.data; // { success, channel, ttlSeconds, devCode? }
+};
+
+export const verifyOtp = async (phone, code, extra = {}) => {
+  const res = await api.post('/auth/otp/verify', { phone, code, ...extra });
+  return res.data; // { success, user, token }
+};
+
+// 🔒 Проверка ID закрытой компании (перед входом/регистрацией)
+export const verifyPrivateCode = async (privateCode) => {
+  const res = await api.post('/companies/verify-private-code', { privateCode });
+  return res.data; // { success, companyId, name, logoUrl? }
 };
 
 // ─── Products ─────────────────────────────────────────────────────────────────

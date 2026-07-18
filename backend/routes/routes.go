@@ -4,6 +4,7 @@ import (
 	"azaton-backend/config"
 	"azaton-backend/middleware"
 	"azaton-backend/routes/handlers"
+	"azaton-backend/sms"
 	"database/sql"
 	"strings"
 
@@ -62,6 +63,12 @@ func Setup(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 	router.GET("/robots.txt", handlers.RobotsTxt)
 	router.GET("/sitemap.xml", handlers.Sitemap(db))
 
+	// Канал доставки SMS/OTP (Eskiz → Telegram-бот → dev-лог).
+	smsSender := sms.NewSender(db, cfg.EskizEmail, cfg.EskizPassword, cfg.EskizFrom, cfg.TelegramBotToken)
+	// Long polling бот (оповещения магазинам) доставляет и OTP-коды: передаём
+	// ему обработчик, чтобы webhook настраивать было не нужно.
+	handlers.SetTelegramOTPSender(smsSender)
+
 	// API routes
 	api := router.Group("/api")
 	// Attach the authenticated principal (companyId/phone/role) to the request
@@ -80,6 +87,14 @@ func Setup(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 			auth.POST("/register/company", handlers.RegisterCompany(db, cfg))
 			auth.POST("/login/company", handlers.LoginCompany(db, cfg))
 			auth.POST("/login/admin", handlers.LoginAdmin(db, cfg))
+
+			// 📲 Вход по SMS-коду: Eskiz → Telegram-бот → dev-лог.
+			auth.POST("/otp/request", handlers.RequestOTP(db, cfg, smsSender))
+			auth.POST("/otp/verify", handlers.VerifyOTP(db, cfg))
+		}
+		if cfg.TelegramBotToken != "" {
+			// Приём обновлений Телеграм-бота (бесплатная доставка кодов).
+			api.POST("/telegram/webhook", handlers.TelegramWebhook(smsSender))
 		}
 
 		// Products routes

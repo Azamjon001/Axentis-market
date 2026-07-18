@@ -1,23 +1,31 @@
-// Динамический конфиг поверх app.json.
+// Динамический конфиг поверх app.json. Делает две вещи:
 //
-// Зачем: сборка APK дважды падала из-за google-services.json (ключи Firebase
-// для push-уведомлений):
-//   1) файла не было в git — prebuild падал с ENOENT;
-//   2) файл передали через EAS, но внутри него Firebase-клиент зарегистрирован
-//      на ДРУГОЙ package name — gradle падал на :app:processReleaseGoogleServices
-//      «No matching client found for package name 'com.axentis.homepage'».
-// Поэтому файл подключается ТОЛЬКО если он существует И содержит клиент именно
-// для нашего пакета. Во всех остальных случаях собираем без него (приложение
-// работает, просто нет FCM-пушей) и пишем понятное предупреждение в лог сборки.
+// 1) 🔀 Два приложения из одной кодовой базы:
+//    • Публичный маркет (по умолчанию) — обычный Axentis Market.
+//    • «Axentis Private» — приложение для покупателей ЗАКРЫТЫХ компаний:
+//      вход только по уникальному ID компании, виден только её каталог.
+//    Сборка приватного варианта:
+//      APP_VARIANT=private npx expo start
+//      APP_VARIANT=private eas build --platform android
 //
-// Как правильно включить push-уведомления:
-//   1. В Firebase Console → Project settings → Your apps → Add app → Android,
-//      укажите package name ровно `com.axentis.homepage`.
-//   2. Скачайте новый google-services.json ИМЕННО этого приложения.
-//   3. Передайте его в EAS:
-//      eas env:create --scope project --name GOOGLE_SERVICES_JSON \
-//        --type file --value ./google-services.json
-//   (или просто положите файл в Homepage/ и закоммитьте)
+// 2) 🔥 Безопасное подключение google-services.json (ключи Firebase для
+//    push-уведомлений). Сборка APK дважды падала из-за него:
+//      • файла не было в git — prebuild падал с ENOENT;
+//      • файл был, но Firebase-клиент в нём зарегистрирован на ДРУГОЙ
+//        package name — gradle падал на :app:processReleaseGoogleServices.
+//    Поэтому файл подключается ТОЛЬКО если он существует И содержит клиент
+//    именно для собираемого пакета. Иначе собираем без него (приложение
+//    работает, просто нет FCM-пушей) и пишем предупреждение в лог сборки.
+//
+//    Как включить push-уведомления:
+//      1. Firebase Console → Project settings → Add app → Android,
+//         package name ровно как у собираемого варианта
+//         (com.axentis.homepage или com.axentis.private).
+//      2. Скачайте google-services.json ИМЕННО этого приложения.
+//      3. Передайте его в EAS:
+//         eas env:create --scope project --name GOOGLE_SERVICES_JSON \
+//           --type file --value ./google-services.json
+//      (или просто положите файл в Homepage/ и закоммитьте)
 const fs = require('fs');
 const path = require('path');
 
@@ -36,7 +44,32 @@ function matchesPackage(filePath, pkg) {
 }
 
 module.exports = ({ config }) => {
-  const android = { ...(config.android || {}) };
+  const isPrivate = process.env.APP_VARIANT === 'private';
+
+  // ── Вариант приложения (публичный / закрытый) ──
+  let merged = {
+    ...config,
+    extra: { ...(config.extra || {}), appVariant: isPrivate ? 'private' : 'public' },
+  };
+  if (isPrivate) {
+    merged = {
+      ...merged,
+      name: 'Axentis Private',
+      slug: 'homepage-private',
+      scheme: 'axentis-private',
+      ios: {
+        ...(merged.ios || {}),
+        bundleIdentifier: 'com.axentis.private',
+      },
+      android: {
+        ...(merged.android || {}),
+        package: 'com.axentis.private',
+      },
+    };
+  }
+
+  // ── google-services.json: подключаем только валидный для этого пакета ──
+  const android = { ...(merged.android || {}) };
   delete android.googleServicesFile;
 
   const pkg = android.package;
@@ -59,5 +92,5 @@ module.exports = ({ config }) => {
     );
   }
 
-  return { ...config, android };
+  return { ...merged, android };
 };

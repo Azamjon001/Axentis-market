@@ -24,7 +24,7 @@ export const AuthProvider = ({ children }) => {
       const savedUser = await AsyncStorage.getItem('currentUser');
       if (savedUser) {
         const parsed = JSON.parse(savedUser);
-        setUser(parsed);
+        await applyUser(parsed);
 
         // Персональные эндпоинты требуют JWT. Старые установки могли сохранить
         // сессию без токена — тихо перелогиниваем (для аккаунтов без пароля).
@@ -40,8 +40,7 @@ export const AuthProvider = ({ children }) => {
 
         try {
           const fresh = await getUserProfile(parsed.phone);
-          setUser(fresh);
-          await AsyncStorage.setItem('currentUser', JSON.stringify(fresh));
+          await applyUser(fresh);
         } catch {
           // use cached
         }
@@ -53,27 +52,32 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // mode/privateCode — вход в закрытый магазин компании (как на веб-версии):
-  // бэкенд возвращает user.mode='private' и privateCompanyId, после чего все
-  // GET-запросы автоматически изолируются на товары этой компании.
-  const login = async (phone, password, mode = 'public', privateCode) => {
-    const result = await loginUser(phone, password, mode, privateCode);
+  // extra: { mode: 'private', privateCode } — вход в закрытую компанию.
+  const login = async (phone, password, extra = {}) => {
+    const result = await loginUser(phone, password, extra);
     const userData = result.user || result;
-    setUser(userData);
-    await AsyncStorage.setItem('currentUser', JSON.stringify(userData));
+    await applyUser(userData);
     if (result.token) await AsyncStorage.setItem('userToken', result.token);
   };
 
-  const register = async (phone, name, surname, password, mode = 'public', privateCode) => {
-    const result = await registerUser(phone, name, surname, password, mode, privateCode);
+  const register = async (phone, name, surname, password, extra = {}) => {
+    const result = await registerUser(phone, name, surname, password, extra);
     const userData = result.user || result;
-    setUser(userData);
-    await AsyncStorage.setItem('currentUser', JSON.stringify(userData));
+    await applyUser(userData);
+    if (result.token) await AsyncStorage.setItem('userToken', result.token);
+  };
+
+  // 📲 Вход по SMS-коду: код уже запрошен через requestOtp, здесь проверяем.
+  const loginWithOtp = async (phone, code, extra = {}) => {
+    const result = await verifyOtp(phone, code, extra);
+    const userData = result.user || result;
+    await applyUser(userData);
     if (result.token) await AsyncStorage.setItem('userToken', result.token);
   };
 
   const logout = async () => {
     setUser(null);
+    setPrivateScope(null);
     await AsyncStorage.multiRemove(['currentUser', 'userToken']);
   };
 
@@ -81,8 +85,7 @@ export const AuthProvider = ({ children }) => {
     if (!user) return;
     try {
       const fresh = await getUserProfile(user.phone);
-      setUser(fresh);
-      await AsyncStorage.setItem('currentUser', JSON.stringify(fresh));
+      await applyUser(fresh);
     } catch {
       // ignore
     }
@@ -95,6 +98,7 @@ export const AuthProvider = ({ children }) => {
       isAuthenticated: !!user,
       login,
       register,
+      loginWithOtp,
       logout,
       refreshUser,
     }}>

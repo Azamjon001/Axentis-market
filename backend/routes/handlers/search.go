@@ -64,6 +64,10 @@ func SearchProducts(db *sql.DB) gin.HandlerFunc {
 			addF(`COALESCE(p.brand, '') ILIKE ?`, v)
 		}
 
+		// Область видимости: публичный покупатель видит только публичные
+		// компании; покупатель закрытой компании — только её товары.
+		visibility := visibilityCond(c, "c", &args, &arg)
+
 		orderBy := "rank DESC, sold_count DESC"
 		switch c.Query("sort") {
 		case "price_asc":
