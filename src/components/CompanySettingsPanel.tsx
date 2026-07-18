@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { Lock, Unlock, Copy, Check, RefreshCw, AlertCircle, Globe, Shield, Truck, RotateCcw, MapPin, X, QrCode, Download } from 'lucide-react';
+import { Lock, Unlock, Copy, Check, RefreshCw, AlertCircle, Globe, Shield, Truck, RotateCcw, MapPin, X, QrCode, Download, Send } from 'lucide-react';
 import { QRCodeCanvas } from 'qrcode.react';
 import api from '../utils/api';
 import { useTranslation, getCurrentLanguage } from '../utils/translations';
@@ -48,6 +48,29 @@ export default function CompanySettingsPanel({ companyId }: CompanySettingsPanel
   // Зоны, созданные админом в админ-панели (с границами GeoJSON) — выбираются
   // наравне с системными областями Узбекистана.
   const [adminRegions, setAdminRegions] = useState<Array<{ id: number; name: string; nameUz?: string; geojson?: any }>>([]);
+
+  // 🤖 Telegram-оповещения: статус привязки + ссылка подключения
+  const [tgStatus, setTgStatus] = useState<{ enabled: boolean; connected: boolean; connectLink?: string; botName?: string } | null>(null);
+  const [tgBusy, setTgBusy] = useState(false);
+
+  const loadTelegramStatus = async () => {
+    try {
+      setTgStatus(await api.companies.telegramStatus(companyId));
+    } catch {
+      setTgStatus(null);
+    }
+  };
+  useEffect(() => { loadTelegramStatus(); }, [companyId]);
+
+  const disconnectTelegram = async () => {
+    setTgBusy(true);
+    try {
+      await api.companies.telegramDisconnect(companyId);
+      await loadTelegramStatus();
+    } finally {
+      setTgBusy(false);
+    }
+  };
 
   useEffect(() => {
     loadCompanyData();
@@ -240,6 +263,75 @@ export default function CompanySettingsPanel({ companyId }: CompanySettingsPanel
           </div>
         </div>
       </div>
+
+      {/* 🤖 Telegram-оповещения: критические остатки + дневной отчёт */}
+      {tgStatus?.enabled && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <Send className="w-6 h-6 text-sky-500" />
+            <div className="flex-1">
+              <h3 className="text-lg font-bold text-gray-800 dark:text-gray-100">
+                {language === 'uz' ? 'Telegram-ogohlantirishlar' : 'Telegram-оповещения'}
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                {language === 'uz'
+                  ? 'Faqat muhim narsalar: tovar zaxirasi kritik darajaga tushganda ogohlantirish va soat 21:00 da bir xabar bilan kunlik hisobot. Qolgan hammasi — saytda.'
+                  : 'Только критичное: сигнал, когда остаток товара падает до критического уровня, и дневной отчёт одним сообщением в 21:00. Всё остальное — на сайте.'}
+              </p>
+            </div>
+          </div>
+
+          {tgStatus.connected ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
+                <Check className="w-4 h-4" />
+                {language === 'uz' ? 'Ulangan' : 'Подключено'}
+              </span>
+              <button
+                onClick={disconnectTelegram}
+                disabled={tgBusy}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition disabled:opacity-60"
+              >
+                <X className="w-4 h-4" />
+                {language === 'uz' ? 'Uzish' : 'Отключить'}
+              </button>
+            </div>
+          ) : tgStatus.connectLink ? (
+            <div className="space-y-3">
+              <a
+                href={tgStatus.connectLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => {
+                  // Через несколько секунд обновляем статус — бот успеет привязать чат
+                  setTimeout(loadTelegramStatus, 6000);
+                  setTimeout(loadTelegramStatus, 15000);
+                }}
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-sky-500 text-white rounded-lg hover:bg-sky-600 transition-colors text-sm font-semibold"
+              >
+                <Send className="w-4 h-4" />
+                {language === 'uz' ? 'Telegramda ulash' : 'Подключить в Telegram'}
+              </a>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {language === 'uz'
+                  ? 'Havola botni ochadi — «Start» tugmasini bosing, doʻkon avtomatik ulanadi.'
+                  : 'Ссылка откроет бота — нажмите «Start», магазин привяжется автоматически.'}
+              </p>
+              <button
+                onClick={loadTelegramStatus}
+                className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                {language === 'uz' ? 'Holatni yangilash' : 'Обновить статус'}
+              </button>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              {language === 'uz' ? 'Bot vaqtincha mavjud emas' : 'Бот временно недоступен'}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* 🗺️ Регион доставки */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-200 dark:border-gray-700 p-6">

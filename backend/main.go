@@ -43,6 +43,10 @@ func main() {
 	// Start engagement workers: back-in-stock alerts + abandoned-cart reminders
 	handlers.RunEngagementWorkers(db)
 
+	// Telegram-оповещения магазинам: критические остатки + дневной отчёт 21:00
+	// (включается переменной окружения TELEGRAM_BOT_TOKEN)
+	handlers.RunTelegramWorkers(db)
+
 	// Provide config to user auth handlers so they can issue JWT tokens.
 	handlers.InitUserConfig(cfg)
 

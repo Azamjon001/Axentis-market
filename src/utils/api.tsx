@@ -795,6 +795,11 @@ export const companies = {
   deleteStory: async (id: string | number, storyId: number) =>
     apiCall(`/companies/${id}/stories/${storyId}`, { method: 'DELETE' }),
 
+  // 🤖 Telegram-оповещения магазина: статус/ссылка привязки и отключение
+  telegramStatus: async (id: string | number) => apiCall(`/companies/${id}/telegram`),
+  telegramDisconnect: async (id: string | number) =>
+    apiCall(`/companies/${id}/telegram`, { method: 'DELETE' }),
+
   // 🎉 Скидочные кампании (именованные акции)
   listCampaigns: async (id: string | number) => apiCall(`/companies/${id}/campaigns`),
   createCampaign: async (id: string | number, data: any) =>

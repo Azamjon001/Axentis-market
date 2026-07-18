@@ -201,6 +201,8 @@ func Setup(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 			companies.PUT("/:id/privacy", middleware.RequireAdminOrOwnCompany(), handlers.ToggleCompanyPrivacy(db)) // 🔐 Переключение приватности
 			companies.PUT("/:id/region", middleware.RequireAdminOrOwnCompany(), handlers.SetCompanyRegion(db)) // 🗺️ Компания выбирает регион доставки
 			companies.PUT("/:id/delivery", middleware.RequireAdminOrOwnCompany(), handlers.ToggleCompanyDelivery(db)) // 🚚 Переключение доставки
+			companies.GET("/:id/telegram", middleware.RequireAdminOrOwnCompany(), handlers.GetCompanyTelegramStatus(db))    // 🤖 Статус/ссылка привязки Telegram
+			companies.DELETE("/:id/telegram", middleware.RequireAdminOrOwnCompany(), handlers.DisconnectCompanyTelegram(db)) // 🤖 Отвязать Telegram
 			companies.POST("/verify-private-code", handlers.VerifyPrivateCode(db)) // 🔍 Проверка кода
 			companies.POST("/:id/rate", handlers.RateCompany(db)) // ⭐ Оценка компании
 			companies.GET("/:id/reviews", handlers.GetCompanyReviews(db)) // 💬 Отзывы магазина
