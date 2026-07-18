@@ -372,7 +372,7 @@ export default function CompanyDiscountsPanel({ companyId, products: initialProd
               }}>
                 <div className="discount-card-header" style={styles.cardHeader}>
                   <div style={{...styles.statusBadge, backgroundColor: active ? getStatusColor(discount.status) : '#9ca3af'}}>
-                    {getStatusText(discount.status)}
+                    {getStatusText(discount)}
                   </div>
                   <button 
                     style={styles.deleteButton}

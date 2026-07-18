@@ -2,36 +2,47 @@ import { useState } from 'react';
 import { Calendar, ChevronDown, Check } from 'lucide-react';
 import { getCurrentLanguage } from '../utils/translations';
 
-type PeriodType = 'day' | 'week' | 'month' | 'year' | 'custom';
+// Полный словарь периодов; каждая панель выбирает поддерживаемое ею
+// подмножество через prop `options` — иначе селектор мог отдать период
+// (например, 'custom'), который панель не умеет обрабатывать.
+type PeriodType = 'day' | 'yesterday' | 'week' | 'month' | 'year' | 'all' | 'custom';
 
-interface CompactPeriodSelectorProps {
-  value: PeriodType;
-  onChange: (period: PeriodType) => void;
+interface CompactPeriodSelectorProps<T extends PeriodType = PeriodType> {
+  value: T;
+  onChange: (period: T) => void;
+  options?: readonly T[];
   label?: string;
   language?: string;
 }
 
 const periodLabelsRu: Record<PeriodType, string> = {
   day: 'Сегодня',
+  yesterday: 'Вчера',
   week: 'Неделя',
   month: 'Месяц',
   year: 'Год',
+  all: 'Всё время',
   custom: 'Период'
 };
 
 const periodLabelsUz: Record<PeriodType, string> = {
   day: 'Bugun',
+  yesterday: 'Kecha',
   week: 'Hafta',
   month: 'Oy',
   year: 'Yil',
+  all: 'Butun davr',
   custom: 'Davr'
 };
 
-export default function CompactPeriodSelector({ value, onChange, label, language }: CompactPeriodSelectorProps) {
+const DEFAULT_OPTIONS: readonly PeriodType[] = ['day', 'week', 'month', 'year', 'custom'];
+
+export default function CompactPeriodSelector<T extends PeriodType = PeriodType>({ value, onChange, options, label, language }: CompactPeriodSelectorProps<T>) {
   const [isOpen, setIsOpen] = useState(false);
 
   const lang = language || getCurrentLanguage();
   const periodLabels = lang === 'uz' ? periodLabelsUz : periodLabelsRu;
+  const visibleOptions = (options ?? DEFAULT_OPTIONS) as readonly T[];
 
   return (
     <div className="relative inline-block">
@@ -74,7 +85,7 @@ export default function CompactPeriodSelector({ value, onChange, label, language
             }}
           >
             <div className="p-1">
-              {(Object.keys(periodLabels) as PeriodType[]).map((period) => (
+              {visibleOptions.map((period) => (
                 <button
                   key={period}
                   onClick={() => {

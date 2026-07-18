@@ -701,6 +701,9 @@ export interface Translations {
   showEarnings: string;
   totalCompanySales: string;
   platformFee: string;
+  fromCompanyRevenue: string;
+  fromPlatformFee: string;
+  companyDescription: string;
   yourEarnings: string;
   fromSales: string;
   howCalculated: string;
@@ -1694,6 +1697,9 @@ export const translations: Record<Language, Translations> = {
     showEarnings: 'Показать доходы',
     totalCompanySales: 'Продажи компаний',
     platformFee: 'Комиссия платформы',
+    fromCompanyRevenue: 'от выручки компаний',
+    fromPlatformFee: 'от комиссии платформы',
+    companyDescription: 'Описание компании',
     yourEarnings: 'Ваш доход',
     fromSales: 'от продаж',
     howCalculated: 'Как рассчитывается ваш доход?',
@@ -2672,6 +2678,9 @@ export const translations: Record<Language, Translations> = {
     showEarnings: 'Daromadni ko\'rsatish',
     totalCompanySales: 'Kompaniyalar savdosi',
     platformFee: 'Platforma komissiyasi',
+    fromCompanyRevenue: 'kompaniyalar tushumidan',
+    fromPlatformFee: 'platforma komissiyasidan',
+    companyDescription: 'Kompaniya tavsifi',
     yourEarnings: 'Sizning daromadingiz',
     fromSales: 'savdodan',
     howCalculated: 'Daromadingiz qanday hisoblanadi?',

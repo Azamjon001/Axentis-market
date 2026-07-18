@@ -277,6 +277,7 @@ func Setup(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 		users := api.Group("/users")
 		{
 			users.POST("/check-unique", handlers.CheckUserUnique(db))
+			users.POST("/purge", middleware.RequireAdmin(cfg), handlers.PurgeUsers(db)) // 🗑️ «Опасная зона» админ-панели
 			users.GET("/count", handlers.GetUsersCount(db))
 			users.DELETE("", middleware.RequireAdmin(cfg), handlers.DeleteAllUsers(db)) // 🗑️ Опасная зона админки
 			users.GET("/:phone", handlers.GetUserByPhone(db))

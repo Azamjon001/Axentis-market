@@ -133,6 +133,8 @@ export default function SettingsPage({
         if (response?.success && response?.avatar_url) {
           setProfilePhoto(getImageUrl(response.avatar_url) || '');
           alert('Фото профиля обновлено!');
+        } else {
+          throw new Error(data.error || 'upload failed');
         }
       } catch (error: any) {
         console.error('Error uploading avatar:', error);

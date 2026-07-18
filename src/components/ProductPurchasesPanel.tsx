@@ -295,11 +295,12 @@ export default function ProductPurchasesPanel({ companyId }: ProductPurchasesPan
         </button>
       </div>
 
-      {/* Period Filter */}
+      {/* Period Filter — только периоды, которые панель реально фильтрует */}
       <CompactPeriodSelector
         value={timePeriod}
         onChange={setTimePeriod}
         language={language}
+        options={['day', 'yesterday', 'week', 'month', 'year', 'all'] as const}
       />
 
       {/* Statistics Cards */}
@@ -509,7 +510,7 @@ export default function ProductPurchasesPanel({ companyId }: ProductPurchasesPan
 
       {/* Purchases List */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
-        {purchases.length === 0 && warehouseProducts.length === 0 ? (
+        {purchases.length === 0 ? (
           <div className="p-12 text-center">
             <Package className="-4" />
             <p className="text-gray-600 dark:text-gray-400">

@@ -883,6 +883,12 @@ export const users = {
     });
   },
 
+  // 🗑️ «Опасная зона» админ-панели: удалить всех покупателей (scope=users)
+  // или покупателей вместе с их данными (scope=all). Заказы не трогаются.
+  purge: async (scope: 'users' | 'all') => {
+    return apiCall('/users/purge', { method: 'POST', body: JSON.stringify({ scope }) });
+  },
+
   // Get own profile
   me: async () => {
     return apiCall('/users/me');
@@ -932,14 +938,13 @@ export const users = {
     });
   },
 
-  // Get liked products
+  // Get liked products — источник правды /favorites/:phone
+  // (старый маршрут /users/likes удалён с бэкенда)
   getLikes: async (phone?: string) => {
-    if (phone) {
-      const items = await apiCall(`/favorites/${phone}`, { requiresAuth: false });
-      if (!Array.isArray(items)) return [];
-      return items.map((item: any) => Number(item.product_id));
-    }
-    return apiCall('/users/likes');
+    if (!phone) return [];
+    const items = await apiCall(`/favorites/${phone}`, { requiresAuth: false });
+    if (!Array.isArray(items)) return [];
+    return items.map((item: any) => Number(item.product_id));
   },
 
   // Sync likes: diff-based — only add missing, remove extra. No GET needed for individual ops.
@@ -1528,8 +1533,10 @@ export const analytics = {
     return apiCall(`/analytics/products/top?${query}`, { requiresAuth: false });
   },
 
-  // Get revenue analytics
+  // Get revenue analytics — companyId обязателен для компании
+  // (бэкенд сверяет его с токеном через RequireCompanyScope)
   revenue: async (params?: {
+    companyId?: string;
     startDate?: string;
     endDate?: string;
     groupBy?: 'day' | 'week' | 'month';
@@ -2109,7 +2116,8 @@ export const addUser = (data: { first_name?: string; last_name?: string; phone_n
   const fullName = data.first_name && data.last_name ? `${data.first_name} ${data.last_name}` : data.first_name || '';
   return auth.registerUser(data.phone_number, fullName);
 };
-export const getCompanyRevenue = () => analytics.revenue();
+export const getCompanyRevenue = (companyId?: number | string) =>
+  analytics.revenue(companyId ? { companyId: String(companyId) } : undefined);
 export const getCompanyProfile = (companyId: string) => companies.get(companyId);
 
 export const getUserCart = (phone: string) => users.getCart(phone);

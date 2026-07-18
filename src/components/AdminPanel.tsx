@@ -343,6 +343,8 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
       'Удалить ВСЕ данные пользователей? Это действие нельзя отменить!';
 
     if (!confirm(confirmMessage)) return;
+    // Двойное подтверждение — операция необратима
+    if (!confirm('Вы уверены? Восстановить данные будет невозможно.')) return;
 
     try {
       const res: any = await api.users.deleteAll(type);

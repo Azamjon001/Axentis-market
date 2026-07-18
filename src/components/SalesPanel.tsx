@@ -51,8 +51,6 @@ export default function SalesPanel({ companyId }: SalesPanelProps) {
   const [customerOrders, setCustomerOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [orderSearchCode, setOrderSearchCode] = useState('');
-  const [foundOrder, setFoundOrder] = useState<Order | null>(null);
   const [showOrderReceipt, setShowOrderReceipt] = useState(false);
   
   // 📱 Адаптивность
@@ -224,21 +222,6 @@ export default function SalesPanel({ companyId }: SalesPanelProps) {
     return name.includes(query) || price.includes(query) || quantity.includes(query);
   });
 
-  const handleToggleCustomerAvailability = async (productId: number) => {
-    try {
-      const result = await api.products.toggleAvailability(productId);
-      // Update local state
-      setProducts(products.map(p => 
-        p.id === productId 
-          ? { ...p, availableForCustomers: result.availableForCustomers }
-          : p
-      ));
-    } catch (error) {
-      console.error('Error toggling customer availability:', error);
-      alert(t.statusChangeError);
-    }
-  };
-
   // Toggle product selection for sale
   const toggleProductSelection = (productId: number) => {
     const newSelected = new Set(selectedForSale);
@@ -360,22 +343,6 @@ export default function SalesPanel({ companyId }: SalesPanelProps) {
   // Get pending customer orders
   const getPendingOrders = () => {
     return customerOrders.filter(order => order.status === 'pending');
-  };
-
-  // Search order by code
-  const handleSearchOrder = async () => {
-    if (!orderSearchCode.trim()) {
-      setFoundOrder(null);
-      return;
-    }
-
-    try {
-      const order = await api.orders.searchByCode(orderSearchCode);
-      setFoundOrder(order);
-    } catch (error) {
-      console.error('Error searching order:', error);
-      alert(t.orderSearchError);
-    }
   };
 
   // 📄 Экспорт истории продаж в CSV (открывается в Excel — BOM для кириллицы).

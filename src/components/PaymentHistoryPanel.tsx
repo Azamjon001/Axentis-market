@@ -10,6 +10,7 @@ interface PaymentHistoryItem {
   userPhone?: string;
   cardLastFour: string;
   cardType: string;
+  cardSubtype?: string | null; // uzcard/humo — приходит с бэкенда вместе с paymentMethod
   amount: number;
   markupProfit?: number;
   status: string;
