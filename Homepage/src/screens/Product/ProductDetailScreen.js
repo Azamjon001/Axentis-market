@@ -21,6 +21,7 @@ import {
   getFlashSale, notifyWhenInStock,
 } from '../../api';
 import { getImageUrl } from '../../utils/imageUrl';
+import { tryOpenInApp } from '../../utils/openInApp';
 import { tapLight, tapMedium, notifySuccess, notifyError } from '../../utils/haptics';
 import ProductCard from '../../components/common/ProductCard';
 
@@ -96,6 +97,8 @@ export default function ProductDetailScreen() {
     loadAll();
     getFlashSale(productId).then((fs) => setFlashSale(fs?.active ? fs : null)).catch(() => {});
     setStockNotified(false);
+    // 🔗 Ссылка «Поделиться» открыта в браузере → пробуем открыть приложение.
+    tryOpenInApp(`product/${productId}`);
   }, [productId]);
 
   // Тикаем раз в секунду, пока идёт флеш-распродажа — для обратного отсчёта.
@@ -273,11 +276,12 @@ export default function ProductDetailScreen() {
     const next = selectedSize === size ? null : size;
     setSelectedSize(next);
     if (next) {
-      // Сначала цвет, потом размер: если у товара есть цвета, размер ищем строго
-      // внутри выбранного цвета (без автоподстановки «первого» цвета).
-      const match = uniqueColors.length > 0
+      // Цвет необязателен: если он выбран — ищем вариант внутри цвета,
+      // иначе берём первый вариант с таким размером (в наличии — приоритет).
+      const match = selectedColor
         ? variants.find(v => v.color === selectedColor && v.size === next)
-        : variants.find(v => v.size === next);
+        : (variants.find(v => v.size === next && (v.stockQuantity || 0) > 0)
+          ?? variants.find(v => v.size === next));
       setSelectedVariant(match ?? null);
     } else {
       setSelectedVariant(null);
@@ -289,7 +293,7 @@ export default function ProductDetailScreen() {
     // Гость тоже может добавлять — корзина хранится локально и переносится
     // на сервер после входа (вход спросим только при оформлении).
     if (hasVariants && !selectedVariant) {
-      Alert.alert(t('selectVariant'), uniqueColors.length > 0 ? t('selectColorSize') : t('selectSize'));
+      Alert.alert(t('selectVariant'), t('selectSize'));
       return;
     }
     if (inCart) {
@@ -317,7 +321,7 @@ export default function ProductDetailScreen() {
   const handleBuyNow = async () => {
     if (!product) return;
     if (hasVariants && !selectedVariant) {
-      Alert.alert(t('selectVariant'), uniqueColors.length > 0 ? t('selectColorSize') : t('selectSize'));
+      Alert.alert(t('selectVariant'), t('selectSize'));
       return;
     }
     tapMedium();
@@ -717,15 +721,7 @@ export default function ProductDetailScreen() {
                 </View>
               )}
 
-              {/* Сначала выбираем цвет — размеры показываем только после выбора цвета */}
-              {uniqueColors.length > 0 && !selectedColor && (
-                <View style={[styles.variantInfo, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                  <Ionicons name="color-palette-outline" size={16} color={colors.primary} />
-                  <Text style={[styles.variantInfoText, { color: colors.textSecondary }]}>{t('selectColorFirst')}</Text>
-                </View>
-              )}
-
-              {(uniqueColors.length === 0 || selectedColor) && sizesForColor(selectedColor).length > 0 && (
+              {sizesForColor(selectedColor).length > 0 && (
                 <View>
                   <Text style={[styles.variantLabel, { color: colors.text }]}>
                     {sizesForColor(selectedColor).some(s => /gb|гб|tb|тб|\d\/\d/i.test(String(s))) ? t('memoryLabel') : t('sizeLabel')}
@@ -783,7 +779,7 @@ export default function ProductDetailScreen() {
                 </View>
               )}
 
-              {!selectedVariant && (uniqueColors.length === 0 || selectedColor) && (
+              {!selectedVariant && (
                 <Text style={[styles.variantHint, { color: colors.textMuted }]}>
                   {t('selectSize')}
                 </Text>

@@ -23,7 +23,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useFavorites } from '../../context/FavoritesContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { getProducts, getCategories, getApprovedAds, getRecentlyViewed, getRecommendations, getCampaigns, getDeliveryRegions } from '../../api';
+import { getProducts, getCategories, getApprovedAds, getRecentlyViewed, getRecommendations, getCampaigns, getDeliveryRegions, searchProducts } from '../../api';
 import { useLocationRegion } from '../../context/LocationContext';
 import { ALL_REGION_NAMES } from '../../utils/region';
 import ProductCard from '../../components/common/ProductCard';
@@ -195,16 +195,32 @@ export default function HomeScreen() {
     }
   }, [isLoadingMore, hasMore, debouncedSearch, activeCategory, offset, getModeParams, regionReady]);
 
+  // 🔎 Поиск — серверный: находит по названию, АРТИКУЛУ, бренду и категории
+  // среди ВСЕХ товаров (раньше фильтровался только загруженный кусок ленты
+  // и только по названию — товар по артикулу «не находился»).
+  const [searchResults, setSearchResults] = useState([]);
+  useEffect(() => {
+    const q = debouncedSearch.trim();
+    if (!q) { setSearchResults([]); return; }
+    let active = true;
+    searchProducts(q, 40)
+      .then((res) => { if (active) setSearchResults(res); })
+      .catch(() => { if (active) setSearchResults([]); });
+    return () => { active = false; };
+  }, [debouncedSearch]);
+
   const displayProducts = useMemo(() => {
-    let list = products;
     if (debouncedSearch.trim()) {
-      list = list.filter(p => p.name.toLowerCase().includes(debouncedSearch.toLowerCase()));
+      return activeCategory
+        ? searchResults.filter(p => p.category === activeCategory)
+        : searchResults;
     }
+    let list = products;
     if (activeCategory) {
       list = list.filter(p => p.category === activeCategory);
     }
     return list;
-  }, [products, debouncedSearch, activeCategory]);
+  }, [products, searchResults, debouncedSearch, activeCategory]);
 
   // 🗂️ Готовые подборки для главной: со скидкой, новинки, до 100 000 сум.
   const collections = useMemo(() => {
@@ -611,10 +627,15 @@ export default function HomeScreen() {
         />
       </Animated.View>
 
-      {/* 🗺️ Ручной выбор региона доставки */}
-      <Modal visible={regionPickerOpen} transparent animationType="slide" onRequestClose={() => setRegionPickerOpen(false)}>
+      {/* 🗺️ Ручной выбор региона доставки. Один аккуратный шит без сплошной
+          чёрной подложки: раньше слайд-анимация Modal поднимала затемнение
+          снизу как «вторую панель», закрывающую весь экран. */}
+      <Modal visible={regionPickerOpen} transparent animationType="fade" onRequestClose={() => setRegionPickerOpen(false)}>
         <Pressable style={styles.regionOverlay} onPress={() => setRegionPickerOpen(false)}>
-          <Pressable style={[styles.regionSheet, { backgroundColor: colors.surface }]} onPress={(e) => e.stopPropagation()}>
+          <Pressable
+            style={[styles.regionSheet, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            onPress={(e) => e.stopPropagation()}
+          >
             <View style={styles.regionHeader}>
               <Text style={[styles.regionTitle, { color: colors.text }]}>
                 {language === 'uz' ? 'Hududingizni tanlang' : 'Выберите ваш регион'}
@@ -807,8 +828,14 @@ const styles = StyleSheet.create({
   },
   emptyText: { fontSize: 15 },
   retryLocationBtn: { marginTop: 14, paddingHorizontal: 22, paddingVertical: 11, borderRadius: 12 },
-  regionOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  regionSheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 16, paddingBottom: 28 },
+  // Без чёрного затемнения — только прозрачная область для закрытия по тапу.
+  regionOverlay: { flex: 1, backgroundColor: 'transparent', justifyContent: 'flex-end' },
+  regionSheet: {
+    borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 16, paddingBottom: 28,
+    borderWidth: 1,
+    shadowColor: '#000', shadowOffset: { width: 0, height: -6 }, shadowOpacity: 0.25, shadowRadius: 16,
+    elevation: 16,
+  },
   regionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   regionTitle: { fontSize: 17, fontWeight: '700' },
   regionRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth },

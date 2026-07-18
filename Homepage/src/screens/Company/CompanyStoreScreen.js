@@ -19,6 +19,7 @@ import {
   rateCompany, getCompanyReviews,
 } from '../../api';
 import { getImageUrl } from '../../utils/imageUrl';
+import { tryOpenInApp } from '../../utils/openInApp';
 import ProductCard from '../../components/common/ProductCard';
 import { Radius, Spacing } from '../../constants/theme';
 import { TextInput } from 'react-native';
@@ -106,6 +107,9 @@ export default function CompanyStoreScreen() {
   };
 
   useEffect(() => { load(); }, [load]);
+
+  // 🔗 Ссылка на магазин открыта в браузере → пробуем открыть приложение.
+  useEffect(() => { tryOpenInApp(`company/${companyId}`); }, [companyId]);
 
   // 🎬 Тихо подтягиваем свежий профиль компании (в т.ч. видео-декорацию)
   // каждый раз, когда экран снова в фокусе — чтобы новая анимация появлялась

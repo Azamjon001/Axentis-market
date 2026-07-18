@@ -7,6 +7,7 @@ import CompanyPayoutsPanel from './CompanyPayoutsPanel';
 import AdvancedInsightsPanel from './AdvancedInsightsPanel';
 import PurchaseAnalytics from './PurchaseAnalytics';
 import CompactPeriodSelector from './CompactPeriodSelector';
+import MerchantCalculator from './MerchantCalculator';
 import AxAreaChart from './charts/AxAreaChart';
 import { getCurrentLanguage, useTranslation, type Language } from '../utils/translations';
 
@@ -384,7 +385,7 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
   };
 
   // Мини-серия для спарклайна: суммы метрики по N корзинам текущего периода
-  const getMetricSeries = (metric: 'profit' | 'online' | 'offline', buckets = 16): number[] => {
+  const getMetricSeries = (metric: 'profit' | 'online' | 'offline' | 'expenses', buckets = 16): number[] => {
     const { start, end } = getPeriodRange(financialTimePeriod);
     const span = Math.max(end.getTime() - start.getTime(), 1);
     const series = new Array(buckets).fill(0);
@@ -408,6 +409,26 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
           ? (parseFloat(s.markupProfit) || parseFloat(s.markup_profit) || 0)
           : (parseFloat(s.total_amount || s.totalAmount) || 0)
       ));
+    }
+    if (metric === 'expenses') {
+      // Разовые расходы — по своей дате; ежемесячные — равномерно по периоду.
+      let multiplier = 1;
+      if (financialTimePeriod === 'day') multiplier = 1 / 30;
+      else if (financialTimePeriod === 'week') multiplier = 7 / 30;
+      else if (financialTimePeriod === 'month') multiplier = 1;
+      else if (financialTimePeriod === 'year') multiplier = 12;
+      else if (financialTimePeriod === 'custom' && financialStartDate && financialEndDate) {
+        multiplier = (Math.ceil((financialEndDate.getTime() - financialStartDate.getTime()) / 86400000) + 1) / 30;
+      }
+      operatingExpensesList.forEach((exp) => {
+        const type: string = exp.expense_type || 'monthly';
+        if (type === 'one_time') {
+          put(exp.expense_date || exp.created_at, exp.amount || 0);
+        } else if (type === 'monthly') {
+          const perBucket = ((exp.monthly_amount || 0) * multiplier) / buckets;
+          for (let i = 0; i < buckets; i++) series[i] += perBucket;
+        }
+      });
     }
     return series;
   };
@@ -1052,9 +1073,12 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
             const profitDelta  = pctChange(balance, prevBalance);
             const onlineDelta  = pctChange(onlineSales, prevOnline);
             const offlineDelta = pctChange(offlineSales, prevOffline);
+            // Дельта расходов к прошлому периоду — как у остальных карточек
+            const expensesDelta = pctChange(companyExpenses, prevOpEx);
             const profitSeries  = getMetricSeries('profit');
             const onlineSeries  = getMetricSeries('online');
             const offlineSeries = getMetricSeries('offline');
+            const expensesSeries = getMetricSeries('expenses');
 
             // Быстрая статистика за период
             const periodCustomerOrders = getPeriodCustomerOrders();
@@ -1095,6 +1119,12 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
                     label={language === 'uz' ? 'Jami xarajat' : 'Расходы'}
                     value={`−${formatPrice(companyExpenses)}`}
                     accent="#F87171"
+                    delta={expensesDelta}
+                    deltaGoodWhenDown
+                    series={expensesSeries}
+                    sub={language === 'uz'
+                      ? 'Oldingi davrga nisbatan'
+                      : 'К прошлому периоду'}
                     footer={
                       <button
                         onClick={() => { setShowExpensesModal(true); setShowExtraExpenses(false); }}
@@ -1286,6 +1316,10 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
                     />
                   </div>
                 </motion.div>
+
+                {/* 🧮 Калькулятор торговца: дал / купил / продал с наценкой —
+                    цепочка расчётов с памятью и живым остатком */}
+                <MerchantCalculator companyId={companyId} language={language} />
               </div>
 
               {/* 🔻 МИНИ-ПАНЕЛЬ: детализация «Затраты компании» */}
@@ -1494,12 +1528,14 @@ function Sparkline({ data, color, width = 96, height = 30 }: { data: number[]; c
 }
 
 // Стат-карта верхнего ряда: подпись, крупное значение, дельта и спарклайн
-function MetricCard({ index, label, value, accent, delta, series, sub, footer }: {
+function MetricCard({ index, label, value, accent, delta, deltaGoodWhenDown, series, sub, footer }: {
   index: number;
   label: string;
   value: string;
   accent: string;
   delta?: number | null;
+  // Для расходов рост — плохо: красим «+» в красный, «−» в зелёный
+  deltaGoodWhenDown?: boolean;
   series?: number[];
   sub?: string;
   footer?: ReactNode;
@@ -1507,7 +1543,8 @@ function MetricCard({ index, label, value, accent, delta, series, sub, footer }:
   const deltaText = delta === null || delta === undefined
     ? null
     : `${delta >= 0 ? '+' : ''}${Math.abs(delta) >= 100 ? Math.round(delta) : delta.toFixed(1)}%`;
-  const deltaColor = (delta ?? 0) >= 0 ? '#22C55E' : '#F87171';
+  const deltaUp = (delta ?? 0) >= 0;
+  const deltaColor = (deltaGoodWhenDown ? !deltaUp : deltaUp) ? '#22C55E' : '#F87171';
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}

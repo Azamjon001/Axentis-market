@@ -68,9 +68,6 @@ export const ENDPOINTS = {
   // ❓ Вопросы к товару и ↩️ возвраты
   productQuestions: (id) => `/products/${id}/questions`,
   returns: '/returns',
-  // ⭐ Кэшбэк-баллы (лояльность)
-  loyalty: (phone) => `/loyalty/${phone}`,
-  loyaltyRedeem: '/loyalty/redeem',
   // 🎟️ Промокоды
   promoValidate: '/promo-codes/validate',
   promoRedeem: '/promo-codes/redeem',

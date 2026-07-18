@@ -96,7 +96,21 @@ export const searchProducts = async (q, limit = 40, extra = {}) => {
   if (!q?.trim()) return [];
   // extra: { sort, minPrice, maxPrice, category, brand }
   const res = await api.get(ENDPOINTS.productSearch, { params: { q: q.trim(), limit, ...extra } });
-  return Array.isArray(res.data) ? res.data : [];
+  const raw = Array.isArray(res.data) ? res.data : [];
+  // Бэкенд отдаёт images JSON-строкой и company_id в snake_case —
+  // нормализуем к формату, который ждёт ProductCard.
+  return raw.map((p) => {
+    let images = p.images;
+    if (typeof images === 'string') {
+      try { images = JSON.parse(images); } catch { images = []; }
+    }
+    return {
+      ...p,
+      images: Array.isArray(images) ? images : [],
+      companyId: p.companyId ?? p.company_id,
+      sellingPrice: p.sellingPrice ?? p.price,
+    };
+  });
 };
 
 // 💡 Подсказки для поисковой строки (автодополнение): [{ label, type }]
@@ -157,24 +171,6 @@ export const getStories = async (phone) => {
 // 📸 Отметить просмотр сторис
 export const viewStory = async (storyId) => {
   try { await api.post(ENDPOINTS.storyView(storyId)); } catch { /* ignore */ }
-};
-
-// ⭐ Кэшбэк-баллы: баланс + история
-export const getLoyalty = async (phone) => {
-  try {
-    const res = await api.get(ENDPOINTS.loyalty(phone));
-    return res.data || { pointsBalance: 0 };
-  } catch {
-    return { pointsBalance: 0 };
-  }
-};
-
-// ⭐ Списать баллы (при оформлении заказа)
-export const redeemLoyalty = async (userPhone, points, orderId) => {
-  const res = await api.post(ENDPOINTS.loyaltyRedeem, {
-    userPhone, points, orderId, description: 'Оплата баллами',
-  });
-  return res.data;
 };
 
 // 🎟️ Проверить промокод (возвращает { valid, promoId, discount, message })

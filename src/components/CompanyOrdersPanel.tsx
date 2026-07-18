@@ -1,6 +1,7 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { motion } from 'motion/react';
-import { Search, Check, X, Clock, Package, Phone, User, DollarSign, RefreshCw, Calendar, MapPin, Navigation, Truck, TrendingUp, Briefcase, SlidersHorizontal, Map, MessageSquare } from 'lucide-react';
+import { Search, Check, X, Clock, Package, Phone, User, DollarSign, RefreshCw, Calendar, MapPin, Navigation, Truck, TrendingUp, Briefcase, SlidersHorizontal, Map, MessageSquare, FileSpreadsheet } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import api, { getImageUrl } from '../utils/api';
 import { formatUzbekistanFullDateTime } from '../utils/uzbekTime';
 import { toast } from 'sonner@2.0.3';
@@ -359,6 +360,66 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
     return arr;
   })();
 
+  // 📊 Экспорт отфильтрованных заказов в Excel: вся информация о заказе,
+  // включая состав, доставку, оплату и комментарий покупателя.
+  const statusLabel = (status: string) => {
+    switch (status) {
+      case 'confirmed':
+      case 'processing': return t.statusConfirmed;
+      case 'shipped':    return t.statusShipped;
+      case 'completed':
+      case 'delivered':  return t.completed;
+      case 'cancelled':  return t.cancelled;
+      default:           return t.waiting;
+    }
+  };
+
+  const paymentLabel = (method?: string) =>
+    method === 'demo_online' ? t.demoOnline :
+    method === 'real_online' ? t.onlineCard : t.cashCheck;
+
+  const exportToExcel = () => {
+    if (filteredOrders.length === 0) {
+      toast.error(language === 'uz' ? 'Eksport uchun buyurtmalar yoʻq' : 'Нет заказов для экспорта');
+      return;
+    }
+    const uz = language === 'uz';
+    const rows = filteredOrders.map((o) => ({
+      [uz ? 'Kod' : 'Код']: o.order_code ? `#${o.order_code}` : String(o.id),
+      [uz ? 'Sana' : 'Дата']: o.order_date || o.created_at
+        ? formatUzbekistanFullDateTime(o.order_date || o.created_at!)
+        : '',
+      [uz ? 'Holat' : 'Статус']: statusLabel(o.status),
+      [uz ? 'Mijoz' : 'Клиент']: o.user_name || '',
+      [uz ? 'Telefon' : 'Телефон']: o.user_phone || '',
+      [uz ? 'Qabul qiluvchi' : 'Получатель']: o.recipient_name || '',
+      [uz ? 'Yetkazish' : 'Доставка']: o.delivery_type === 'delivery'
+        ? (uz ? 'Kuryer' : 'Курьер')
+        : (uz ? 'Olib ketish' : 'Самовывоз'),
+      [uz ? 'Manzil' : 'Адрес']: o.delivery_address || '',
+      [uz ? 'Toʻlov' : 'Оплата']: paymentLabel(o.payment_method),
+      [uz ? 'Tovarlar' : 'Товары']: o.items
+        .map(it => `${it.name}${it.color ? ` (${it.color})` : ''}${it.size ? ` [${it.size}]` : ''} × ${it.quantity}`)
+        .join('; '),
+      [uz ? 'Pozitsiyalar' : 'Позиций']: o.items.length,
+      [uz ? 'Summa' : 'Сумма']: Number(o.total_amount) || 0,
+      [uz ? 'Foyda (ustama)' : 'Прибыль (наценка)']: Number(o.markup_profit) || 0,
+      [uz ? 'Izoh' : 'Комментарий']: o.comment || '',
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [
+      { wch: 10 }, { wch: 19 }, { wch: 14 }, { wch: 20 }, { wch: 15 }, { wch: 20 },
+      { wch: 11 }, { wch: 32 }, { wch: 14 }, { wch: 50 }, { wch: 9 }, { wch: 13 },
+      { wch: 16 }, { wch: 32 },
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, uz ? 'Buyurtmalar' : 'Заказы');
+    const today = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `${uz ? 'buyurtmalar' : 'zakazy'}_${today}.xlsx`);
+    toast.success(uz ? 'Excel fayli yuklab olindi' : 'Файл Excel скачан');
+  };
+
   // Сброс всех фильтров (кнопка-иконка рядом с поиском)
   const resetFilters = () => {
     setSearchQuery('');
@@ -387,6 +448,13 @@ export default function CompanyOrdersPanel({ companyId }: CompanyOrdersPanelProp
           </h2>
           <div className="flex items-center gap-2 flex-shrink-0">
             <CompactPeriodSelector value={periodFilter} onChange={setPeriodFilter} />
+            {/* 📊 Экспорт текущей выборки заказов в Excel */}
+            <motion.button whileTap={{ scale: 0.92 }} onClick={exportToExcel}
+              style={{ height: 40, display: 'inline-flex', alignItems: 'center', gap: 7, padding: '0 14px', borderRadius: 11, fontSize: 13, fontWeight: 600, color: '#22C55E', background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', cursor: 'pointer' }}
+              title={language === 'uz' ? 'Excel formatida yuklab olish' : 'Скачать в формате Excel'}>
+              <FileSpreadsheet className="w-4 h-4" />
+              {!isMobile && 'Excel'}
+            </motion.button>
             <motion.button whileHover={{ rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={loadOrders}
               style={{ width: 40, height: 40, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', borderRadius: 11, color: 'var(--ax-text-2)', background: 'var(--ax-card)', border: '1px solid var(--ax-border)', cursor: 'pointer' }} title={t.refreshList}>
               <RefreshCw className="w-4 h-4" />

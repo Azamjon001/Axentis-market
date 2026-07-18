@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView,
   Switch, Image, ActivityIndicator, Modal,
@@ -12,7 +12,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { getImageUrl } from '../../utils/imageUrl';
-import { getLoyalty, buildImageFormData, postFormData } from '../../api';
+import { buildImageFormData, postFormData } from '../../api';
 import { Radius, Spacing } from '../../constants/theme';
 
 export default function ProfileScreen() {
@@ -22,12 +22,6 @@ export default function ProfileScreen() {
   const navigation = useNavigation();
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [showLangModal, setShowLangModal] = useState(false);
-  // ⭐ Баланс кэшбэк-баллов
-  const [points, setPoints] = useState(0);
-  useEffect(() => {
-    if (!user?.phone) { setPoints(0); return; }
-    getLoyalty(user.phone).then((a) => setPoints(a?.pointsBalance || 0)).catch(() => {});
-  }, [user?.phone]);
 
   const handlePickAvatar = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -203,22 +197,6 @@ export default function ProfileScreen() {
         </View>
         )}
 
-        {/* ⭐ Кэшбэк-баллы */}
-        {user && (
-          <View style={styles.loyaltyCard}>
-            <View style={styles.loyaltyIconWrap}>
-              <Ionicons name="star" size={20} color="#FFFFFF" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.loyaltyLabel}>{t('yourPoints') || 'Ваши баллы'}</Text>
-              <Text style={styles.loyaltyHint}>{t('pointsHint') || '1 балл = 1 сум скидки'}</Text>
-            </View>
-            <View style={styles.loyaltyValuePill}>
-              <Text style={styles.loyaltyValue}>{points.toLocaleString('ru-RU')}</Text>
-            </View>
-          </View>
-        )}
-
         <View style={[styles.menuCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <TouchableOpacity style={styles.menuItem} onPress={toggleTheme} activeOpacity={0.7}>
             <View style={[styles.menuIconBg, { backgroundColor: (isDark ? '#FFD700' : colors.primary) + '20' }]}>
@@ -349,12 +327,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, borderWidth: 1, marginTop: 6,
   },
   modeBadgeText: { fontSize: 11.5, fontWeight: '600' },
-  loyaltyCard: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderRadius: Radius.card, backgroundColor: '#F59E0B' },
-  loyaltyIconWrap: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.22)', alignItems: 'center', justifyContent: 'center' },
-  loyaltyLabel: { fontSize: 16, fontWeight: '800', color: '#FFFFFF' },
-  loyaltyHint: { fontSize: 12.5, color: 'rgba(255,255,255,0.85)', marginTop: 2 },
-  loyaltyValuePill: { backgroundColor: 'rgba(255,255,255,0.22)', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 8 },
-  loyaltyValue: { fontSize: 22, fontWeight: '900', color: '#FFFFFF' },
   menuCard: { borderRadius: Radius.card, borderWidth: 1, overflow: 'hidden' },
   menuItem: { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12 },
   menuIconBg: { width: 40, height: 40, borderRadius: Radius.button, alignItems: 'center', justifyContent: 'center' },

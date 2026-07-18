@@ -11,7 +11,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useCart } from '../../context/CartContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { createOrder, getPaymentCards, addPaymentCard, getCompanyDetail, getUserAddresses, getFrequentLocations, getLoyalty, redeemLoyalty, validatePromo, redeemPromo } from '../../api';
+import { createOrder, getPaymentCards, addPaymentCard, getCompanyDetail, getUserAddresses, getFrequentLocations, validatePromo, redeemPromo } from '../../api';
 
 // Парсит строку координат "lat,lng" в объект { lat, lng }
 function parseCoords(str) {
@@ -131,16 +131,6 @@ export default function CheckoutScreen() {
     return Math.ceil(dist - radius) * perKm;
   }, [deliveryCoords, companyInfo]);
 
-  // ⭐ Кэшбэк-баллы: баланс и оплата баллами (1 балл = 1 сум).
-  const [loyaltyBalance, setLoyaltyBalance] = useState(0);
-  const [usePoints, setUsePoints] = useState(false);
-  useEffect(() => {
-    if (!user?.phone) return;
-    getLoyalty(user.phone).then((a) => setLoyaltyBalance(a?.pointsBalance || 0)).catch(() => {});
-  }, [user?.phone]);
-  // Списываем не больше стоимости товаров (доставку баллами не гасим).
-  const pointsToUse = usePoints ? Math.min(loyaltyBalance, Math.round(total)) : 0;
-
   // 🎟️ Промокод
   const firstCompanyId = useMemo(() => {
     for (const it of items) { const cid = it.product?.companyId; if (cid) return Number(cid); }
@@ -174,7 +164,7 @@ export default function CheckoutScreen() {
     }
   };
 
-  const grandTotal = Math.max(0, total + deliveryCost - pointsToUse - promoDiscount);
+  const grandTotal = Math.max(0, total + deliveryCost - promoDiscount);
 
   const formatPrice = (p) => `${p.toLocaleString(dateLocale)} ${t('sum')}`;
 
@@ -324,9 +314,9 @@ export default function CheckoutScreen() {
       const unitSell = (i) => Number(i.product?.sellingPrice || i.product?.price || 0);
       const lineSubtotal = (arr) => arr.reduce((s, i) => s + unitSell(i) * i.quantity, 0);
 
-      // Скидки (баллы + промокод) распределяем между компаниями
+      // Скидку промокода распределяем между компаниями
       // пропорционально их доле в общей сумме товаров.
-      const totalDiscount = pointsToUse + promoDiscount;
+      const totalDiscount = promoDiscount;
       const grandSubtotal = total; // сумма всех товаров до скидок и доставки
 
       const created = [];
@@ -377,13 +367,9 @@ export default function CheckoutScreen() {
         created.push(order);
       }
 
-      // Баллы и промокод списываем ОДИН раз, относя их к первому заказу.
+      // Промокод списываем ОДИН раз, относя его к первому заказу.
       const firstOrder = created[0];
       if (firstOrder) {
-        // ⭐ Списываем баллы, если покупатель выбрал оплату ими.
-        if (pointsToUse > 0) {
-          try { await redeemLoyalty(user.phone, pointsToUse, firstOrder.id); } catch { /* не блокируем заказ */ }
-        }
         // 🎟️ Фиксируем использование промокода.
         if (promo?.promoId) {
           try { await redeemPromo({ promoId: promo.promoId, userPhone: user.phone, orderId: firstOrder.id, discount: promoDiscount }); } catch { /* не блокируем заказ */ }
@@ -917,37 +903,11 @@ export default function CheckoutScreen() {
                 </View>
               )}
 
-              {/* ⭐ Оплата баллами кэшбэка */}
-              {loyaltyBalance > 0 && (
-                <TouchableOpacity
-                  style={[styles.summaryRow, { alignItems: 'center' }]}
-                  activeOpacity={0.7}
-                  onPress={() => setUsePoints(v => !v)}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-                    <Ionicons name="star" size={15} color="#F59E0B" />
-                    <Text style={[styles.summaryLabel, { color: colors.text }]}>
-                      {t('payWithPoints') || 'Оплатить баллами'}
-                      <Text style={{ color: colors.textMuted }}>{`  (${loyaltyBalance})`}</Text>
-                    </Text>
-                  </View>
-                  {usePoints
-                    ? <Text style={[styles.summaryValue, { color: '#F59E0B' }]}>−{formatPrice(pointsToUse)}</Text>
-                    : <Ionicons name="ellipse-outline" size={20} color={colors.textMuted} />
-                  }
-                  {usePoints && <Ionicons name="checkmark-circle" size={20} color="#F59E0B" style={{ marginLeft: 6 }} />}
-                </TouchableOpacity>
-              )}
-
               <View style={[styles.divider, { backgroundColor: colors.border }]} />
               <View style={styles.summaryRow}>
                 <Text style={[styles.totalLabel, { color: colors.text }]}>{t('total')}</Text>
                 <Text style={[styles.totalValue, { color: colors.text }]}>{formatPrice(grandTotal)}</Text>
               </View>
-              {/* Сколько баллов вернётся за этот заказ (1%) */}
-              <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 6 }}>
-                {(t('willEarnPoints') || 'Кэшбэк за заказ: +{n} баллов').replace('{n}', String(Math.floor(grandTotal * 0.01)))}
-              </Text>
             </View>
           </>
         )}
