@@ -67,6 +67,15 @@ export const themes: Record<ThemeName, Theme> = {
   },
 };
 
+// Градиенты бренда — как в CompanyPanel.tsx (brand header, OPS_GRAD, MKT_GRAD)
+export const BRAND_GRAD = ['#7C5CF0', '#5B3DD4'] as const;
+export const OPS_GRAD = ['#0EA5E9', '#2563EB'] as const;
+export const MKT_GRAD = ['#8B5CF6', '#6D28D9'] as const;
+
+// Радиусы и отступы — единая шкала для всего приложения
+export const R = { sm: 10, md: 14, lg: 18, xl: 24, full: 999 };
+export const SP = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24 };
+
 // Цвета статусов заказов — те же, что в CompanyDashboardPanel STATUS_COLOR
 export const STATUS_COLOR: Record<string, string> = {
   pending: '#FBBF24',

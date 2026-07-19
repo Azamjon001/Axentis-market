@@ -132,8 +132,25 @@ export const policies = {
 };
 
 // ============================================================================
-// PRODUCTS
+// PRODUCTS — полный набор склада: CRUD, варианты (SKU), фото
 // ============================================================================
+
+export interface ProductPayload {
+  companyId?: number;
+  name?: string;
+  quantity?: number;
+  price?: number;
+  markupPercent?: number;
+  barcode?: string;
+  barid?: string;
+  category?: string;
+  description?: string;
+  color?: string;
+  size?: string;
+  brand?: string;
+  hasColorOptions?: boolean;
+  availableForCustomers?: boolean;
+}
 
 export const products = {
   list: (params: { companyId: string; search?: string; limit?: number; offset?: number }) => {
@@ -141,18 +158,7 @@ export const products = {
     return apiCall(`/products?${query}`);
   },
 
-  create: (data: {
-    companyId: number;
-    name: string;
-    quantity?: number;
-    price: number;
-    markupPercent?: number;
-    barcode?: string;
-    category?: string;
-    description?: string;
-    brand?: string;
-    availableForCustomers?: boolean;
-  }) =>
+  create: (data: ProductPayload & { companyId: number; name: string; price: number }) =>
     apiCall('/products', {
       method: 'POST',
       body: JSON.stringify({
@@ -162,9 +168,13 @@ export const products = {
         price: data.price,
         markupPercent: data.markupPercent || 0,
         barcode: data.barcode || '',
+        barid: data.barid || '',
         category: data.category || '',
         description: data.description || '',
+        color: data.color || '',
+        size: data.size || '',
         brand: data.brand || '',
+        hasColorOptions: data.hasColorOptions || false,
         availableForCustomers: data.availableForCustomers !== false,
       }),
     }),
@@ -173,12 +183,70 @@ export const products = {
     apiCall(`/products/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
 
   delete: (id: string | number) => apiCall(`/products/${id}`, { method: 'DELETE' }),
+
+  // Массовое выставление/снятие с продажи — как в SalesPanel/DigitalWarehouse
+  bulkToggleAvailability: (productIds: number[], available: boolean) =>
+    Promise.all(
+      productIds.map((id) =>
+        apiCall(`/products/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify({ availableForCustomers: available }),
+        })
+      )
+    ),
+
+  // 📸 Загрузка фото товара (multipart, поле files — как в вебе)
+  uploadImages: (id: string | number, files: { uri: string; name: string; type: string }[]) => {
+    const formData = new FormData();
+    files.forEach((f) => formData.append('files', f as any));
+    return apiCall(`/products/${id}/images`, { method: 'POST', body: formData });
+  },
+
+  deleteImage: (id: string | number, filepath: string) =>
+    apiCall(`/products/${id}/images`, {
+      method: 'DELETE',
+      body: JSON.stringify({ filepath }),
+    }),
+
+  // ── Варианты (SKU: цвет/размер) ────────────────────────────────────────────
+  getVariants: (productId: string | number) => apiCall(`/products/${productId}/variants`),
+
+  createVariant: (
+    productId: string | number,
+    data: {
+      color?: string;
+      size?: string;
+      price: number;
+      markupPercent?: number;
+      stockQuantity?: number;
+      barcode?: string;
+      sku?: string;
+      description?: string;
+    }
+  ) =>
+    apiCall(`/products/${productId}/variants`, { method: 'POST', body: JSON.stringify(data) }),
+
+  updateVariant: (
+    productId: string | number,
+    variantId: string | number,
+    data: Record<string, any>
+  ) =>
+    apiCall(`/products/${productId}/variants/${variantId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  deleteVariant: (productId: string | number, variantId: string | number) =>
+    apiCall(`/products/${productId}/variants/${variantId}`, { method: 'DELETE' }),
+
+  findByBarcode: (companyId: number, barcode: string) =>
+    apiCall(`/products/find-by-barcode?companyId=${companyId}&q=${encodeURIComponent(barcode)}`),
 };
 
 // ============================================================================
 // ORDERS — тот же поток статусов, что в CompanyOrdersPanel веб-панели:
 // pending → confirmed (принять) → shipped (confirmPayment) → completed
-// (mark-delivered), либо cancelled.
+// (mark-delivered с частичными возвратами), либо cancelled.
 // ============================================================================
 
 export const orders = {
@@ -203,7 +271,7 @@ export const orders = {
 };
 
 // ============================================================================
-// SALES (офлайн-продажи) и CASH SALES
+// SALES (офлайн-касса) — история продаж
 // ============================================================================
 
 export const sales = {
@@ -214,13 +282,108 @@ export const sales = {
 };
 
 // ============================================================================
-// COMPANIES
+// PRODUCT PURCHASES — закупки товара (пополнение склада с ценой закупки)
+// ============================================================================
+
+export const productPurchases = {
+  create: (data: {
+    companyId: number;
+    productId?: number;
+    variantId?: number;
+    productName: string;
+    quantity: number;
+    purchasePrice: number;
+    totalCost: number;
+  }) => apiCall('/product-purchases', { method: 'POST', body: JSON.stringify(data) }),
+
+  list: (params: { companyId: string | number; startDate?: string; endDate?: string; limit?: number }) => {
+    const query = new URLSearchParams(params as any).toString();
+    return apiCall(`/product-purchases?${query}`);
+  },
+
+  stats: (params: { companyId: string | number; startDate?: string; endDate?: string }) => {
+    const query = new URLSearchParams(params as any).toString();
+    return apiCall(`/product-purchases/stats?${query}`);
+  },
+};
+
+// ============================================================================
+// EXPENSES — операционные расходы компании (для чистой прибыли в аналитике)
+// ============================================================================
+
+export const expenses = {
+  create: (data: { amount: number; category: string; description?: string; date?: string }) =>
+    apiCall('/expenses', { method: 'POST', body: JSON.stringify(data) }),
+
+  list: (params: { companyId?: string; startDate?: string; endDate?: string; limit?: number }) => {
+    const query = new URLSearchParams(params as any).toString();
+    return apiCall(`/expenses?${query}`);
+  },
+
+  delete: (id: string | number) => apiCall(`/expenses/${id}`, { method: 'DELETE' }),
+};
+
+// ============================================================================
+// DISCOUNTS — скидки на товары (создание из склада, как в вебе)
+// ============================================================================
+
+export const discounts = {
+  create: (data: {
+    companyId: number;
+    productId: number;
+    variantId?: number | null;
+    discountPercent: number;
+    title?: string;
+    endDate?: string;
+  }) =>
+    apiCall('/discounts', {
+      method: 'POST',
+      body: JSON.stringify({
+        companyId: data.companyId,
+        productId: data.productId,
+        variantId: data.variantId ?? null,
+        discountPercent: data.discountPercent,
+        title: data.title || null,
+        endDate: data.endDate || undefined,
+      }),
+    }),
+
+  listByCompany: (companyId: number) => apiCall(`/discounts/company/${companyId}`),
+};
+
+// ============================================================================
+// COMPANIES — профиль, настройки доставки/возвратов, приватный режим, Telegram
 // ============================================================================
 
 export const companies = {
   get: (id: string | number) => apiCall(`/companies/${id}`),
+
   update: (id: string | number, data: Record<string, any>) =>
     apiCall(`/companies/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  // Переключение публичный ↔ закрытый режим (выдаёт privateCode)
+  setPrivacy: (id: string | number, mode: 'public' | 'private') =>
+    apiCall(`/companies/${id}/privacy`, { method: 'PUT', body: JSON.stringify({ mode }) }),
+
+  telegramStatus: (id: string | number) => apiCall(`/companies/${id}/telegram`),
+  telegramDisconnect: (id: string | number) =>
+    apiCall(`/companies/${id}/telegram`, { method: 'DELETE' }),
+};
+
+// ============================================================================
+// REGIONS — регионы обслуживания (фильтр товаров для покупателей)
+// ============================================================================
+
+export const regions = {
+  list: () => apiCall('/regions'),
+};
+
+// ============================================================================
+// CATEGORIES — глобальный каталог категорий платформы
+// ============================================================================
+
+export const categories = {
+  list: () => apiCall('/categories'),
 };
 
 // ============================================================================
@@ -236,6 +399,8 @@ export const analytics = {
   profit: (companyId: number) => apiCall(`/analytics/company/${companyId}/profit`),
   inventoryInsights: (companyId: number) =>
     apiCall(`/analytics/company/${companyId}/inventory-insights`),
+  customerSegments: (companyId: number) =>
+    apiCall(`/analytics/company/${companyId}/customer-segments`),
 };
 
 // ============================================================================
@@ -246,5 +411,19 @@ export const companyMessages = {
   count: (companyId: number) => apiCall(`/company-messages/company/${companyId}/count`),
 };
 
-const api = { auth, policies, products, orders, sales, companies, analytics, companyMessages };
+const api = {
+  auth,
+  policies,
+  products,
+  orders,
+  sales,
+  productPurchases,
+  expenses,
+  discounts,
+  companies,
+  regions,
+  categories,
+  analytics,
+  companyMessages,
+};
 export default api;

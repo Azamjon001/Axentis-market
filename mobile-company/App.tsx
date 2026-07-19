@@ -1,10 +1,13 @@
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Animated, Pressable, Text, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import api, { clearAuth, CompanySession, loadSession, loadStoredToken } from './src/api';
 import { I18nProvider, useI18n } from './src/i18n';
-import { ThemeProvider, useTheme } from './src/theme';
+import { BRAND_GRAD, ThemeProvider, useTheme } from './src/theme';
+import { haptic } from './src/ui';
 import DashboardScreen from './src/screens/DashboardScreen';
 import LoginScreen from './src/screens/LoginScreen';
 import OrdersScreen from './src/screens/OrdersScreen';
@@ -14,8 +17,8 @@ import WarehouseScreen from './src/screens/WarehouseScreen';
 
 // ============================================================================
 // Axentis Business — мобильная панель компании (React Native + Expo).
-// Тот же принцип, что веб-панель компаний (CompanyPanel.tsx), но в формате
-// нативного приложения: нижняя навигация вместо сайдбара.
+// Те же принципы и функции, что веб-панель компаний (CompanyPanel.tsx),
+// но в формате нативного приложения: нижняя навигация вместо сайдбара.
 //
 // 🚫 Админ-панели в приложении НЕТ: единственный способ входа —
 // /auth/login/company; admin-endpoints не подключены вовсе.
@@ -76,7 +79,7 @@ function Root() {
   );
 }
 
-// ─── Панель компании: шапка + контент + нижняя навигация ─────────────────────
+// ─── Панель компании: градиентная шапка + контент + нижняя навигация ─────────
 
 function CompanyPanel({ company, onLogout }: { company: CompanySession; onLogout: () => void }) {
   const { theme } = useTheme();
@@ -84,6 +87,7 @@ function CompanyPanel({ company, onLogout }: { company: CompanySession; onLogout
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<Tab>('dashboard');
   const [unread, setUnread] = useState(0);
+  const fade = useRef(new Animated.Value(1)).current;
 
   // 🔔 Счётчик непрочитанных сообщений — как в шапке веб-панели
   useEffect(() => {
@@ -104,6 +108,15 @@ function CompanyPanel({ company, onLogout }: { company: CompanySession; onLogout
     };
   }, [company.id]);
 
+  // Плавная смена вкладки
+  const switchTab = (next: Tab) => {
+    if (next === tab) return;
+    haptic.light();
+    fade.setValue(0);
+    setTab(next);
+    Animated.timing(fade, { toValue: 1, duration: 220, useNativeDriver: true }).start();
+  };
+
   const titles: Record<Tab, string> = {
     dashboard: t.dashboard,
     warehouse: `${t.warehouse} · ${t.sales}`,
@@ -112,65 +125,76 @@ function CompanyPanel({ company, onLogout }: { company: CompanySession; onLogout
     settings: t.settings,
   };
 
-  const tabs: { key: Tab; label: string; icon: string }[] = [
-    { key: 'dashboard', label: t.dashboard, icon: '📊' },
-    { key: 'warehouse', label: t.warehouse, icon: '📦' },
-    { key: 'orders', label: t.orders, icon: '🧾' },
-    { key: 'analytics', label: t.analytics, icon: '📈' },
-    { key: 'settings', label: t.more, icon: '⚙️' },
+  const tabs: { key: Tab; label: string; icon: keyof typeof Ionicons.glyphMap; iconActive: keyof typeof Ionicons.glyphMap }[] = [
+    { key: 'dashboard', label: t.dashboard, icon: 'grid-outline', iconActive: 'grid' },
+    { key: 'warehouse', label: t.warehouse, icon: 'cube-outline', iconActive: 'cube' },
+    { key: 'orders', label: t.orders, icon: 'receipt-outline', iconActive: 'receipt' },
+    { key: 'analytics', label: t.analytics, icon: 'stats-chart-outline', iconActive: 'stats-chart' },
+    { key: 'settings', label: t.more, icon: 'settings-outline', iconActive: 'settings' },
   ];
 
   return (
     <View style={{ flex: 1 }}>
-      {/* Шапка */}
-      <View
-        style={{
-          paddingTop: insets.top + 8,
-          paddingBottom: 12,
-          paddingHorizontal: 16,
-          backgroundColor: theme.sidebar,
-          borderBottomWidth: 1,
-          borderBottomColor: theme.border,
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-        }}
-      >
-        <View style={{ flex: 1, marginRight: 10 }}>
-          <Text style={{ color: theme.text, fontSize: 17, fontWeight: '700' }} numberOfLines={1}>
-            {titles[tab]}
-          </Text>
-          <Text style={{ color: theme.text3, fontSize: 12, marginTop: 1 }} numberOfLines={1}>
-            {company.name} · {t.companyPanel}
-          </Text>
-        </View>
-        {unread > 0 && (
+      {/* Градиентная шапка — фирменный стиль панели */}
+      <LinearGradient colors={[...BRAND_GRAD]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+        <View
+          style={{
+            paddingTop: insets.top + 8,
+            paddingBottom: 12,
+            paddingHorizontal: 16,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 12,
+          }}
+        >
           <View
             style={{
-              backgroundColor: theme.danger,
-              borderRadius: 999,
-              minWidth: 22,
-              height: 22,
-              paddingHorizontal: 6,
+              width: 38,
+              height: 38,
+              borderRadius: 13,
+              backgroundColor: 'rgba(255,255,255,0.2)',
               alignItems: 'center',
               justifyContent: 'center',
             }}
           >
-            <Text style={{ color: '#fff', fontSize: 11.5, fontWeight: '700' }}>
-              {unread > 9 ? '9+' : unread}
+            <Ionicons name="business" size={19} color="#fff" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={{ color: '#fff', fontSize: 16.5, fontWeight: '700' }} numberOfLines={1}>
+              {titles[tab]}
+            </Text>
+            <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 11.5 }} numberOfLines={1}>
+              {company.name} · {t.companyPanel}
             </Text>
           </View>
-        )}
-      </View>
+          {unread > 0 && (
+            <View
+              style={{
+                backgroundColor: '#F87171',
+                borderRadius: 999,
+                minWidth: 22,
+                height: 22,
+                paddingHorizontal: 6,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Text style={{ color: '#fff', fontSize: 11.5, fontWeight: '700' }}>
+                {unread > 9 ? '9+' : unread}
+              </Text>
+            </View>
+          )}
+        </View>
+      </LinearGradient>
 
-      {/* Контент активной вкладки */}
-      <View style={{ flex: 1 }}>
+      {/* Контент активной вкладки — с плавным появлением */}
+      <Animated.View style={{ flex: 1, opacity: fade }}>
         {tab === 'dashboard' && <DashboardScreen companyId={company.id} />}
         {tab === 'warehouse' && <WarehouseScreen companyId={company.id} />}
         {tab === 'orders' && <OrdersScreen companyId={company.id} />}
         {tab === 'analytics' && <AnalyticsScreen companyId={company.id} />}
         {tab === 'settings' && <SettingsScreen company={company} onLogout={onLogout} />}
-      </View>
+      </Animated.View>
 
       {/* Нижняя навигация */}
       <View
@@ -188,18 +212,18 @@ function CompanyPanel({ company, onLogout }: { company: CompanySession; onLogout
           return (
             <Pressable
               key={item.key}
-              onPress={() => setTab(item.key)}
+              onPress={() => switchTab(item.key)}
               style={{ flex: 1, alignItems: 'center', gap: 3 }}
             >
               <View
                 style={{
-                  paddingHorizontal: 14,
-                  paddingVertical: 3,
+                  paddingHorizontal: 16,
+                  paddingVertical: 4,
                   borderRadius: 999,
                   backgroundColor: on ? theme.primaryPale : 'transparent',
                 }}
               >
-                <Text style={{ fontSize: 18, opacity: on ? 1 : 0.55 }}>{item.icon}</Text>
+                <Ionicons name={on ? item.iconActive : item.icon} size={20} color={on ? theme.primary : theme.text3} />
               </View>
               <Text
                 style={{

@@ -7,10 +7,12 @@ import {
   Text,
   View,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import api, { CompanySession, saveSession } from '../api';
 import { useI18n } from '../i18n';
-import { useTheme } from '../theme';
-import { Button, Card, Input } from '../ui';
+import { BRAND_GRAD, useTheme } from '../theme';
+import { Button, Card, haptic, Input } from '../ui';
 
 interface Props {
   onLogin: (company: CompanySession) => void;
@@ -26,6 +28,7 @@ export default function LoginScreen({ onLogin }: Props) {
 
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [referralCode, setReferralCode] = useState('');
   const [policyAccepted, setPolicyAccepted] = useState(false);
   const [error, setError] = useState('');
@@ -52,8 +55,10 @@ export default function LoginScreen({ onLogin }: Props) {
       // 📜 Фиксируем принятие политики (как в вебе — не критично при ошибке)
       api.policies.accept('company', String(company.id)).catch(() => {});
       await saveSession(company);
+      haptic.success();
       onLogin(company);
     } catch (e) {
+      haptic.error();
       const msg = e instanceof Error ? e.message : '';
       setError(/401|credentials|Invalid/i.test(msg) ? t.invalidCredentials : msg || t.invalidCredentials);
     } finally {
@@ -92,112 +97,134 @@ export default function LoginScreen({ onLogin }: Props) {
           ))}
         </View>
 
-        <Card style={{ padding: 22 }}>
-          {/* Логотип */}
-          <View style={{ alignItems: 'center', marginBottom: 18 }}>
+        <Card style={{ padding: 0, overflow: 'hidden' }}>
+          {/* Градиентная шапка — как brand header веб-панели */}
+          <LinearGradient colors={[...BRAND_GRAD]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ padding: 24, alignItems: 'center' }}>
             <View
               style={{
                 width: 64,
                 height: 64,
-                borderRadius: 32,
-                backgroundColor: theme.primaryPale,
+                borderRadius: 20,
+                backgroundColor: 'rgba(255,255,255,0.2)',
                 alignItems: 'center',
                 justifyContent: 'center',
                 marginBottom: 12,
               }}
             >
-              <Text style={{ fontSize: 30 }}>🏢</Text>
+              <Ionicons name="business" size={30} color="#fff" />
             </View>
-            <Text style={{ color: theme.text, fontSize: 22, fontWeight: '700', textAlign: 'center' }}>
+            <Text style={{ color: '#fff', fontSize: 22, fontWeight: '800', textAlign: 'center' }}>
+              Axentis Business
+            </Text>
+            <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 14, marginTop: 4, textAlign: 'center' }}>
               {t.companyLoginTitle}
             </Text>
-            <Text style={{ color: theme.text2, fontSize: 14, marginTop: 6, textAlign: 'center' }}>
-              {t.enterCompanyData}
+          </LinearGradient>
+
+          <View style={{ padding: 22 }}>
+            <Input
+              label={t.phoneNumber}
+              value={phone}
+              onChangeText={(v) => setPhone(v.replace(/\D/g, '').slice(0, 9))}
+              placeholder="901234567"
+              keyboardType="phone-pad"
+              maxLength={9}
+            />
+
+            <View style={{ position: 'relative' }}>
+              <Input
+                label={t.password}
+                value={password}
+                onChangeText={setPassword}
+                placeholder={t.enterPassword}
+                secureTextEntry={!showPassword}
+              />
+              <Pressable
+                onPress={() => setShowPassword((v) => !v)}
+                hitSlop={8}
+                style={{ position: 'absolute', right: 14, top: 36 }}
+              >
+                <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={19} color={theme.text3} />
+              </Pressable>
+            </View>
+
+            <Input
+              label={t.referralCodeOptional}
+              value={referralCode}
+              onChangeText={(v) => setReferralCode(v.replace(/\D/g, '').slice(0, 7))}
+              placeholder="1234567"
+              keyboardType="number-pad"
+              maxLength={7}
+            />
+            <Text style={{ color: theme.text3, fontSize: 12, marginTop: -6, marginBottom: 12 }}>
+              💡 {t.referralCodeHint} ({referralCode.length}/7)
             </Text>
+
+            {/* Согласие с политикой */}
+            <Pressable
+              onPress={() => {
+                haptic.light();
+                setPolicyAccepted((v) => !v);
+              }}
+              style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 14 }}
+            >
+              <View
+                style={{
+                  width: 20,
+                  height: 20,
+                  borderRadius: 6,
+                  borderWidth: 2,
+                  borderColor: policyAccepted ? theme.primary : theme.text3,
+                  backgroundColor: policyAccepted ? theme.primary : 'transparent',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginTop: 1,
+                }}
+              >
+                {policyAccepted && <Ionicons name="checkmark" size={13} color="#fff" />}
+              </View>
+              <Text style={{ color: theme.text2, fontSize: 13, flex: 1, lineHeight: 18 }}>
+                {t.policyAcceptPrefix}
+                <Text style={{ color: theme.primary, fontWeight: '600' }}>{t.policyLink}</Text>
+                {t.policyAcceptSuffix}
+              </Text>
+            </Pressable>
+
+            {error ? (
+              <View
+                style={{
+                  backgroundColor: 'rgba(220,38,38,0.10)',
+                  borderWidth: 1,
+                  borderColor: 'rgba(220,38,38,0.35)',
+                  borderRadius: 12,
+                  padding: 12,
+                  marginBottom: 14,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+              >
+                <Ionicons name="alert-circle" size={17} color={theme.danger} />
+                <Text style={{ color: theme.danger, fontSize: 13.5, flex: 1 }}>{error}</Text>
+              </View>
+            ) : null}
+
+            <Button
+              title={loading ? t.loading : t.loginButton}
+              onPress={submit}
+              loading={loading}
+              disabled={!policyAccepted}
+              icon="log-in-outline"
+            />
+
+            {/* Явное указание: админ-панели в приложении нет */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 14 }}>
+              <Ionicons name="shield-checkmark-outline" size={13} color={theme.text3} />
+              <Text style={{ color: theme.text3, fontSize: 12, textAlign: 'center', lineHeight: 17, flexShrink: 1 }}>
+                {t.adminNotAllowed}
+              </Text>
+            </View>
           </View>
-
-          <Input
-            label={t.phoneNumber}
-            value={phone}
-            onChangeText={(v) => setPhone(v.replace(/\D/g, '').slice(0, 9))}
-            placeholder="901234567"
-            keyboardType="phone-pad"
-            maxLength={9}
-          />
-
-          <Input
-            label={t.password}
-            value={password}
-            onChangeText={setPassword}
-            placeholder={t.enterPassword}
-            secureTextEntry
-          />
-
-          <Input
-            label={t.referralCodeOptional}
-            value={referralCode}
-            onChangeText={(v) => setReferralCode(v.replace(/\D/g, '').slice(0, 7))}
-            placeholder="1234567"
-            keyboardType="number-pad"
-            maxLength={7}
-          />
-          <Text style={{ color: theme.text3, fontSize: 12, marginTop: -6, marginBottom: 12 }}>
-            💡 {t.referralCodeHint} ({referralCode.length}/7)
-          </Text>
-
-          {/* Согласие с политикой */}
-          <Pressable
-            onPress={() => setPolicyAccepted((v) => !v)}
-            style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 14 }}
-          >
-            <View
-              style={{
-                width: 20,
-                height: 20,
-                borderRadius: 6,
-                borderWidth: 2,
-                borderColor: policyAccepted ? theme.primary : theme.text3,
-                backgroundColor: policyAccepted ? theme.primary : 'transparent',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginTop: 1,
-              }}
-            >
-              {policyAccepted && <Text style={{ color: '#fff', fontSize: 12, fontWeight: '700' }}>✓</Text>}
-            </View>
-            <Text style={{ color: theme.text2, fontSize: 13, flex: 1, lineHeight: 18 }}>
-              {t.policyAcceptPrefix}
-              <Text style={{ color: theme.primary, fontWeight: '600' }}>{t.policyLink}</Text>
-              {t.policyAcceptSuffix}
-            </Text>
-          </Pressable>
-
-          {error ? (
-            <View
-              style={{
-                backgroundColor: 'rgba(220,38,38,0.10)',
-                borderWidth: 1,
-                borderColor: 'rgba(220,38,38,0.35)',
-                borderRadius: 12,
-                padding: 12,
-                marginBottom: 14,
-              }}
-            >
-              <Text style={{ color: theme.danger, fontSize: 13.5 }}>{error}</Text>
-            </View>
-          ) : null}
-
-          <Button
-            title={loading ? t.loading : t.loginButton}
-            onPress={submit}
-            loading={loading}
-            disabled={!policyAccepted}
-          />
-
-          {/* Явное указание: админ-панели в приложении нет */}
-          <Text style={{ color: theme.text3, fontSize: 12, textAlign: 'center', marginTop: 14, lineHeight: 17 }}>
-            {t.adminNotAllowed}
-          </Text>
         </Card>
       </ScrollView>
     </KeyboardAvoidingView>
