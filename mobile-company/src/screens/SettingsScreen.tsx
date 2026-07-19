@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, Linking, Pressable, RefreshControl, ScrollView, Switch, Text, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import * as Clipboard from 'expo-clipboard';
 import api, { CompanySession } from '../api';
+import { registerCompanyPush } from '../push';
 import { useI18n } from '../i18n';
 import { SP, useTheme } from '../theme';
 import { Badge, Button, Card, Chip, haptic, Input, SectionTitle, Segmented } from '../ui';
@@ -43,6 +45,32 @@ export default function SettingsScreen({ company, onLogout }: Props) {
   // Telegram
   const [tgStatus, setTgStatus] = useState<{ enabled?: boolean; connected: boolean; connectLink?: string; botName?: string } | null>(null);
   const [tgBusy, setTgBusy] = useState(false);
+
+  // 🔔 Push-настройки (хранятся локально, дублируются на бэкенд с токеном)
+  const [pushNewOrders, setPushNewOrders] = useState(true);
+  const [pushDailySummary, setPushDailySummary] = useState(true);
+  const [pushDenied, setPushDenied] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem('axentis_push_prefs').then((raw) => {
+      if (!raw) return;
+      try {
+        const p = JSON.parse(raw);
+        if (typeof p.newOrders === 'boolean') setPushNewOrders(p.newOrders);
+        if (typeof p.dailySummary === 'boolean') setPushDailySummary(p.dailySummary);
+      } catch {
+        /* ignore */
+      }
+    });
+  }, []);
+
+  const savePushPrefs = async (newOrders: boolean, dailySummary: boolean) => {
+    setPushNewOrders(newOrders);
+    setPushDailySummary(dailySummary);
+    AsyncStorage.setItem('axentis_push_prefs', JSON.stringify({ newOrders, dailySummary })).catch(() => {});
+    const result = await registerCompanyPush(company.id, { newOrders, dailySummary });
+    setPushDenied(result === 'denied');
+  };
 
   const load = useCallback(async () => {
     try {
@@ -343,6 +371,40 @@ export default function SettingsScreen({ company, onLogout }: Props) {
           </Card>
         </View>
       )}
+
+      {/* 🔔 Push-уведомления */}
+      <View style={{ marginTop: 18 }}>
+        <SectionTitle text={t.pushSection} hint={t.pushHint} accent={theme.warning} />
+        <Card>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+              <Ionicons name="notifications-outline" size={17} color={theme.warning} />
+              <Text style={{ color: theme.text, fontSize: 14 }}>{t.pushNewOrders}</Text>
+            </View>
+            <Switch
+              value={pushNewOrders}
+              onValueChange={(v) => savePushPrefs(v, pushDailySummary)}
+              trackColor={{ true: theme.primary, false: theme.border }}
+              thumbColor="#fff"
+            />
+          </View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+              <Ionicons name="sunny-outline" size={17} color={theme.warning} />
+              <Text style={{ color: theme.text, fontSize: 14 }}>{t.pushDailySummary}</Text>
+            </View>
+            <Switch
+              value={pushDailySummary}
+              onValueChange={(v) => savePushPrefs(pushNewOrders, v)}
+              trackColor={{ true: theme.primary, false: theme.border }}
+              thumbColor="#fff"
+            />
+          </View>
+          {pushDenied && (
+            <Text style={{ color: theme.danger, fontSize: 12.5, marginTop: 10 }}>⚠️ {t.pushDenied}</Text>
+          )}
+        </Card>
+      </View>
 
       {/* Telegram */}
       <View style={{ marginTop: 18 }}>

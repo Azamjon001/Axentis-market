@@ -201,6 +201,7 @@ func Setup(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 			companies.POST("/:id/verify-access", handlers.VerifyAccessKey(db))
 			companies.PUT("/:id/verify", middleware.RequireAdmin(cfg), handlers.SetCompanyVerified(db)) // ✅ Значок «Проверенный магазин» (админ)
 			companies.PUT("/:id", middleware.RequireAdminOrOwnCompany(), handlers.UpdateCompany(db))
+			companies.PUT("/:id/push-token", middleware.RequireAdminOrOwnCompany(), handlers.SaveCompanyPushToken(db)) // 📲 Push-токен приложения продавца
 			companies.DELETE("/:id", middleware.RequireAdminOrOwnCompany(), handlers.DeleteCompany(db))
 			companies.POST("/:id/view", handlers.TrackCompanyView(db))
 			companies.GET("/:id/stats", handlers.GetCompanyStats(db))

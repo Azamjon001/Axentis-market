@@ -282,6 +282,33 @@ export const sales = {
 };
 
 // ============================================================================
+// CASH SALES — кассовые продажи (сканер-касса, как BarcodeSearchPanel)
+// ============================================================================
+
+export interface CashSaleItem {
+  id: number;
+  product_id?: number;
+  variant_id?: number;
+  name?: string;
+  productName?: string;
+  quantity: number;
+  price: number;
+  price_with_markup: number;
+}
+
+export interface CashSalePayload {
+  companyId: number;
+  paymentMethod: 'cash' | 'card';
+  cardSubtype?: 'uzcard' | 'humo' | 'visa' | 'other';
+  items: CashSaleItem[];
+}
+
+export const cashSales = {
+  create: (data: CashSalePayload) =>
+    apiCall('/cash-sales', { method: 'POST', body: JSON.stringify(data) }),
+};
+
+// ============================================================================
 // PRODUCT PURCHASES — закупки товара (пополнение склада с ценой закупки)
 // ============================================================================
 
@@ -368,6 +395,17 @@ export const companies = {
   telegramStatus: (id: string | number) => apiCall(`/companies/${id}/telegram`),
   telegramDisconnect: (id: string | number) =>
     apiCall(`/companies/${id}/telegram`, { method: 'DELETE' }),
+
+  // 📲 Push-токен приложения продавца (PUT /companies/:id/push-token)
+  savePushToken: (
+    id: string | number,
+    token: string,
+    prefs?: { newOrders?: boolean; dailySummary?: boolean }
+  ) =>
+    apiCall(`/companies/${id}/push-token`, {
+      method: 'PUT',
+      body: JSON.stringify({ token, ...prefs }),
+    }),
 };
 
 // ============================================================================
@@ -417,6 +455,7 @@ const api = {
   products,
   orders,
   sales,
+  cashSales,
   productPurchases,
   expenses,
   discounts,

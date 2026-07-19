@@ -280,6 +280,46 @@ const ru = {
   aboutAppText:
     'Axentis Business — мобильная панель продавца маркетплейса Axentis. Управление админ-панелью доступно только в веб-версии.',
   version: 'Версия',
+
+  // Касса (сканер)
+  pos: 'Касса',
+  scanHint: 'Наведите камеру на штрих-код товара',
+  cameraDenied: 'Нет доступа к камере. Разрешите в настройках телефона или вводите код вручную.',
+  grantCamera: 'Разрешить камеру',
+  manualBarcode: 'Ввести штрих-код вручную',
+  enterBarcode: 'Штрих-код или артикул',
+  find: 'Найти',
+  productNotFound: 'Товар не найден',
+  cart: 'Корзина',
+  cartEmpty: 'Отсканируйте первый товар',
+  sell: 'Продать',
+  saleDone: 'Продажа проведена',
+  saleQueued: 'Нет сети — продажа сохранена и отправится автоматически',
+  pendingSales: 'Ожидают отправки',
+  syncNow: 'Отправить сейчас',
+  synced: 'Отложенные продажи отправлены',
+  receipt: 'Чек',
+  shareReceipt: 'Поделиться чеком',
+  cardType: 'Тип карты',
+  notEnoughStock: 'Недостаточно остатка',
+  removeItem: 'Убрать',
+
+  // Советчик закупок
+  advisor: 'Что докупить?',
+  advisorTitle: 'Умный план закупки',
+  advisorHint: 'Расчёт: продажи за 90 дней, запас на 14 дней вперёд',
+  advisorEmpty: 'Запасов хватает — докупать пока нечего 🎉',
+  recommended: 'докупить',
+  estimatedCost: 'Бюджет закупки',
+  sharePlan: 'Поделиться планом',
+  advisorFor14Days: 'на 14 дней',
+
+  // Push-уведомления
+  pushSection: 'Push-уведомления',
+  pushNewOrders: 'Новые заказы',
+  pushDailySummary: 'Утренняя сводка (08:00)',
+  pushHint: 'Приходят даже при закрытом приложении',
+  pushDenied: 'Уведомления отключены в настройках телефона',
 };
 
 const uz: typeof ru = {
@@ -550,6 +590,43 @@ const uz: typeof ru = {
   aboutAppText:
     'Axentis Business — Axentis marketpleysi sotuvchisining mobil paneli. Admin-panelni boshqarish faqat veb-versiyada mavjud.',
   version: 'Versiya',
+
+  pos: 'Kassa',
+  scanHint: 'Kamerani tovar shtrix-kodiga qarating',
+  cameraDenied: 'Kameraga ruxsat yoʻq. Telefon sozlamalarida ruxsat bering yoki kodni qoʻlda kiriting.',
+  grantCamera: 'Kameraga ruxsat',
+  manualBarcode: 'Shtrix-kodni qoʻlda kiritish',
+  enterBarcode: 'Shtrix-kod yoki artikul',
+  find: 'Topish',
+  productNotFound: 'Tovar topilmadi',
+  cart: 'Savat',
+  cartEmpty: 'Birinchi tovarni skanerlang',
+  sell: 'Sotish',
+  saleDone: 'Sotuv amalga oshirildi',
+  saleQueued: 'Internet yoʻq — sotuv saqlandi va avtomatik yuboriladi',
+  pendingSales: 'Yuborish kutilmoqda',
+  syncNow: 'Hozir yuborish',
+  synced: 'Kutilayotgan sotuvlar yuborildi',
+  receipt: 'Chek',
+  shareReceipt: 'Chekni ulashish',
+  cardType: 'Karta turi',
+  notEnoughStock: 'Qoldiq yetarli emas',
+  removeItem: 'Olib tashlash',
+
+  advisor: 'Nima sotib olay?',
+  advisorTitle: 'Aqlli xarid rejasi',
+  advisorHint: 'Hisob: 90 kunlik sotuv, 14 kunlik zaxira',
+  advisorEmpty: 'Zaxira yetarli — hozircha xarid shart emas 🎉',
+  recommended: 'sotib olish',
+  estimatedCost: 'Xarid byudjeti',
+  sharePlan: 'Rejani ulashish',
+  advisorFor14Days: '14 kunga',
+
+  pushSection: 'Push-bildirishnomalar',
+  pushNewOrders: 'Yangi buyurtmalar',
+  pushDailySummary: 'Ertalabki hisobot (08:00)',
+  pushHint: 'Ilova yopiq boʻlsa ham keladi',
+  pushDenied: 'Bildirishnomalar telefon sozlamalarida oʻchirilgan',
 };
 
 export type Translations = typeof ru;

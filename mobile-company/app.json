@@ -25,6 +25,26 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Камера нужна для сканирования штрих-кодов товаров на кассе."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Доступ к галерее нужен для загрузки фото товаров."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#7C5CF0"
+        }
+      ]
+    ],
     "extra": {
       "apiUrl": "https://axentis.uz/api"
     }

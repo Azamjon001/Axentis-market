@@ -6,15 +6,17 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
+  Share,
   Switch,
   Text,
   View,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import api, { getImageUrl } from '../api';
 import { useI18n } from '../i18n';
-import { R, SP, useTheme } from '../theme';
+import { MKT_GRAD, R, SP, useTheme } from '../theme';
 import {
   Badge,
   Button,
@@ -140,6 +142,13 @@ export default function WarehouseScreen({ companyId }: { companyId: number }) {
   const [bulkBusy, setBulkBusy] = useState(false);
   const [discountOpen, setDiscountOpen] = useState(false);
   const [discountPercent, setDiscountPercent] = useState('');
+
+  // 🤖 Умный советчик закупок
+  const [advisorOpen, setAdvisorOpen] = useState(false);
+  const [advisorLoading, setAdvisorLoading] = useState(false);
+  const [advisorRows, setAdvisorRows] = useState<
+    { productId: number; name: string; stock: number; soldPerDay: number; recommend: number; cost: number }[]
+  >([]);
 
   const load = useCallback(async () => {
     try {
@@ -507,6 +516,54 @@ export default function WarehouseScreen({ companyId }: { companyId: number }) {
     ]);
   };
 
+  // ── 🤖 Умный советчик закупок ──────────────────────────────────────────────
+  // Прогноз остатков уже считается бэкендом (/inventory-insights, 90 дней).
+  // Рекомендация: запас на 14 дней вперёд = ceil(soldPerDay × 14 − остаток).
+  const openAdvisor = async () => {
+    haptic.medium();
+    setAdvisorOpen(true);
+    setAdvisorLoading(true);
+    try {
+      const insights = await api.analytics.inventoryInsights(companyId);
+      const priceOf = new Map<number, number>(realProducts.map((p) => [p.id, p.price || 0]));
+      const rows = (insights?.stockForecast || [])
+        .map((r: any) => {
+          const recommend = Math.max(0, Math.ceil((r.soldPerDay || 0) * 14 - (r.stock || 0)));
+          return {
+            productId: r.productId,
+            name: r.name,
+            stock: r.stock || 0,
+            soldPerDay: r.soldPerDay || 0,
+            recommend,
+            cost: recommend * (priceOf.get(r.productId) || 0),
+          };
+        })
+        .filter((r: any) => r.recommend > 0)
+        .sort((a: any, b: any) => b.cost - a.cost);
+      setAdvisorRows(rows);
+    } catch (e) {
+      console.error('Advisor load failed:', e);
+      setAdvisorRows([]);
+    } finally {
+      setAdvisorLoading(false);
+    }
+  };
+
+  const advisorTotal = useMemo(() => advisorRows.reduce((s, r) => s + r.cost, 0), [advisorRows]);
+
+  const shareAdvisorPlan = () => {
+    const lines = [
+      `🤖 ${t.advisorTitle} — Axentis Business`,
+      '────────────────',
+      ...advisorRows.map(
+        (r) => `${r.name}: ${t.recommended} ${fmt(r.recommend)} ${t.pcs} (~${fmt(r.cost)} ${t.sum})`
+      ),
+      '────────────────',
+      `${t.estimatedCost}: ${fmt(advisorTotal)} ${t.sum}`,
+    ];
+    Share.share({ message: lines.join('\n') }).catch(() => {});
+  };
+
   // ── Массовые действия ──────────────────────────────────────────────────────
   const toggleSelect = (id: number) => {
     haptic.light();
@@ -740,6 +797,40 @@ export default function WarehouseScreen({ companyId }: { companyId: number }) {
                   />
                   <StatCard label={t.categoriesCount} value={fmt(stats.categories)} icon="pricetags-outline" />
                 </View>
+
+                {/* 🤖 Кнопка умного плана закупки */}
+                <Pressable onPress={openAdvisor}>
+                  <LinearGradient
+                    colors={[...MKT_GRAD]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={{
+                      borderRadius: R.lg,
+                      padding: 14,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 12,
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 38,
+                        height: 38,
+                        borderRadius: 13,
+                        backgroundColor: 'rgba(255,255,255,0.2)',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Ionicons name="sparkles" size={18} color="#fff" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: '#fff', fontSize: 14.5, fontWeight: '700' }}>{t.advisor}</Text>
+                      <Text style={{ color: 'rgba(255,255,255,0.75)', fontSize: 12 }}>{t.advisorHint}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.8)" />
+                  </LinearGradient>
+                </Pressable>
 
                 <SearchBar value={search} onChangeText={setSearch} placeholder={t.searchProducts} />
 
@@ -1094,6 +1185,55 @@ export default function WarehouseScreen({ companyId }: { companyId: number }) {
           </View>
         </View>
         <Button title={t.save} onPress={submitVariant} loading={saving} icon="checkmark" />
+      </Sheet>
+
+      {/* ── 🤖 Умный план закупки ── */}
+      <Sheet visible={advisorOpen} onClose={() => setAdvisorOpen(false)} title={t.advisorTitle}>
+        <Text style={{ color: theme.text3, fontSize: 13, marginBottom: 14 }}>{t.advisorHint}</Text>
+        {advisorLoading ? (
+          <Loading />
+        ) : advisorRows.length === 0 ? (
+          <Text style={{ color: theme.success, fontSize: 14.5, fontWeight: '600', paddingVertical: 20, textAlign: 'center' }}>
+            {t.advisorEmpty}
+          </Text>
+        ) : (
+          <>
+            <Card style={{ marginBottom: 12 }}>
+              <Text style={{ color: theme.text2, fontSize: 12.5, marginBottom: 4 }}>{t.estimatedCost}</Text>
+              <Text style={{ color: theme.warning, fontSize: 21, fontWeight: '800' }}>
+                {fmt(advisorTotal)} {t.sum}
+              </Text>
+              <Text style={{ color: theme.text3, fontSize: 12, marginTop: 2 }}>
+                {advisorRows.length} {t.pcs} · {t.advisorFor14Days}
+              </Text>
+            </Card>
+            <View style={{ gap: 8, marginBottom: 14 }}>
+              {advisorRows.map((r) => (
+                <Card key={r.productId} style={{ padding: 10 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <View style={{ flex: 1, marginRight: 10 }}>
+                      <Text style={{ color: theme.text, fontSize: 13.5, fontWeight: '600' }} numberOfLines={1}>
+                        {r.name}
+                      </Text>
+                      <Text style={{ color: theme.text3, fontSize: 12, marginTop: 2 }}>
+                        {t.stockLeft}: {fmt(r.stock)} · {r.soldPerDay.toFixed(1)} {t.perDay}
+                      </Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={{ color: theme.primary, fontSize: 15, fontWeight: '800' }}>
+                        +{fmt(r.recommend)} {t.pcs}
+                      </Text>
+                      {r.cost > 0 && (
+                        <Text style={{ color: theme.text3, fontSize: 11.5 }}>~{fmt(r.cost)} {t.sum}</Text>
+                      )}
+                    </View>
+                  </View>
+                </Card>
+              ))}
+            </View>
+            <Button title={t.sharePlan} onPress={shareAdvisorPlan} icon="share-social-outline" variant="ghost" />
+          </>
+        )}
       </Sheet>
 
       {/* ── Массовая скидка ── */}

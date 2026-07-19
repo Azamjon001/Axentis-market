@@ -8,10 +8,13 @@ import api, { clearAuth, CompanySession, loadSession, loadStoredToken } from './
 import { I18nProvider, useI18n } from './src/i18n';
 import { BRAND_GRAD, ThemeProvider, useTheme } from './src/theme';
 import { haptic } from './src/ui';
+import { registerCompanyPush, unregisterCompanyPush } from './src/push';
+import { syncPendingSales } from './src/offline';
 import DashboardScreen from './src/screens/DashboardScreen';
 import LoginScreen from './src/screens/LoginScreen';
 import OrdersScreen from './src/screens/OrdersScreen';
 import AnalyticsScreen from './src/screens/AnalyticsScreen';
+import ScannerScreen from './src/screens/ScannerScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import WarehouseScreen from './src/screens/WarehouseScreen';
 
@@ -58,7 +61,17 @@ function Root() {
     })();
   }, []);
 
+  // 🔔 Push + 📴 офлайн-очередь: регистрируем токен и досылаем продажи
+  useEffect(() => {
+    if (!company) return;
+    registerCompanyPush(company.id);
+    syncPendingSales().catch(() => {});
+    const interval = setInterval(() => syncPendingSales().catch(() => {}), 60000);
+    return () => clearInterval(interval);
+  }, [company]);
+
   const handleLogout = async () => {
+    if (company) await unregisterCompanyPush(company.id); // отвязываем push от устройства
     await clearAuth();
     setCompany(null);
   };
@@ -87,6 +100,7 @@ function CompanyPanel({ company, onLogout }: { company: CompanySession; onLogout
   const insets = useSafeAreaInsets();
   const [tab, setTab] = useState<Tab>('dashboard');
   const [unread, setUnread] = useState(0);
+  const [scannerOpen, setScannerOpen] = useState(false);
   const fade = useRef(new Animated.Value(1)).current;
 
   // 🔔 Счётчик непрочитанных сообщений — как в шапке веб-панели
@@ -196,10 +210,11 @@ function CompanyPanel({ company, onLogout }: { company: CompanySession; onLogout
         {tab === 'settings' && <SettingsScreen company={company} onLogout={onLogout} />}
       </Animated.View>
 
-      {/* Нижняя навигация */}
+      {/* Нижняя навигация — с приподнятой кнопкой кассы по центру */}
       <View
         style={{
           flexDirection: 'row',
+          alignItems: 'flex-end',
           backgroundColor: theme.sidebar,
           borderTopWidth: 1,
           borderTopColor: theme.border,
@@ -207,9 +222,9 @@ function CompanyPanel({ company, onLogout }: { company: CompanySession; onLogout
           paddingTop: 8,
         }}
       >
-        {tabs.map((item) => {
+        {tabs.map((item, idx) => {
           const on = tab === item.key;
-          return (
+          const tabButton = (
             <Pressable
               key={item.key}
               onPress={() => switchTab(item.key)}
@@ -217,7 +232,7 @@ function CompanyPanel({ company, onLogout }: { company: CompanySession; onLogout
             >
               <View
                 style={{
-                  paddingHorizontal: 16,
+                  paddingHorizontal: 14,
                   paddingVertical: 4,
                   borderRadius: 999,
                   backgroundColor: on ? theme.primaryPale : 'transparent',
@@ -227,7 +242,7 @@ function CompanyPanel({ company, onLogout }: { company: CompanySession; onLogout
               </View>
               <Text
                 style={{
-                  fontSize: 10.5,
+                  fontSize: 10,
                   fontWeight: on ? '700' : '500',
                   color: on ? theme.primary : theme.text3,
                 }}
@@ -237,8 +252,53 @@ function CompanyPanel({ company, onLogout }: { company: CompanySession; onLogout
               </Text>
             </Pressable>
           );
+          // 📷 Между «Склад» и «Заказы» — большая кнопка кассы-сканера
+          if (idx === 2) {
+            return (
+              <React.Fragment key={item.key}>
+                <Pressable
+                  onPress={() => {
+                    haptic.medium();
+                    setScannerOpen(true);
+                  }}
+                  style={{ flex: 1, alignItems: 'center' }}
+                >
+                  <LinearGradient
+                    colors={[...BRAND_GRAD]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={{
+                      width: 52,
+                      height: 52,
+                      borderRadius: 26,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginTop: -22,
+                      shadowColor: '#7C5CF0',
+                      shadowOpacity: 0.5,
+                      shadowRadius: 10,
+                      shadowOffset: { width: 0, height: 5 },
+                      elevation: 8,
+                      borderWidth: 3,
+                      borderColor: theme.sidebar,
+                    }}
+                  >
+                    <Ionicons name="barcode-outline" size={24} color="#fff" />
+                  </LinearGradient>
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: theme.primary, marginTop: 3 }}>
+                    {t.pos}
+                  </Text>
+                </Pressable>
+                {tabButton}
+              </React.Fragment>
+            );
+          }
+          return tabButton;
         })}
       </View>
+
+      {/* 📷 Касса-сканер (полноэкранная) */}
+      <ScannerScreen companyId={company.id} visible={scannerOpen} onClose={() => setScannerOpen(false)} />
     </View>
   );
 }
