@@ -293,6 +293,19 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
     setSelected(detailMap.get(id) || { productId: id, name: fallbackName });
   };
 
+  // 📊 Сводка ABC: сколько товаров в каждом классе и какую долю выручки они
+  // дают. ВАЖНО: хук обязан стоять ДО ранних return (loading / !data) —
+  // иначе при переходе «загрузка → данные» меняется число хуков и React
+  // падает с ошибкой #310.
+  const abcSummary = useMemo(() => {
+    const all = insights?.abcAnalysis || [];
+    const sum = (cls: string) => ({
+      count: all.filter(a => a.class === cls).length,
+      share: Math.round(all.filter(a => a.class === cls).reduce((s, a) => s + (a.revenueShare || 0), 0)),
+    });
+    return { A: sum('A'), B: sum('B'), C: sum('C'), total: all.length };
+  }, [insights]);
+
   if (loading) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 240 }}>
@@ -337,16 +350,6 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
   const profitable = (insights?.abcAnalysis || []).slice(0, 8);
   const lowStockList = insights?.lowStock || [];
   const deadStockList = insights?.deadStock || [];
-
-  // 📊 Сводка ABC: сколько товаров в каждом классе и какую долю выручки они дают
-  const abcSummary = useMemo(() => {
-    const all = insights?.abcAnalysis || [];
-    const sum = (cls: string) => ({
-      count: all.filter(a => a.class === cls).length,
-      share: Math.round(all.filter(a => a.class === cls).reduce((s, a) => s + (a.revenueShare || 0), 0)),
-    });
-    return { A: sum('A'), B: sum('B'), C: sum('C'), total: all.length };
-  }, [insights]);
 
   // 👥 Конфигурация RFM-сегментов для отрисовки
   const segmentDefs: Array<{ key: keyof SegmentsData; label: string; hint: string; color: string }> = [
