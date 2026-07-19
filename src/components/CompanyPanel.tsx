@@ -4,7 +4,7 @@ import {
   Building2, LogOut, Package, ShoppingCart, Receipt, BarChart3, Barcode,
   Megaphone, Menu, X, Globe, Tag, Sun, Moon, MessageSquare, RotateCcw,
   LayoutDashboard, MessageCircleQuestion, Truck, Settings, Camera,
-  ChevronDown, Sparkles, Boxes,
+  ChevronDown, Sparkles, Boxes, Wallet, ScanLine, Lock,
 } from 'lucide-react';
 // ⚡ Каждая вкладка — отдельный ленивый чанк: продавец грузит только тот
 // раздел, который открыл, а не всю панель целиком.
@@ -23,6 +23,8 @@ const CompanyStoriesPanel = React.lazy(() => import('./CompanyStoriesPanel'));
 const CompanyInboxPanel = React.lazy(() => import('./CompanyInboxPanel'));
 const CouriersManagementPanel = React.lazy(() => import('./CouriersManagementPanel'));
 const CompanySettingsPanel = React.lazy(() => import('./CompanySettingsPanel'));
+const CompanyDebtsPanel = React.lazy(() => import('./CompanyDebtsPanel')); // 🧾 «Дафтар» — долги клиентов
+const InventoryCheckModal = React.lazy(() => import('./InventoryCheckModal')); // 📦 Инвентаризация склада
 
 // Лёгкий спиннер на время подгрузки чанка вкладки
 const TabLoading = () => (
@@ -45,7 +47,7 @@ interface CompanyPanelProps {
 type Tab =
   | 'dashboard' | 'warehouse' | 'sales' | 'orders' | 'analytics' | 'barcode'
   | 'smm' | 'stories' | 'discounts' | 'returns' | 'questions' | 'couriers'
-  | 'chat' | 'settings';
+  | 'chat' | 'settings' | 'debts';
 
 // 🎨 Две группы разделов с разными фирменными цветами:
 //   • Операции  — холодный сине-голубой (склад, заказы, аналитика, офлайн)
@@ -55,7 +57,7 @@ const OPS_GRAD = 'linear-gradient(135deg, #0EA5E9, #2563EB)';
 const MKT_ACCENT = '#A78BFA';       // violet-400
 const MKT_GRAD = 'linear-gradient(135deg, #8B5CF6, #6D28D9)';
 
-const VALID_TABS: Tab[] = ['dashboard', 'warehouse', 'sales', 'orders', 'analytics', 'barcode', 'smm', 'stories', 'discounts', 'returns', 'questions', 'couriers', 'chat', 'settings'];
+const VALID_TABS: Tab[] = ['dashboard', 'warehouse', 'sales', 'orders', 'analytics', 'barcode', 'smm', 'stories', 'discounts', 'returns', 'questions', 'couriers', 'chat', 'settings', 'debts'];
 
 export default function CompanyPanel({ onLogout, companyId, companyName }: CompanyPanelProps) {
   useEffect(() => {
@@ -73,6 +75,27 @@ export default function CompanyPanel({ onLogout, companyId, companyName }: Compa
   const [warehouseView, setWarehouseView] = useState<'inventory' | 'sales'>('inventory');
   // 🗂 Раскрытие каталога «Маркетинг и сервис»
   const [marketingOpen, setMarketingOpen] = useState(false);
+  // 📦 Инвентаризация склада (модалка со сверкой остатков)
+  const [inventoryCheckOpen, setInventoryCheckOpen] = useState(false);
+  // 👥 Режим кассира: наёмный продавец видит только офлайн-кассу; выход — по PIN
+  const [cashierMode, setCashierMode] = useState(() => localStorage.getItem('axentis_cashier_mode') === '1');
+
+  useEffect(() => {
+    const onCashierChange = () => setCashierMode(localStorage.getItem('axentis_cashier_mode') === '1');
+    window.addEventListener('cashierModeChange', onCashierChange);
+    return () => window.removeEventListener('cashierModeChange', onCashierChange);
+  }, []);
+
+  const exitCashierMode = () => {
+    const pin = localStorage.getItem('axentis_cashier_pin') || '';
+    const entered = window.prompt(isUz ? 'Egasining PIN-kodini kiriting' : 'Введите PIN владельца');
+    if (entered === pin && pin) {
+      localStorage.setItem('axentis_cashier_mode', '0');
+      setCashierMode(false);
+    } else if (entered !== null) {
+      alert(isUz ? 'PIN notoʻgʻri' : 'Неверный PIN');
+    }
+  };
 
   const { isMobile, isDesktop } = useResponsive();
   const responsive = useResponsiveClasses();
@@ -149,6 +172,7 @@ export default function CompanyPanel({ onLogout, companyId, companyName }: Compa
     { key: 'dashboard', icon: LayoutDashboard, label: isUz ? 'Boshqaruv' : 'Дашборд' },
     { key: 'warehouse', icon: Package,         label: isUz ? 'Ombor va sotuv' : 'Склад и продажи' },
     { key: 'orders',    icon: Receipt,         label: t.orders },
+    { key: 'debts',     icon: Wallet,          label: isUz ? 'Daftar (qarzlar)' : 'Дафтар (долги)' },
     { key: 'analytics', icon: BarChart3,       label: t.statistics },
     { key: 'barcode',   icon: Barcode,         label: isUz ? 'Oflayn' : 'Офлайн' },
   ];
@@ -185,6 +209,7 @@ export default function CompanyPanel({ onLogout, companyId, companyName }: Compa
     if (activeTab === 'couriers') return isUz ? 'Kuryerlar' : 'Курьеры';
     if (activeTab === 'chat') return isUz ? 'Umumiy chat' : 'Общий чат';
     if (activeTab === 'settings') return isUz ? 'Sozlamalar' : 'Настройки';
+    if (activeTab === 'debts') return isUz ? 'Daftar — qarzlar' : 'Дафтар — долги клиентов';
     return '';
   })();
 
@@ -226,6 +251,38 @@ export default function CompanyPanel({ onLogout, companyId, companyName }: Compa
       </motion.button>
     );
   };
+
+  // 👥 РЕЖИМ КАССИРА: только офлайн-касса, без аналитики и прибыли.
+  // Выход — по PIN владельца (localStorage axentis_cashier_pin).
+  if (cashierMode) {
+    return (
+      <div className="min-h-screen" style={{ background: 'var(--ax-bg)', color: 'var(--ax-text)' }}>
+        <header className="sticky top-0 z-10 flex items-center justify-between" style={{ padding: '10px 16px', background: 'var(--ax-sidebar)', borderBottom: '1px solid var(--ax-border)' }}>
+          <div className="flex items-center gap-2.5">
+            <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 34, height: 34, borderRadius: 11, background: 'linear-gradient(135deg, #7C5CF0, #5B3DD4)' }}>
+              <ScanLine style={{ width: 17, height: 17, color: '#fff' }} />
+            </span>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14.5 }}>{isUz ? 'Kassir rejimi' : 'Режим кассира'}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--ax-text-3)' }}>{companyName}</div>
+            </div>
+          </div>
+          <button
+            onClick={exitCashierMode}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 10, background: 'var(--ax-primary-pale)', color: 'var(--ax-primary)', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
+          >
+            <Lock style={{ width: 14, height: 14 }} />
+            {isUz ? 'Chiqish (PIN)' : 'Выход (PIN)'}
+          </button>
+        </header>
+        <div style={{ padding: '14px 12px' }}>
+          <Suspense fallback={<TabLoading />}>
+            <BarcodeSearchPanel companyId={companyId} />
+          </Suspense>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex overflow-x-hidden" style={{ background: 'var(--ax-bg)', color: 'var(--ax-text)' }}>
@@ -405,7 +462,8 @@ export default function CompanyPanel({ onLogout, companyId, companyName }: Compa
         <div style={{ padding: isMobile ? '12px 8px' : '18px 16px' }}>
           {/* Объединённый склад: сегментированный переключатель Склад ↔ Продажи */}
           {activeTab === 'warehouse' && (
-            <div style={{ display: 'flex', gap: 6, padding: 5, marginBottom: 16, borderRadius: 14, background: 'var(--ax-card)', border: '1px solid var(--ax-border)', width: 'fit-content', position: 'relative' }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 16 }}>
+            <div style={{ display: 'flex', gap: 6, padding: 5, borderRadius: 14, background: 'var(--ax-card)', border: '1px solid var(--ax-border)', width: 'fit-content', position: 'relative' }}>
               {([
                 { key: 'inventory' as const, icon: Boxes, label: isUz ? 'Ombor' : 'Склад' },
                 { key: 'sales' as const, icon: ShoppingCart, label: isUz ? 'Sotuv' : 'Продажи' },
@@ -423,6 +481,15 @@ export default function CompanyPanel({ onLogout, companyId, companyName }: Compa
                   </button>
                 );
               })}
+            </div>
+            {/* 📦 Инвентаризация: сверка фактических остатков с базой */}
+            <button
+              onClick={() => setInventoryCheckOpen(true)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 16px', borderRadius: 12, border: '1px solid rgba(14,165,233,0.35)', background: 'rgba(14,165,233,0.12)', color: '#38BDF8', cursor: 'pointer', fontSize: 13.5, fontWeight: 600 }}
+            >
+              <ScanLine className="w-4 h-4" />
+              {isUz ? 'Inventarizatsiya' : 'Инвентаризация'}
+            </button>
             </div>
           )}
 
@@ -449,6 +516,7 @@ export default function CompanyPanel({ onLogout, companyId, companyName }: Compa
                 {activeTab === 'couriers' && <CouriersManagementPanel companyId={companyId} />}
                 {activeTab === 'chat' && <BroadcastChatPanel companyId={companyId} />}
                 {activeTab === 'settings' && <CompanySettingsPanel companyId={companyId} companyName={companyName} />}
+                {activeTab === 'debts' && <CompanyDebtsPanel companyId={companyId} />}
               </motion.div>
             </AnimatePresence>
           </Suspense>
@@ -459,6 +527,13 @@ export default function CompanyPanel({ onLogout, companyId, companyName }: Compa
       {showInbox && (
         <Suspense fallback={null}>
           <CompanyInboxPanel companyId={companyId} onClose={() => setShowInbox(false)} />
+        </Suspense>
+      )}
+
+      {/* 📦 Инвентаризация склада */}
+      {inventoryCheckOpen && (
+        <Suspense fallback={null}>
+          <InventoryCheckModal companyId={companyId} onClose={() => setInventoryCheckOpen(false)} />
         </Suspense>
       )}
     </div>

@@ -540,6 +540,68 @@ export default function CompanySettingsPanel({ companyId }: CompanySettingsPanel
         {savingDelivery ? <RefreshCw className="w-6 h-6 animate-spin" /> : <Check className="w-6 h-6" />}
         {language === 'uz' ? 'Saqlash' : 'Сохранить доставку и возвраты'}
       </button>
+
+      {/* 👥 РЕЖИМ КАССИРА: наёмный продавец видит только офлайн-кассу.
+          PIN и флаг живут в localStorage этого браузера; CompanyPanel слушает
+          событие cashierModeChange и переключается без перезагрузки. */}
+      <div style={{ background: 'var(--ax-card)', border: '1px solid var(--ax-border)', borderRadius: 16, padding: 20, marginTop: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 34, height: 34, borderRadius: 11, background: 'rgba(220,38,38,0.12)', color: 'var(--ax-danger)' }}>👥</span>
+          <div>
+            <div style={{ color: 'var(--ax-text)', fontWeight: 700, fontSize: 15 }}>
+              {language === 'uz' ? 'Kassir rejimi' : 'Режим кассира'}
+            </div>
+            <div style={{ color: 'var(--ax-text-3)', fontSize: 12.5 }}>
+              {language === 'uz'
+                ? 'Sotuvchi faqat kassani koʻradi — tahlil va foydasiz. Chiqish — PIN orqali.'
+                : 'Продавец видит только кассу — без аналитики и прибыли. Выход — по PIN владельца.'}
+            </div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 12 }}>
+          <input
+            type="password"
+            inputMode="numeric"
+            maxLength={4}
+            placeholder={localStorage.getItem('axentis_cashier_pin') ? '••••' : (language === 'uz' ? 'PIN (4 raqam)' : 'PIN (4 цифры)')}
+            id="ax-cashier-pin-input"
+            style={{ flex: '1 1 140px', padding: '10px 14px', borderRadius: 12, background: 'var(--ax-input)', border: '1px solid var(--ax-border)', color: 'var(--ax-text)', fontSize: 14, outline: 'none', letterSpacing: 4 }}
+            onChange={(e) => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 4); }}
+          />
+          <button
+            onClick={() => {
+              const input = document.getElementById('ax-cashier-pin-input') as HTMLInputElement | null;
+              const pin = input?.value || '';
+              if (pin.length !== 4) {
+                alert(language === 'uz' ? 'PIN 4 raqamdan iborat boʻlishi kerak' : 'PIN должен состоять из 4 цифр');
+                return;
+              }
+              localStorage.setItem('axentis_cashier_pin', pin);
+              if (input) input.value = '';
+              alert(language === 'uz' ? 'PIN saqlandi' : 'PIN сохранён');
+            }}
+            style={{ padding: '10px 18px', borderRadius: 12, background: 'var(--ax-primary-pale)', color: 'var(--ax-primary)', border: 'none', cursor: 'pointer', fontSize: 13.5, fontWeight: 600 }}
+          >
+            {language === 'uz' ? 'PIN saqlash' : 'Сохранить PIN'}
+          </button>
+          <button
+            onClick={() => {
+              if (!localStorage.getItem('axentis_cashier_pin')) {
+                alert(language === 'uz' ? 'Avval PIN qoʻying' : 'Сначала задайте PIN');
+                return;
+              }
+              if (!confirm(language === 'uz'
+                ? 'Kassir rejimini yoqasizmi? Chiqish faqat PIN bilan.'
+                : 'Включить режим кассира? Выход — только по PIN.')) return;
+              localStorage.setItem('axentis_cashier_mode', '1');
+              window.dispatchEvent(new Event('cashierModeChange'));
+            }}
+            style={{ padding: '10px 18px', borderRadius: 12, background: 'rgba(217,119,6,0.14)', color: 'var(--ax-warning)', border: '1px solid rgba(217,119,6,0.3)', cursor: 'pointer', fontSize: 13.5, fontWeight: 600 }}
+          >
+            {language === 'uz' ? 'Kassir rejimini yoqish' : 'Включить режим кассира'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

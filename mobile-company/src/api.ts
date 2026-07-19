@@ -335,6 +335,51 @@ export const productPurchases = {
 };
 
 // ============================================================================
+// DEBTS — «Дафтар»: журнал долгов клиентов (общий с веб-панелью)
+// ============================================================================
+
+export interface Debt {
+  id: number;
+  companyId: number;
+  customerName: string;
+  customerPhone: string;
+  amount: number;
+  paidAmount: number;
+  note: string;
+  dueDate?: string; // YYYY-MM-DD
+  status: 'open' | 'paid';
+  createdAt: string;
+}
+
+export const debts = {
+  list: (companyId: number): Promise<Debt[]> => apiCall(`/debts?companyId=${companyId}`),
+
+  create: (data: {
+    companyId: number;
+    customerName: string;
+    customerPhone?: string;
+    amount: number;
+    note?: string;
+    dueDate?: string;
+  }) => apiCall('/debts', { method: 'POST', body: JSON.stringify(data) }),
+
+  update: (
+    id: number,
+    data: Partial<{
+      customerName: string;
+      customerPhone: string;
+      amount: number;
+      addPayment: number;
+      note: string;
+      dueDate: string;
+      status: 'open' | 'paid';
+    }>
+  ) => apiCall(`/debts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  delete: (id: number) => apiCall(`/debts/${id}`, { method: 'DELETE' }),
+};
+
+// ============================================================================
 // EXPENSES — операционные расходы компании (для чистой прибыли в аналитике)
 // ============================================================================
 
@@ -456,6 +501,7 @@ const api = {
   orders,
   sales,
   cashSales,
+  debts,
   productPurchases,
   expenses,
   discounts,

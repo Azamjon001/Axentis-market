@@ -55,6 +55,11 @@ func main() {
 	handlers.MigrateCompanyPushTables(db)
 	handlers.RunCompanyPushWorkers(db)
 
+	// 🧾 «Дафтар» (долги клиентов) + 🎯 дневная цель продаж:
+	// таблица долгов + напоминания о сроках 10:00 по Ташкенту
+	handlers.MigrateCompanyDebts(db)
+	handlers.RunDebtReminderWorkers(db)
+
 	// Provide config to user auth handlers so they can issue JWT tokens.
 	handlers.InitUserConfig(cfg)
 

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Svg, { Circle } from 'react-native-svg';
 import api from '../api';
 import { useI18n } from '../i18n';
 import { SP, STATUS_COLOR, useTheme } from '../theme';
@@ -13,6 +14,7 @@ import {
   fmtDate,
   fmtShort,
   haptic,
+  Input,
   KV,
   Loading,
   ProgressBar,
@@ -20,6 +22,31 @@ import {
   Sheet,
   StatCard,
 } from '../ui';
+
+// 🎯 Кольцо прогресса дневной цели (SVG)
+function GoalRing({ ratio, color, track }: { ratio: number; color: string; track: string }) {
+  const size = 92;
+  const stroke = 9;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const clamped = Math.max(0, Math.min(1, ratio));
+  return (
+    <Svg width={size} height={size}>
+      <Circle cx={size / 2} cy={size / 2} r={r} stroke={track} strokeWidth={stroke} fill="none" />
+      <Circle
+        cx={size / 2}
+        cy={size / 2}
+        r={r}
+        stroke={color}
+        strokeWidth={stroke}
+        fill="none"
+        strokeLinecap="round"
+        strokeDasharray={`${c * clamped} ${c}`}
+        transform={`rotate(-90 ${size / 2} ${size / 2})`}
+      />
+    </Svg>
+  );
+}
 
 // 📊 Дашборд — 1:1 с CompanyDashboardPanel веб-панели: метрики дня, разбор
 // прибыли (онлайн/офлайн), «требует внимания», динамика продаж, статусы,
@@ -61,22 +88,31 @@ export default function DashboardScreen({ companyId }: { companyId: number }) {
   const [profitOpen, setProfitOpen] = useState(false);
   const [openSegment, setOpenSegment] = useState<SegmentKey | null>(null);
 
+  // 🎯 Дневная цель продаж (companies.daily_sales_goal — общая с веб-панелью)
+  const [goal, setGoal] = useState(0);
+  const [goalOpen, setGoalOpen] = useState(false);
+  const [goalInput, setGoalInput] = useState('');
+  const [goalSaving, setGoalSaving] = useState(false);
+  const [goalCelebrated, setGoalCelebrated] = useState(false);
+
   const load = useCallback(async () => {
     try {
       setError(false);
       // Тот же набор запросов, что в CompanyDashboardPanel.useEffect
-      const [dash, ordersData, insightsData, profitData, segmentsData] = await Promise.all([
+      const [dash, ordersData, insightsData, profitData, segmentsData, companyData] = await Promise.all([
         api.analytics.dashboard(companyId),
         api.orders.list({ companyId: String(companyId) }).catch(() => []),
         api.analytics.inventoryInsights(companyId).catch(() => null),
         api.analytics.profit(companyId).catch(() => null),
         api.analytics.customerSegments(companyId).catch(() => null),
+        api.companies.get(companyId).catch(() => null),
       ]);
       setData(dash);
       setAllOrders(Array.isArray(ordersData) ? ordersData : ordersData?.orders || []);
       setInsights(insightsData);
       setProfit(profitData);
       setSegments(segmentsData);
+      setGoal(Number(companyData?.dailySalesGoal) || 0);
     } catch (e) {
       console.error('Dashboard load failed:', e);
       setError(true);
@@ -173,6 +209,67 @@ export default function DashboardScreen({ companyId }: { companyId: number }) {
         />
       }
     >
+      {/* 🎯 Цель дня */}
+      {(() => {
+        const todayRevenue = (profit?.today?.revenue ?? data.todayRevenue) || 0;
+        const ratio = goal > 0 ? todayRevenue / goal : 0;
+        const reached = goal > 0 && ratio >= 1;
+        if (reached && !goalCelebrated) {
+          setGoalCelebrated(true);
+          haptic.success();
+        }
+        return (
+          <Pressable
+            onPress={() => {
+              haptic.light();
+              setGoalInput(goal > 0 ? String(goal) : '');
+              setGoalOpen(true);
+            }}
+          >
+            <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 10 }}>
+              <View style={{ alignItems: 'center', justifyContent: 'center' }}>
+                <GoalRing
+                  ratio={ratio}
+                  color={reached ? theme.success : theme.primary}
+                  track={theme.border}
+                />
+                <View style={{ position: 'absolute', alignItems: 'center' }}>
+                  <Text style={{ color: reached ? theme.success : theme.text, fontSize: 17, fontWeight: '800' }}>
+                    {goal > 0 ? `${Math.min(999, Math.round(ratio * 100))}%` : '—'}
+                  </Text>
+                </View>
+              </View>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="flag-outline" size={15} color={theme.primary} />
+                  <Text style={{ color: theme.text, fontSize: 14.5, fontWeight: '700' }}>{t.dailyGoal}</Text>
+                </View>
+                {goal > 0 ? (
+                  <>
+                    <Text style={{ color: theme.text2, fontSize: 13.5, marginTop: 4 }}>
+                      {fmt(todayRevenue)} / {fmt(goal)} {t.sum}
+                    </Text>
+                    <Text
+                      style={{
+                        color: reached ? theme.success : theme.text3,
+                        fontSize: 12.5,
+                        marginTop: 3,
+                        fontWeight: reached ? '700' : '400',
+                      }}
+                    >
+                      {reached ? t.goalReached : t.dailyGoalHint}
+                    </Text>
+                  </>
+                ) : (
+                  <Text style={{ color: theme.text3, fontSize: 12.5, marginTop: 4 }}>{t.noGoal}</Text>
+                )}
+              </View>
+              <Ionicons name="pencil-outline" size={16} color={theme.text3} />
+            </Card>
+          </Pressable>
+        );
+      })()}
+
       {/* Метрики */}
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
         <StatCard label={t.todayOrders} value={fmt(data.todayOrders)} icon="receipt-outline" color={theme.opsAccent} />
@@ -529,6 +626,39 @@ export default function DashboardScreen({ companyId }: { companyId: number }) {
           </View>
         )}
       </View>
+
+      {/* 🎯 Настройка цели дня */}
+      <Sheet visible={goalOpen} onClose={() => setGoalOpen(false)} title={t.setGoal}>
+        <Input
+          label={t.goalAmount}
+          value={goalInput}
+          onChangeText={(v) => setGoalInput(v.replace(/\D/g, ''))}
+          keyboardType="number-pad"
+          placeholder="1000000"
+        />
+        <Button
+          title={t.save}
+          onPress={async () => {
+            const value = parseInt(goalInput, 10) || 0;
+            setGoalSaving(true);
+            try {
+              await api.companies.update(companyId, { dailySalesGoal: value });
+              setGoal(value);
+              setGoalCelebrated(false);
+              haptic.success();
+              setGoalOpen(false);
+              Alert.alert('✅', t.goalSaved);
+            } catch (e) {
+              haptic.error();
+              Alert.alert(t.error, e instanceof Error ? e.message : String(e));
+            } finally {
+              setGoalSaving(false);
+            }
+          }}
+          loading={goalSaving}
+          icon="flag-outline"
+        />
+      </Sheet>
 
       {/* Разбор прибыли: онлайн ↔ офлайн (как мини-панель в вебе) */}
       <Sheet visible={profitOpen} onClose={() => setProfitOpen(false)} title={`${t.revenue} · ${t.profit}`}>

@@ -2,7 +2,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { useQueryClient } from '@tanstack/react-query';
 import { invalidateCache } from '../utils/productsCache';
-import { Upload, Edit2, Trash2, Package, Plus, X, Check, Search, Download, Image as ImageIcon, ShoppingCart, HelpCircle } from 'lucide-react';
+import { Upload, Edit2, Trash2, Package, Plus, X, Check, Search, Download, Image as ImageIcon, ShoppingCart, HelpCircle, Tag } from 'lucide-react';
+import PriceTagModal from './PriceTagModal'; // 🏷 Генератор ценников с QR
 import api, { API_BASE, getImageUrl } from '../utils/api';
 import { useCompanyProducts, ramCache } from '../utils/cache';
 import ImageUploader from './ImageUploader';
@@ -77,6 +78,7 @@ export const DigitalWarehouse: React.FC<DigitalWarehouseProps> = ({ companyId })
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [showImageUploader, setShowImageUploader] = useState<string | null>(null); // ID товара для которого показываем загрузчик фото
+  const [priceTagProduct, setPriceTagProduct] = useState<any | null>(null); // 🏷 Товар для генерации ценника
   
   // 🆕 Состояние для модального окна покупки товара
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
@@ -2094,6 +2096,14 @@ export const DigitalWarehouse: React.FC<DigitalWarehouseProps> = ({ companyId })
                       >
                         <ImageIcon className="w-4 h-4" />
                       </button>
+                      {/* 🏷 Ценник с QR-кодом */}
+                      <button
+                        onClick={() => setPriceTagProduct(product)}
+                        title={language === 'uz' ? 'Narx yorligʻi' : 'Ценник'}
+                        style={{ padding: '6px 8px', borderRadius: 8, background: 'rgba(251,191,36,0.10)', border: 'none', color: '#FBBF24', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                      >
+                        <Tag className="w-4 h-4" />
+                      </button>
                       <button
                         onClick={() => {
                           if (editingId === product.id) {
@@ -2569,6 +2579,11 @@ export const DigitalWarehouse: React.FC<DigitalWarehouseProps> = ({ companyId })
             </div>
           </div>
         </div>
+      )}
+
+      {/* 🏷 Ценник товара (печать/PDF, QR на страницу товара) */}
+      {priceTagProduct && (
+        <PriceTagModal product={priceTagProduct} onClose={() => setPriceTagProduct(null)} />
       )}
     </div>
   );

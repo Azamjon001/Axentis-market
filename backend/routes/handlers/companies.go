@@ -237,6 +237,7 @@ func GetCompany(db *sql.DB) gin.HandlerFunc {
 			CoverVideoURL       sql.NullString
 			PlatformCommission  sql.NullFloat64
 			IsVerified          bool
+			DailySalesGoal      sql.NullFloat64
 		}
 
 		err := db.QueryRow(`
@@ -244,14 +245,15 @@ func GetCompany(db *sql.DB) gin.HandlerFunc {
 			       COALESCE(delivery_radius_km, 0), delivery_radius_lat, delivery_radius_lng,
 			       COALESCE(delivery_cost_per_km, 1500), COALESCE(return_enabled, true), COALESCE(return_window_hours, 24),
 			       region, district, COALESCE(service_regions::text, '[]'), cover_video_url,
-			       COALESCE(platform_commission_percent, 3), COALESCE(is_verified, FALSE)
+			       COALESCE(platform_commission_percent, 3), COALESCE(is_verified, FALSE),
+			       COALESCE(daily_sales_goal, 0)
 			FROM companies WHERE id = $1
 		`, id).Scan(&company.ID, &company.Name, &company.Phone, &company.Mode, &company.Status,
 			&company.LogoURL, &company.CoverURL, &company.Address, &company.Description, &company.ProductsDescription, &company.Latitude, &company.Longitude, &company.DeliveryEnabled,
 			&company.DeliveryRadiusKm, &company.DeliveryRadiusLat, &company.DeliveryRadiusLng,
 			&company.DeliveryCostPerKm, &company.ReturnEnabled, &company.ReturnWindowHours,
 			&company.Region, &company.District, &company.ServiceRegions, &company.CoverVideoURL,
-			&company.PlatformCommission, &company.IsVerified)
+			&company.PlatformCommission, &company.IsVerified, &company.DailySalesGoal)
 
 		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Company not found"})
@@ -306,6 +308,7 @@ func GetCompany(db *sql.DB) gin.HandlerFunc {
 		result["deliveryCostPerKm"] = company.DeliveryCostPerKm.Float64
 		result["returnEnabled"] = company.ReturnEnabled.Bool
 		result["returnWindowHours"] = company.ReturnWindowHours.Int64
+		result["dailySalesGoal"] = company.DailySalesGoal.Float64
 		if company.Region.Valid {
 			result["region"] = company.Region.String
 		}
@@ -405,6 +408,7 @@ func UpdateCompany(db *sql.DB) gin.HandlerFunc {
 			District            *string  `json:"district"`            // район
 			ServiceRegions      *[]string `json:"serviceRegions"`     // 🗺️ регионы доставки (мультивыбор)
 			CoverVideoUrl       *string  `json:"coverVideoUrl"`       // 🎬 видео-декорация для страницы магазина
+			DailySalesGoal      *float64 `json:"dailySalesGoal"`      // 🎯 дневная цель продаж (дашборд)
 		}
 
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -500,6 +504,11 @@ func UpdateCompany(db *sql.DB) gin.HandlerFunc {
 		if req.ReturnWindowHours != nil {
 			query += fmt.Sprintf(", return_window_hours = $%d", argCount)
 			args = append(args, *req.ReturnWindowHours)
+			argCount++
+		}
+		if req.DailySalesGoal != nil {
+			query += fmt.Sprintf(", daily_sales_goal = $%d", argCount)
+			args = append(args, *req.DailySalesGoal)
 			argCount++
 		}
 		if req.Region != nil {

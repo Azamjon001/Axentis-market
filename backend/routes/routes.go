@@ -381,6 +381,16 @@ func Setup(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 			companyMessages.PUT("/company/:companyId/read-all", middleware.RequireAdminOrOwnCompanyParam("companyId"), handlers.MarkAllCompanyMessagesAsRead(db)) // Все прочитано
 		}
 
+		// 🧾 «Дафтар» — журнал долгов клиентов (веб-панель + приложение).
+		// Внутри хендлеров — requireCompanyMatch: компания видит только свои долги.
+		debts := api.Group("/debts")
+		{
+			debts.GET("", middleware.RequireCompany(cfg), handlers.ListDebts(db))
+			debts.POST("", middleware.RequireCompany(cfg), handlers.CreateDebt(db))
+			debts.PUT("/:id", middleware.RequireCompany(cfg), handlers.UpdateDebt(db))
+			debts.DELETE("/:id", middleware.RequireCompany(cfg), handlers.DeleteDebt(db))
+		}
+
 		// Expenses routes
 		expenses := api.Group("/expenses")
 		{

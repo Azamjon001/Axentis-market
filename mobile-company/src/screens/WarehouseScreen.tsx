@@ -12,11 +12,15 @@ import {
   View,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import ViewShot, { ViewShotRef } from 'react-native-view-shot';
+import * as Sharing from 'expo-sharing';
+import QRCode from 'react-native-qrcode-svg';
+import InventoryScreen from './InventoryScreen';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import api, { getImageUrl } from '../api';
 import { useI18n } from '../i18n';
-import { MKT_GRAD, R, SP, useTheme } from '../theme';
+import { MKT_GRAD, OPS_GRAD, R, SP, useTheme } from '../theme';
 import {
   Badge,
   Button,
@@ -142,6 +146,13 @@ export default function WarehouseScreen({ companyId }: { companyId: number }) {
   const [bulkBusy, setBulkBusy] = useState(false);
   const [discountOpen, setDiscountOpen] = useState(false);
   const [discountPercent, setDiscountPercent] = useState('');
+
+  // 📦 Инвентаризация сканером
+  const [inventoryOpen, setInventoryOpen] = useState(false);
+
+  // 🏷 Ценник товара
+  const [priceTagFor, setPriceTagFor] = useState<Product | null>(null);
+  const tagShotRef = React.useRef<ViewShotRef>(null);
 
   // 🤖 Умный советчик закупок
   const [advisorOpen, setAdvisorOpen] = useState(false);
@@ -832,6 +843,39 @@ export default function WarehouseScreen({ companyId }: { companyId: number }) {
                   </LinearGradient>
                 </Pressable>
 
+                {/* 📦 Кнопка инвентаризации */}
+                <Pressable
+                  onPress={() => {
+                    haptic.medium();
+                    setInventoryOpen(true);
+                  }}
+                >
+                  <LinearGradient
+                    colors={[...OPS_GRAD]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={{ borderRadius: R.lg, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 }}
+                  >
+                    <View
+                      style={{
+                        width: 38,
+                        height: 38,
+                        borderRadius: 13,
+                        backgroundColor: 'rgba(255,255,255,0.2)',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Ionicons name="scan" size={18} color="#fff" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: '#fff', fontSize: 14.5, fontWeight: '700' }}>{t.inventory}</Text>
+                      <Text style={{ color: 'rgba(255,255,255,0.75)', fontSize: 12 }}>{t.inventoryHint}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={18} color="rgba(255,255,255,0.8)" />
+                  </LinearGradient>
+                </Pressable>
+
                 <SearchBar value={search} onChangeText={setSearch} placeholder={t.searchProducts} />
 
                 {/* Категории + «залежавшиеся» */}
@@ -1034,7 +1078,7 @@ export default function WarehouseScreen({ companyId }: { companyId: number }) {
 
             {renderProductForm(editForm, setEditForm, false)}
 
-            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 18 }}>
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
               <Button title={t.save} onPress={saveDetail} loading={saving} style={{ flex: 1 }} icon="checkmark" />
               <Button
                 title={t.purchase}
@@ -1049,6 +1093,14 @@ export default function WarehouseScreen({ companyId }: { companyId: number }) {
                 style={{ flex: 1 }}
               />
             </View>
+            {/* 🏷 Ценник с QR-кодом */}
+            <Button
+              title={t.priceTag}
+              onPress={() => setPriceTagFor(detail)}
+              variant="ghost"
+              icon="pricetag-outline"
+              style={{ marginBottom: 18 }}
+            />
 
             {/* Варианты */}
             <SectionTitle text={t.variants} accent={theme.mktAccent} />
@@ -1248,6 +1300,62 @@ export default function WarehouseScreen({ companyId }: { companyId: number }) {
         />
         <Button title={`${t.bulkDiscount} (${selected.size})`} onPress={bulkDiscount} loading={bulkBusy} icon="pricetag-outline" />
       </Sheet>
+
+      {/* ── 🏷 Ценник товара (изображение для печати/отправки) ── */}
+      <Sheet visible={priceTagFor !== null} onClose={() => setPriceTagFor(null)} title={t.priceTag}>
+        {priceTagFor && (
+          <>
+            <ViewShot
+              ref={tagShotRef}
+              options={{ format: 'png', quality: 1 }}
+              style={{ backgroundColor: '#FFFFFF', borderRadius: 14, padding: 20, marginBottom: 6 }}
+            >
+              <Text style={{ color: '#0F172A', fontSize: 17, fontWeight: '700' }} numberOfLines={2}>
+                {priceTagFor.name}
+              </Text>
+              {!!priceTagFor.brand && (
+                <Text style={{ color: '#64748B', fontSize: 12.5, marginTop: 2 }}>{priceTagFor.brand}</Text>
+              )}
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 14, gap: 16 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: '#0F172A', fontSize: 30, fontWeight: '900' }}>
+                    {fmt(priceWithMarkup(priceTagFor.price || 0, priceTagFor.markupPercent || 0))}
+                  </Text>
+                  <Text style={{ color: '#64748B', fontSize: 13, fontWeight: '600' }}>{t.sum}</Text>
+                  {!!priceTagFor.barcode && (
+                    <Text style={{ color: '#94A3B8', fontSize: 12, marginTop: 10, letterSpacing: 2, fontVariant: ['tabular-nums'] }}>
+                      {priceTagFor.barcode}
+                    </Text>
+                  )}
+                </View>
+                <QRCode value={`https://axentis.uz/product/${priceTagFor.id}`} size={92} backgroundColor="#FFFFFF" color="#0F172A" />
+              </View>
+              <Text style={{ color: '#94A3B8', fontSize: 10.5, marginTop: 12 }}>axentis.uz · Axentis Market</Text>
+            </ViewShot>
+            <Text style={{ color: theme.text3, fontSize: 12, marginBottom: 14 }}>💡 {t.priceTagHint}</Text>
+            <Button
+              title={t.priceTagShare}
+              onPress={async () => {
+                try {
+                  const uri = await tagShotRef.current?.capture?.();
+                  if (uri) await Sharing.shareAsync(uri.startsWith('file://') ? uri : `file://${uri}`);
+                } catch (e) {
+                  Alert.alert(t.error, e instanceof Error ? e.message : String(e));
+                }
+              }}
+              icon="share-social-outline"
+            />
+          </>
+        )}
+      </Sheet>
+
+      {/* ── 📦 Инвентаризация ── */}
+      <InventoryScreen
+        companyId={companyId}
+        visible={inventoryOpen}
+        onClose={() => setInventoryOpen(false)}
+        onApplied={load}
+      />
     </View>
   );
 }

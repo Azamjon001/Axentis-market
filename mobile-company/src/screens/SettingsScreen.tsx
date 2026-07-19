@@ -13,13 +13,14 @@ import { Badge, Button, Card, Chip, haptic, Input, SectionTitle, Segmented } fro
 interface Props {
   company: CompanySession;
   onLogout: () => void;
+  onEnableCashier?: () => void;
 }
 
 // ⚙️ Настройки — 1:1 с CompanySettingsPanel веб-панели: режим магазина
 // (публичный ↔ закрытый + код доступа), доставка и возвраты, регионы
 // обслуживания, Telegram-уведомления; плюс язык, тема и выход
 // (нижний блок сайдбара CompanyPanel).
-export default function SettingsScreen({ company, onLogout }: Props) {
+export default function SettingsScreen({ company, onLogout, onEnableCashier }: Props) {
   const { theme, themeName, setThemeName } = useTheme();
   const { t, lang, setLang } = useI18n();
 
@@ -199,6 +200,38 @@ export default function SettingsScreen({ company, onLogout }: Props) {
     } finally {
       setTgBusy(false);
     }
+  };
+
+  // 👥 Режим кассира: PIN владельца + запуск режима
+  const [cashierPin, setCashierPin] = useState('');
+  const [savedPinExists, setSavedPinExists] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem('axentis_cashier_pin').then((v) => setSavedPinExists(!!v));
+  }, []);
+
+  const saveCashierPin = async () => {
+    if (cashierPin.length !== 4) {
+      Alert.alert(t.error, t.cashierSetPin);
+      return;
+    }
+    await AsyncStorage.setItem('axentis_cashier_pin', cashierPin);
+    setSavedPinExists(true);
+    setCashierPin('');
+    haptic.success();
+  };
+
+  const startCashierMode = async () => {
+    const pin = await AsyncStorage.getItem('axentis_cashier_pin');
+    if (!pin) {
+      Alert.alert(t.error, t.cashierPinRequired);
+      return;
+    }
+    haptic.medium();
+    Alert.alert(t.cashierSection, t.cashierHint, [
+      { text: t.cancel, style: 'cancel' },
+      { text: t.cashierEnable, onPress: () => onEnableCashier?.() },
+    ]);
   };
 
   const confirmLogout = () => {
@@ -435,6 +468,35 @@ export default function SettingsScreen({ company, onLogout }: Props) {
           ) : tgStatus?.connectLink ? (
             <Button title={t.telegramConnect} onPress={connectTelegram} small />
           ) : null}
+        </Card>
+      </View>
+
+      {/* 👥 Режим кассира */}
+      <View style={{ marginTop: 18 }}>
+        <SectionTitle text={t.cashierSection} hint={t.cashierHint} accent={theme.danger} />
+        <Card>
+          <View style={{ flexDirection: 'row', gap: 8, alignItems: 'flex-end' }}>
+            <View style={{ flex: 1 }}>
+              <Input
+                label={t.cashierSetPin}
+                value={cashierPin}
+                onChangeText={(v) => setCashierPin(v.replace(/\D/g, '').slice(0, 4))}
+                keyboardType="number-pad"
+                secureTextEntry
+                maxLength={4}
+                placeholder={savedPinExists ? '••••' : '1234'}
+                style={{ marginBottom: 0 }}
+              />
+            </View>
+            <Button title={t.save} onPress={saveCashierPin} small icon="key-outline" style={{ marginBottom: 12 }} />
+          </View>
+          <Button
+            title={t.cashierEnable}
+            onPress={startCashierMode}
+            variant="warning"
+            icon="person-outline"
+            small
+          />
         </Card>
       </View>
 

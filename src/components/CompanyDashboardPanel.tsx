@@ -113,6 +113,10 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
   const [selected, setSelected] = useState<ProductDetail | null>(null);
   // Открытая мини-панель разбора прибыли (null = закрыта)
   const [profitOpen, setProfitOpen] = useState<null | 'revenue' | 'profit'>(null);
+  // 🎯 Дневная цель продаж (companies.daily_sales_goal — общая с приложением)
+  const [goal, setGoal] = useState(0);
+  const [goalEditOpen, setGoalEditOpen] = useState(false);
+  const [goalInput, setGoalInput] = useState('');
 
   useEffect(() => {
     let active = true;
@@ -122,7 +126,8 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
       api.analytics.inventoryInsights(companyId).catch(() => null),
       api.analytics.profit(companyId).catch(() => null),
       api.analytics.customerSegments(companyId).catch(() => null),
-    ]).then(([dashData, ordersData, insightsData, profitData, segmentsData]) => {
+      api.companies.get(String(companyId)).catch(() => null),
+    ]).then(([dashData, ordersData, insightsData, profitData, segmentsData, companyData]) => {
       if (!active) return;
       setData(dashData);
       const orders = Array.isArray(ordersData) ? ordersData : (ordersData?.orders || []);
@@ -130,6 +135,7 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
       setInsights(insightsData);
       setProfit(profitData);
       setSegments(segmentsData);
+      setGoal(Number(companyData?.dailySalesGoal) || 0);
     }).catch((e) => console.error('Dashboard load failed:', e))
       .finally(() => active && setLoading(false));
     return () => { active = false; };
@@ -403,8 +409,96 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
     </div>
   );
 
+  // 🎯 Цель дня: сегодняшняя выручка против заданной цели
+  const goalTodayRevenue = (profit?.today?.revenue ?? data.todayRevenue) || 0;
+  const goalRatio = goal > 0 ? Math.min(1, goalTodayRevenue / goal) : 0;
+  const goalReached = goal > 0 && goalTodayRevenue >= goal;
+  const goalRingR = 34;
+  const goalRingC = 2 * Math.PI * goalRingR;
+
+  const saveGoal = async () => {
+    const value = parseInt(goalInput, 10) || 0;
+    try {
+      await api.companies.update(String(companyId), { dailySalesGoal: value });
+      setGoal(value);
+      setGoalEditOpen(false);
+    } catch (e) {
+      console.error('Goal save failed:', e);
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      {/* 🎯 Цель дня */}
+      <motion.div
+        {...springIn}
+        onClick={() => { setGoalInput(goal > 0 ? String(goal) : ''); setGoalEditOpen(true); }}
+        style={{ display: 'flex', alignItems: 'center', gap: 18, padding: '14px 18px', borderRadius: 16, background: 'var(--ax-card)', border: `1px solid ${goalReached ? 'rgba(34,197,94,0.4)' : 'var(--ax-border)'}`, cursor: 'pointer' }}
+      >
+        <div style={{ position: 'relative', width: 78, height: 78, flexShrink: 0 }}>
+          <svg width={78} height={78}>
+            <circle cx={39} cy={39} r={goalRingR} stroke="var(--ax-border)" strokeWidth={8} fill="none" />
+            <circle
+              cx={39} cy={39} r={goalRingR}
+              stroke={goalReached ? '#22C55E' : 'var(--ax-primary)'}
+              strokeWidth={8} fill="none" strokeLinecap="round"
+              strokeDasharray={`${goalRingC * goalRatio} ${goalRingC}`}
+              transform="rotate(-90 39 39)"
+              style={{ transition: 'stroke-dasharray 0.6s ease' }}
+            />
+          </svg>
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 15, color: goalReached ? '#22C55E' : 'var(--ax-text)' }}>
+            {goal > 0 ? `${Math.min(999, Math.round((goalTodayRevenue / goal) * 100))}%` : '—'}
+          </div>
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 14.5, color: 'var(--ax-text)' }}>
+            🎯 {isUz ? 'Kun maqsadi' : 'Цель дня'}
+          </div>
+          {goal > 0 ? (
+            <>
+              <div style={{ color: 'var(--ax-text-2)', fontSize: 13.5, marginTop: 3 }}>
+                {fmt(goalTodayRevenue)} / {fmt(goal)} {L.sum}
+              </div>
+              <div style={{ color: goalReached ? '#22C55E' : 'var(--ax-text-3)', fontSize: 12.5, marginTop: 2, fontWeight: goalReached ? 700 : 400 }}>
+                {goalReached
+                  ? (isUz ? 'Maqsadga erishildi! 🎉' : 'Цель достигнута! 🎉')
+                  : (isUz ? 'Bosing — maqsadni oʻzgartiring' : 'Нажмите, чтобы изменить цель')}
+              </div>
+            </>
+          ) : (
+            <div style={{ color: 'var(--ax-text-3)', fontSize: 12.5, marginTop: 3 }}>
+              {isUz ? 'Kunlik maqsad qoʻying — taraqqiyotni kuzating' : 'Задайте дневную цель — и следите за прогрессом'}
+            </div>
+          )}
+        </div>
+      </motion.div>
+
+      {/* Модалка: изменить цель */}
+      {goalEditOpen && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setGoalEditOpen(false)}>
+          <div style={{ background: 'var(--ax-surface)', border: '1px solid var(--ax-border)', borderRadius: 18, padding: 22, width: '100%', maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ color: 'var(--ax-text)', fontSize: 16.5, fontWeight: 700, marginBottom: 14 }}>
+              🎯 {isUz ? 'Kunlik maqsad, soʻm' : 'Цель на день, сум'}
+            </h3>
+            <input
+              value={goalInput}
+              onChange={(e) => setGoalInput(e.target.value.replace(/\D/g, ''))}
+              placeholder="1000000"
+              autoFocus
+              onKeyDown={(e) => { if (e.key === 'Enter') saveGoal(); }}
+              style={{ width: '100%', padding: '11px 14px', borderRadius: 12, background: 'var(--ax-input)', border: '1px solid var(--ax-border)', color: 'var(--ax-text)', fontSize: 15, outline: 'none', marginBottom: 12 }}
+            />
+            <button
+              onClick={saveGoal}
+              style={{ width: '100%', padding: '12px 0', borderRadius: 12, background: 'linear-gradient(135deg, #7C5CF0, #5B3DD4)', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 14.5 }}
+            >
+              {isUz ? 'Saqlash' : 'Сохранить'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Top stat cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14 }}>
         {stats.map((s, i) => (

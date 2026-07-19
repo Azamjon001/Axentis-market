@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Animated, Pressable, Text, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -7,10 +8,11 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import api, { clearAuth, CompanySession, loadSession, loadStoredToken } from './src/api';
 import { I18nProvider, useI18n } from './src/i18n';
 import { BRAND_GRAD, ThemeProvider, useTheme } from './src/theme';
-import { haptic } from './src/ui';
+import { Button, haptic, Input, Sheet } from './src/ui';
 import { registerCompanyPush, unregisterCompanyPush } from './src/push';
 import { syncPendingSales } from './src/offline';
 import DashboardScreen from './src/screens/DashboardScreen';
+import DebtsScreen from './src/screens/DebtsScreen';
 import LoginScreen from './src/screens/LoginScreen';
 import OrdersScreen from './src/screens/OrdersScreen';
 import AnalyticsScreen from './src/screens/AnalyticsScreen';
@@ -101,7 +103,37 @@ function CompanyPanel({ company, onLogout }: { company: CompanySession; onLogout
   const [tab, setTab] = useState<Tab>('dashboard');
   const [unread, setUnread] = useState(0);
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [debtsOpen, setDebtsOpen] = useState(false);
   const fade = useRef(new Animated.Value(1)).current;
+
+  // 👥 Режим кассира: продавец-наёмник видит только кассу; выход — по PIN владельца
+  const [cashierMode, setCashierMode] = useState(false);
+  const [pinOpen, setPinOpen] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+
+  useEffect(() => {
+    AsyncStorage.getItem('axentis_cashier_mode').then((v) => setCashierMode(v === '1'));
+  }, []);
+
+  const enableCashierMode = () => {
+    AsyncStorage.setItem('axentis_cashier_mode', '1').catch(() => {});
+    setCashierMode(true);
+  };
+
+  const tryExitCashier = async () => {
+    const pin = await AsyncStorage.getItem('axentis_cashier_pin');
+    if (pinInput === pin) {
+      haptic.success();
+      AsyncStorage.setItem('axentis_cashier_mode', '0').catch(() => {});
+      setCashierMode(false);
+      setPinOpen(false);
+      setPinInput('');
+    } else {
+      haptic.error();
+      setPinInput('');
+      Alert.alert('❌', t.cashierWrongPin);
+    }
+  };
 
   // 🔔 Счётчик непрочитанных сообщений — как в шапке веб-панели
   useEffect(() => {
@@ -147,6 +179,33 @@ function CompanyPanel({ company, onLogout }: { company: CompanySession; onLogout
     { key: 'settings', label: t.more, icon: 'settings-outline', iconActive: 'settings' },
   ];
 
+  // 👥 Режим кассира: только касса, выход по PIN владельца
+  if (cashierMode) {
+    return (
+      <View style={{ flex: 1, backgroundColor: theme.bg }}>
+        <ScannerScreen
+          companyId={company.id}
+          visible
+          onClose={() => {
+            setPinInput('');
+            setPinOpen(true);
+          }}
+        />
+        <Sheet visible={pinOpen} onClose={() => setPinOpen(false)} title={t.cashierExit}>
+          <Input
+            label={t.cashierEnterPin}
+            value={pinInput}
+            onChangeText={(v) => setPinInput(v.replace(/\D/g, '').slice(0, 4))}
+            keyboardType="number-pad"
+            secureTextEntry
+            maxLength={4}
+          />
+          <Button title={t.cashierExit} onPress={tryExitCashier} icon="lock-open-outline" />
+        </Sheet>
+      </View>
+    );
+  }
+
   return (
     <View style={{ flex: 1 }}>
       {/* Градиентная шапка — фирменный стиль панели */}
@@ -181,6 +240,23 @@ function CompanyPanel({ company, onLogout }: { company: CompanySession; onLogout
               {company.name} · {t.companyPanel}
             </Text>
           </View>
+          {/* 🧾 Дафтар — журнал долгов клиентов */}
+          <Pressable
+            onPress={() => {
+              haptic.light();
+              setDebtsOpen(true);
+            }}
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 12,
+              backgroundColor: 'rgba(255,255,255,0.18)',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Ionicons name="wallet-outline" size={18} color="#fff" />
+          </Pressable>
           {unread > 0 && (
             <View
               style={{
@@ -207,7 +283,9 @@ function CompanyPanel({ company, onLogout }: { company: CompanySession; onLogout
         {tab === 'warehouse' && <WarehouseScreen companyId={company.id} />}
         {tab === 'orders' && <OrdersScreen companyId={company.id} />}
         {tab === 'analytics' && <AnalyticsScreen companyId={company.id} />}
-        {tab === 'settings' && <SettingsScreen company={company} onLogout={onLogout} />}
+        {tab === 'settings' && (
+          <SettingsScreen company={company} onLogout={onLogout} onEnableCashier={enableCashierMode} />
+        )}
       </Animated.View>
 
       {/* Нижняя навигация — с приподнятой кнопкой кассы по центру */}
@@ -299,6 +377,9 @@ function CompanyPanel({ company, onLogout }: { company: CompanySession; onLogout
 
       {/* 📷 Касса-сканер (полноэкранная) */}
       <ScannerScreen companyId={company.id} visible={scannerOpen} onClose={() => setScannerOpen(false)} />
+
+      {/* 🧾 Дафтар (долги клиентов) */}
+      <DebtsScreen companyId={company.id} visible={debtsOpen} onClose={() => setDebtsOpen(false)} />
     </View>
   );
 }
