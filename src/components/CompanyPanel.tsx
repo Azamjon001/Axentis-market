@@ -25,6 +25,7 @@ const CouriersManagementPanel = React.lazy(() => import('./CouriersManagementPan
 const CompanySettingsPanel = React.lazy(() => import('./CompanySettingsPanel'));
 const CompanyDebtsPanel = React.lazy(() => import('./CompanyDebtsPanel')); // 🧾 «Дафтар» — долги клиентов
 const InventoryCheckModal = React.lazy(() => import('./InventoryCheckModal')); // 📦 Инвентаризация склада
+const PurchasePlanModal = React.lazy(() => import('./PurchasePlanModal')); // 🤖 План закупки + автозаказ поставщику
 
 // Лёгкий спиннер на время подгрузки чанка вкладки
 const TabLoading = () => (
@@ -77,14 +78,48 @@ export default function CompanyPanel({ onLogout, companyId, companyName }: Compa
   const [marketingOpen, setMarketingOpen] = useState(false);
   // 📦 Инвентаризация склада (модалка со сверкой остатков)
   const [inventoryCheckOpen, setInventoryCheckOpen] = useState(false);
+  // 🤖 Умный план закупки с автозаказом поставщикам
+  const [purchasePlanOpen, setPurchasePlanOpen] = useState(false);
   // 👥 Режим кассира: наёмный продавец видит только офлайн-кассу; выход — по PIN
   const [cashierMode, setCashierMode] = useState(() => localStorage.getItem('axentis_cashier_mode') === '1');
 
+  // 🔐 PIN-замки разделов: список защищённых вкладок из настроек +
+  // in-memory множество уже разблокированных (сбрасывается при перезагрузке)
+  const readLockedTabs = (): string[] => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem('axentis_locked_tabs') || '[]');
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+  const [lockedTabs, setLockedTabs] = useState<string[]>(readLockedTabs);
+  const [unlockedTabs, setUnlockedTabs] = useState<Set<string>>(new Set());
+
   useEffect(() => {
     const onCashierChange = () => setCashierMode(localStorage.getItem('axentis_cashier_mode') === '1');
+    const onLocksChange = () => setLockedTabs(readLockedTabs());
     window.addEventListener('cashierModeChange', onCashierChange);
-    return () => window.removeEventListener('cashierModeChange', onCashierChange);
+    window.addEventListener('panelLocksChange', onLocksChange);
+    return () => {
+      window.removeEventListener('cashierModeChange', onCashierChange);
+      window.removeEventListener('panelLocksChange', onLocksChange);
+    };
   }, []);
+
+  // Запрос PIN при входе в защищённый раздел. true = можно переходить.
+  const ensureUnlocked = (tab: Tab): boolean => {
+    if (!lockedTabs.includes(tab) || unlockedTabs.has(tab)) return true;
+    const pin = localStorage.getItem('axentis_cashier_pin') || '';
+    if (!pin) return true; // PIN не задан — замки неактивны
+    const entered = window.prompt(isUz ? 'Boʻlim himoyalangan. PIN kiriting:' : 'Раздел защищён. Введите PIN:');
+    if (entered === pin) {
+      setUnlockedTabs((prev) => new Set(prev).add(tab));
+      return true;
+    }
+    if (entered !== null) alert(isUz ? 'PIN notoʻgʻri' : 'Неверный PIN');
+    return false;
+  };
 
   const exitCashierMode = () => {
     const pin = localStorage.getItem('axentis_cashier_pin') || '';
@@ -138,7 +173,12 @@ export default function CompanyPanel({ onLogout, companyId, companyName }: Compa
 
   useEffect(() => {
     const hash = window.location.hash.replace('#', '');
-    const initialTab: Tab = VALID_TABS.includes(hash as Tab) ? (hash as Tab) : 'dashboard';
+    let initialTab: Tab = VALID_TABS.includes(hash as Tab) ? (hash as Tab) : 'dashboard';
+    // 🔐 Перезагрузка страницы с hash защищённого раздела не обходит замок:
+    // при активном PIN стартуем с всегда открытых «Заказов»
+    if (readLockedTabs().includes(initialTab) && localStorage.getItem('axentis_cashier_pin')) {
+      initialTab = 'orders';
+    }
     const currentState = window.history.state || {};
     window.history.replaceState({ ...currentState, tab: initialTab, page: 'company' }, '', `#${initialTab}`);
     if (initialTab !== activeTab) setActiveTab(initialTab);
@@ -161,6 +201,8 @@ export default function CompanyPanel({ onLogout, companyId, companyName }: Compa
       setWarehouseView('sales');
       tab = 'warehouse';
     }
+    // 🔐 Защищённый раздел — сперва PIN владельца
+    if (!ensureUnlocked(tab)) return;
     window.history.pushState({ tab, page: 'company' }, '', `#${tab}`);
     setActiveTab(tab);
     setIsSidebarOpen(false);
@@ -490,6 +532,14 @@ export default function CompanyPanel({ onLogout, companyId, companyName }: Compa
               <ScanLine className="w-4 h-4" />
               {isUz ? 'Inventarizatsiya' : 'Инвентаризация'}
             </button>
+            {/* 🤖 Умный план закупки + автозаказ поставщику */}
+            <button
+              onClick={() => setPurchasePlanOpen(true)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 16px', borderRadius: 12, border: '1px solid rgba(139,92,246,0.35)', background: 'rgba(139,92,246,0.12)', color: '#A78BFA', cursor: 'pointer', fontSize: 13.5, fontWeight: 600 }}
+            >
+              <Sparkles className="w-4 h-4" />
+              {isUz ? 'Nima sotib olay?' : 'Что докупить?'}
+            </button>
             </div>
           )}
 
@@ -534,6 +584,13 @@ export default function CompanyPanel({ onLogout, companyId, companyName }: Compa
       {inventoryCheckOpen && (
         <Suspense fallback={null}>
           <InventoryCheckModal companyId={companyId} onClose={() => setInventoryCheckOpen(false)} />
+        </Suspense>
+      )}
+
+      {/* 🤖 План закупки + автозаказ поставщику */}
+      {purchasePlanOpen && (
+        <Suspense fallback={null}>
+          <PurchasePlanModal companyId={companyId} onClose={() => setPurchasePlanOpen(false)} />
         </Suspense>
       )}
     </div>

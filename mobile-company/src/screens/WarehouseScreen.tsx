@@ -3,6 +3,7 @@ import {
   Alert,
   FlatList,
   Image,
+  Linking,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -18,7 +19,7 @@ import QRCode from 'react-native-qrcode-svg';
 import InventoryScreen from './InventoryScreen';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import api, { getImageUrl } from '../api';
+import api, { getImageUrl, Supplier } from '../api';
 import { useI18n } from '../i18n';
 import { MKT_GRAD, OPS_GRAD, R, SP, useTheme } from '../theme';
 import {
@@ -160,6 +161,42 @@ export default function WarehouseScreen({ companyId }: { companyId: number }) {
   const [advisorRows, setAdvisorRows] = useState<
     { productId: number; name: string; stock: number; soldPerDay: number; recommend: number; cost: number }[]
   >([]);
+
+  // 🚚 Поставщики: справочник + привязки товаров (для автозаказа)
+  const [suppliersList, setSuppliersList] = useState<Supplier[]>([]);
+  const [supplierOf, setSupplierOf] = useState<Map<number, number>>(new Map());
+
+  const loadSuppliers = useCallback(async () => {
+    try {
+      const [list, assignments] = await Promise.all([
+        api.suppliers.list(companyId),
+        api.suppliers.assignments(companyId),
+      ]);
+      setSuppliersList(Array.isArray(list) ? list : []);
+      setSupplierOf(new Map((assignments || []).map((a) => [a.productId, a.supplierId])));
+    } catch {
+      /* поставщики опциональны */
+    }
+  }, [companyId]);
+
+  useEffect(() => {
+    loadSuppliers();
+  }, [loadSuppliers]);
+
+  const assignSupplier = async (productId: number, supplierId: number | null) => {
+    haptic.light();
+    try {
+      await api.suppliers.assign(companyId, productId, supplierId);
+      setSupplierOf((prev) => {
+        const next = new Map(prev);
+        if (supplierId === null) next.delete(productId);
+        else next.set(productId, supplierId);
+        return next;
+      });
+    } catch (e) {
+      Alert.alert(t.error, e instanceof Error ? e.message : String(e));
+    }
+  };
 
   const load = useCallback(async () => {
     try {
@@ -573,6 +610,42 @@ export default function WarehouseScreen({ companyId }: { companyId: number }) {
       `${t.estimatedCost}: ${fmt(advisorTotal)} ${t.sum}`,
     ];
     Share.share({ message: lines.join('\n') }).catch(() => {});
+  };
+
+  // 🚚 Группировка плана закупки по поставщикам (автозаказ)
+  const advisorGroups = useMemo(() => {
+    const groups = new Map<number | 0, typeof advisorRows>();
+    for (const r of advisorRows) {
+      const sid = supplierOf.get(r.productId) || 0;
+      if (!groups.has(sid)) groups.set(sid, []);
+      groups.get(sid)!.push(r);
+    }
+    return Array.from(groups.entries())
+      .map(([sid, rows]) => ({
+        supplier: sid === 0 ? null : suppliersList.find((s) => s.id === sid) || null,
+        rows,
+        total: rows.reduce((s, r) => s + r.cost, 0),
+      }))
+      .sort((a, b) => (a.supplier ? 0 : 1) - (b.supplier ? 0 : 1) || b.total - a.total);
+  }, [advisorRows, supplierOf, suppliersList]);
+
+  // Отправка заказа поставщику: текст плана; если указан Telegram — сразу в чат
+  const sendSupplierOrder = (group: (typeof advisorGroups)[number]) => {
+    haptic.medium();
+    const lines = [
+      `📦 ${t.orderText}${group.supplier ? ` — ${group.supplier.name}` : ''}`,
+      '────────────────',
+      ...group.rows.map((r) => `• ${r.name} — ${fmt(r.recommend)} ${t.pcs}`),
+      '────────────────',
+      `${t.total}: ~${fmt(group.total)} ${t.sum}`,
+    ];
+    const text = lines.join('\n');
+    if (group.supplier?.telegram) {
+      const url = `https://t.me/${group.supplier.telegram}?text=${encodeURIComponent(text)}`;
+      Linking.openURL(url).catch(() => Share.share({ message: text }).catch(() => {}));
+    } else {
+      Share.share({ message: text }).catch(() => {});
+    }
   };
 
   // ── Массовые действия ──────────────────────────────────────────────────────
@@ -1102,6 +1175,27 @@ export default function WarehouseScreen({ companyId }: { companyId: number }) {
               style={{ marginBottom: 18 }}
             />
 
+            {/* 🚚 Поставщик товара — для автозаказа */}
+            {suppliersList.length > 0 && (
+              <>
+                <SectionTitle text={t.supplierFor} accent={theme.success} />
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 18 }}>
+                  {suppliersList.map((s) => {
+                    const active = supplierOf.get(detail.id) === s.id;
+                    return (
+                      <Chip
+                        key={s.id}
+                        label={s.name}
+                        active={active}
+                        onPress={() => assignSupplier(detail.id, active ? null : s.id)}
+                        color={theme.success}
+                      />
+                    );
+                  })}
+                </View>
+              </>
+            )}
+
             {/* Варианты */}
             <SectionTitle text={t.variants} accent={theme.mktAccent} />
             {variantsLoading ? (
@@ -1259,28 +1353,54 @@ export default function WarehouseScreen({ companyId }: { companyId: number }) {
                 {advisorRows.length} {t.pcs} · {t.advisorFor14Days}
               </Text>
             </Card>
-            <View style={{ gap: 8, marginBottom: 14 }}>
-              {advisorRows.map((r) => (
-                <Card key={r.productId} style={{ padding: 10 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <View style={{ flex: 1, marginRight: 10 }}>
-                      <Text style={{ color: theme.text, fontSize: 13.5, fontWeight: '600' }} numberOfLines={1}>
-                        {r.name}
-                      </Text>
-                      <Text style={{ color: theme.text3, fontSize: 12, marginTop: 2 }}>
-                        {t.stockLeft}: {fmt(r.stock)} · {r.soldPerDay.toFixed(1)} {t.perDay}
-                      </Text>
-                    </View>
-                    <View style={{ alignItems: 'flex-end' }}>
-                      <Text style={{ color: theme.primary, fontSize: 15, fontWeight: '800' }}>
-                        +{fmt(r.recommend)} {t.pcs}
-                      </Text>
-                      {r.cost > 0 && (
-                        <Text style={{ color: theme.text3, fontSize: 11.5 }}>~{fmt(r.cost)} {t.sum}</Text>
-                      )}
-                    </View>
+            {/* Группы по поставщикам — «автозаказ» */}
+            <View style={{ gap: 14, marginBottom: 14 }}>
+              {advisorGroups.map((group, gi) => (
+                <View key={group.supplier?.id ?? `none-${gi}`}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    <Ionicons
+                      name={group.supplier ? 'cube' : 'help-circle-outline'}
+                      size={15}
+                      color={group.supplier ? theme.success : theme.text3}
+                    />
+                    <Text style={{ color: theme.text, fontSize: 13.5, fontWeight: '700', flex: 1 }} numberOfLines={1}>
+                      {group.supplier ? group.supplier.name : t.withoutSupplier}
+                    </Text>
+                    <Text style={{ color: theme.text3, fontSize: 12 }}>~{fmt(group.total)} {t.sum}</Text>
                   </View>
-                </Card>
+                  <View style={{ gap: 8 }}>
+                    {group.rows.map((r) => (
+                      <Card key={r.productId} style={{ padding: 10 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                          <View style={{ flex: 1, marginRight: 10 }}>
+                            <Text style={{ color: theme.text, fontSize: 13.5, fontWeight: '600' }} numberOfLines={1}>
+                              {r.name}
+                            </Text>
+                            <Text style={{ color: theme.text3, fontSize: 12, marginTop: 2 }}>
+                              {t.stockLeft}: {fmt(r.stock)} · {r.soldPerDay.toFixed(1)} {t.perDay}
+                            </Text>
+                          </View>
+                          <View style={{ alignItems: 'flex-end' }}>
+                            <Text style={{ color: theme.primary, fontSize: 15, fontWeight: '800' }}>
+                              +{fmt(r.recommend)} {t.pcs}
+                            </Text>
+                            {r.cost > 0 && (
+                              <Text style={{ color: theme.text3, fontSize: 11.5 }}>~{fmt(r.cost)} {t.sum}</Text>
+                            )}
+                          </View>
+                        </View>
+                      </Card>
+                    ))}
+                  </View>
+                  <Button
+                    title={`${t.sendOrder}${group.supplier?.telegram ? ' · Telegram' : ''}`}
+                    onPress={() => sendSupplierOrder(group)}
+                    small
+                    variant="success"
+                    icon="paper-plane-outline"
+                    style={{ marginTop: 8 }}
+                  />
+                </View>
               ))}
             </View>
             <Button title={t.sharePlan} onPress={shareAdvisorPlan} icon="share-social-outline" variant="ghost" />

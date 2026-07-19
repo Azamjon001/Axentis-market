@@ -60,6 +60,9 @@ func main() {
 	handlers.MigrateCompanyDebts(db)
 	handlers.RunDebtReminderWorkers(db)
 
+	// 🚚 Поставщики (автозаказ из плана закупки)
+	handlers.MigrateSuppliers(db)
+
 	// Provide config to user auth handlers so they can issue JWT tokens.
 	handlers.InitUserConfig(cfg)
 

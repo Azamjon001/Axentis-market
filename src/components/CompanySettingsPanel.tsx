@@ -601,7 +601,85 @@ export default function CompanySettingsPanel({ companyId }: CompanySettingsPanel
             {language === 'uz' ? 'Kassir rejimini yoqish' : 'Включить режим кассира'}
           </button>
         </div>
+
+        {/* 🔐 PIN-защита отдельных разделов: выбранные разделы открываются
+            только по PIN владельца. «Заказы» и «Офлайн» не блокируются. */}
+        <div style={{ marginTop: 18, paddingTop: 16, borderTop: '1px solid var(--ax-border)' }}>
+          <div style={{ color: 'var(--ax-text)', fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
+            🔐 {language === 'uz' ? 'Boʻlimlarni PIN bilan himoyalash' : 'PIN-защита разделов'}
+          </div>
+          <div style={{ color: 'var(--ax-text-3)', fontSize: 12.5, marginBottom: 12 }}>
+            {language === 'uz'
+              ? 'Tanlangan boʻlimlar faqat PIN bilan ochiladi. «Buyurtmalar» va «Oflayn» doim ochiq.'
+              : 'Выбранные разделы открываются только по PIN. «Заказы» и «Офлайн» всегда доступны.'}
+          </div>
+          <PanelLocksEditor language={language} />
+        </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Чекбоксы PIN-замков разделов (localStorage axentis_locked_tabs) ─────────
+function PanelLocksEditor({ language }: { language: string }) {
+  const [locked, setLocked] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem('axentis_locked_tabs');
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const isUz = language === 'uz';
+  const lockable: { key: string; label: string }[] = [
+    { key: 'dashboard', label: isUz ? 'Boshqaruv' : 'Дашборд' },
+    { key: 'warehouse', label: isUz ? 'Ombor va sotuv' : 'Склад и продажи' },
+    { key: 'debts', label: isUz ? 'Daftar (qarzlar)' : 'Дафтар (долги)' },
+    { key: 'analytics', label: isUz ? 'Statistika' : 'Аналитика' },
+    { key: 'chat', label: isUz ? 'Chat' : 'Чат' },
+    { key: 'couriers', label: isUz ? 'Kuryerlar' : 'Курьеры' },
+    { key: 'questions', label: isUz ? 'Savollar' : 'Вопросы' },
+    { key: 'returns', label: isUz ? 'Qaytarishlar' : 'Возвраты' },
+    { key: 'discounts', label: isUz ? 'Chegirmalar' : 'Скидки' },
+    { key: 'stories', label: isUz ? 'Storilar' : 'Сторис' },
+    { key: 'smm', label: 'SMM' },
+    { key: 'settings', label: isUz ? 'Sozlamalar' : 'Настройки' },
+  ];
+
+  const toggle = (key: string) => {
+    if (!localStorage.getItem('axentis_cashier_pin')) {
+      alert(isUz ? 'Avval PIN qoʻying' : 'Сначала задайте PIN-код выше');
+      return;
+    }
+    const next = locked.includes(key) ? locked.filter((x) => x !== key) : [...locked, key];
+    setLocked(next);
+    localStorage.setItem('axentis_locked_tabs', JSON.stringify(next));
+    window.dispatchEvent(new Event('panelLocksChange'));
+  };
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 8 }}>
+      {lockable.map((item) => {
+        const on = locked.includes(item.key);
+        return (
+          <label
+            key={item.key}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 9, padding: '9px 12px', borderRadius: 11,
+              background: on ? 'var(--ax-primary-pale)' : 'var(--ax-input)',
+              border: `1px solid ${on ? 'var(--ax-primary)' : 'var(--ax-border)'}`,
+              cursor: 'pointer', userSelect: 'none',
+            }}
+          >
+            <input type="checkbox" checked={on} onChange={() => toggle(item.key)} style={{ accentColor: 'var(--ax-primary)' }} />
+            <span style={{ fontSize: 13, color: on ? 'var(--ax-primary)' : 'var(--ax-text-2)', fontWeight: on ? 600 : 500 }}>
+              {on ? '🔒 ' : ''}{item.label}
+            </span>
+          </label>
+        );
+      })}
     </div>
   );
 }

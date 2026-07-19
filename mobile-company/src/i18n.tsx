@@ -387,6 +387,27 @@ const ru = {
   cashierEnterPin: 'Введите PIN владельца',
   cashierWrongPin: 'Неверный PIN',
   cashierActive: 'Режим кассира включён',
+
+  // PIN-защита разделов
+  pinLocksSection: 'PIN-защита разделов',
+  pinLocksHint: 'Выбранные разделы открываются только по PIN. «Заказы» и касса всегда доступны.',
+  pinLockedTab: 'Раздел защищён PIN-кодом',
+  enterPinToOpen: 'Введите PIN, чтобы открыть раздел',
+  unlock: 'Открыть',
+
+  // Поставщики (автозаказ)
+  suppliers: 'Поставщики',
+  suppliersHint: 'Привяжите товары к поставщикам — план закупки сгруппируется по ним',
+  addSupplier: 'Добавить поставщика',
+  supplierName: 'Название / имя',
+  supplierTelegram: 'Telegram (без @)',
+  noSuppliers: 'Поставщиков нет — добавьте первого',
+  deleteSupplierConfirm: 'Удалить поставщика? Его товары останутся без привязки.',
+  supplierSaved: 'Поставщик добавлен',
+  supplierFor: 'Поставщик товара',
+  withoutSupplier: 'Без поставщика',
+  sendOrder: 'Отправить заказ',
+  orderText: 'Заказ поставщику',
 };
 
 const uz: typeof ru = {
@@ -756,6 +777,25 @@ const uz: typeof ru = {
   cashierEnterPin: 'Egasining PIN-kodini kiriting',
   cashierWrongPin: 'PIN notoʻgʻri',
   cashierActive: 'Kassir rejimi yoqildi',
+
+  pinLocksSection: 'Boʻlimlarni PIN bilan himoyalash',
+  pinLocksHint: 'Tanlangan boʻlimlar faqat PIN bilan ochiladi. «Buyurtmalar» va kassa doim ochiq.',
+  pinLockedTab: 'Boʻlim PIN bilan himoyalangan',
+  enterPinToOpen: 'Boʻlimni ochish uchun PIN kiriting',
+  unlock: 'Ochish',
+
+  suppliers: 'Taʼminotchilar',
+  suppliersHint: 'Tovarlarni taʼminotchilarga bogʻlang — xarid rejasi ular boʻyicha guruhlanadi',
+  addSupplier: 'Taʼminotchi qoʻshish',
+  supplierName: 'Nomi / ismi',
+  supplierTelegram: 'Telegram (@siz)',
+  noSuppliers: 'Taʼminotchilar yoʻq — birinchisini qoʻshing',
+  deleteSupplierConfirm: 'Taʼminotchini oʻchirasizmi? Tovarlari bogʻlanmagan qoladi.',
+  supplierSaved: 'Taʼminotchi qoʻshildi',
+  supplierFor: 'Tovar taʼminotchisi',
+  withoutSupplier: 'Taʼminotchisiz',
+  sendOrder: 'Buyurtma yuborish',
+  orderText: 'Taʼminotchiga buyurtma',
 };
 
 export type Translations = typeof ru;

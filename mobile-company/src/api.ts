@@ -380,6 +380,32 @@ export const debts = {
 };
 
 // ============================================================================
+// SUPPLIERS — 🚚 поставщики для автозаказа (общий API с веб-панелью)
+// ============================================================================
+
+export interface Supplier {
+  id: number;
+  name: string;
+  phone: string;
+  telegram: string;
+  note: string;
+}
+
+export const suppliers = {
+  list: (companyId: number): Promise<Supplier[]> => apiCall(`/suppliers?companyId=${companyId}`),
+  assignments: (companyId: number): Promise<{ productId: number; supplierId: number }[]> =>
+    apiCall(`/suppliers/assignments?companyId=${companyId}`),
+  create: (data: { companyId: number; name: string; phone?: string; telegram?: string; note?: string }) =>
+    apiCall('/suppliers', { method: 'POST', body: JSON.stringify(data) }),
+  assign: (companyId: number, productId: number, supplierId: number | null) =>
+    apiCall('/suppliers/assign', {
+      method: 'PUT',
+      body: JSON.stringify({ companyId, productId, supplierId }),
+    }),
+  delete: (id: number) => apiCall(`/suppliers/${id}`, { method: 'DELETE' }),
+};
+
+// ============================================================================
 // EXPENSES — операционные расходы компании (для чистой прибыли в аналитике)
 // ============================================================================
 
@@ -502,6 +528,7 @@ const api = {
   sales,
   cashSales,
   debts,
+  suppliers,
   productPurchases,
   expenses,
   discounts,

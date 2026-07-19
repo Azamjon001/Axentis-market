@@ -111,9 +111,54 @@ function CompanyPanel({ company, onLogout }: { company: CompanySession; onLogout
   const [pinOpen, setPinOpen] = useState(false);
   const [pinInput, setPinInput] = useState('');
 
+  // 🔐 PIN-замки разделов: выбранные разделы открываются только по PIN владельца.
+  // «Заказы» и касса не блокируются никогда. Разблокировка живёт до перезапуска.
+  const [lockedTabs, setLockedTabs] = useState<string[]>([]);
+  const [unlockedTabs, setUnlockedTabs] = useState<Set<string>>(new Set());
+  const [pendingTab, setPendingTab] = useState<Tab | 'debts' | null>(null);
+  const [tabPinOpen, setTabPinOpen] = useState(false);
+  const [tabPinInput, setTabPinInput] = useState('');
+
   useEffect(() => {
     AsyncStorage.getItem('axentis_cashier_mode').then((v) => setCashierMode(v === '1'));
+    AsyncStorage.getItem('axentis_locked_tabs').then((raw) => {
+      try {
+        const parsed = raw ? JSON.parse(raw) : [];
+        if (Array.isArray(parsed)) setLockedTabs(parsed);
+      } catch {
+        /* ignore */
+      }
+    });
   }, []);
+
+  const isLocked = (key: string) => lockedTabs.includes(key) && !unlockedTabs.has(key);
+
+  const requestUnlock = (target: Tab | 'debts') => {
+    setPendingTab(target);
+    setTabPinInput('');
+    setTabPinOpen(true);
+  };
+
+  const tryUnlockTab = async () => {
+    const pin = await AsyncStorage.getItem('axentis_cashier_pin');
+    if (tabPinInput === pin && pin) {
+      haptic.success();
+      const target = pendingTab;
+      setUnlockedTabs((prev) => new Set(prev).add(String(target)));
+      setTabPinOpen(false);
+      setPendingTab(null);
+      if (target === 'debts') setDebtsOpen(true);
+      else if (target) {
+        fade.setValue(0);
+        setTab(target);
+        Animated.timing(fade, { toValue: 1, duration: 220, useNativeDriver: true }).start();
+      }
+    } else {
+      haptic.error();
+      setTabPinInput('');
+      Alert.alert('❌', t.cashierWrongPin);
+    }
+  };
 
   const enableCashierMode = () => {
     AsyncStorage.setItem('axentis_cashier_mode', '1').catch(() => {});
@@ -154,13 +199,26 @@ function CompanyPanel({ company, onLogout }: { company: CompanySession; onLogout
     };
   }, [company.id]);
 
-  // Плавная смена вкладки
+  // Плавная смена вкладки (с проверкой PIN-замка раздела)
   const switchTab = (next: Tab) => {
     if (next === tab) return;
     haptic.light();
+    if (isLocked(next)) {
+      requestUnlock(next);
+      return;
+    }
     fade.setValue(0);
     setTab(next);
     Animated.timing(fade, { toValue: 1, duration: 220, useNativeDriver: true }).start();
+  };
+
+  const openDebts = () => {
+    haptic.light();
+    if (isLocked('debts')) {
+      requestUnlock('debts');
+      return;
+    }
+    setDebtsOpen(true);
   };
 
   const titles: Record<Tab, string> = {
@@ -242,10 +300,7 @@ function CompanyPanel({ company, onLogout }: { company: CompanySession; onLogout
           </View>
           {/* 🧾 Дафтар — журнал долгов клиентов */}
           <Pressable
-            onPress={() => {
-              haptic.light();
-              setDebtsOpen(true);
-            }}
+            onPress={openDebts}
             style={{
               width: 36,
               height: 36,
@@ -284,7 +339,16 @@ function CompanyPanel({ company, onLogout }: { company: CompanySession; onLogout
         {tab === 'orders' && <OrdersScreen companyId={company.id} />}
         {tab === 'analytics' && <AnalyticsScreen companyId={company.id} />}
         {tab === 'settings' && (
-          <SettingsScreen company={company} onLogout={onLogout} onEnableCashier={enableCashierMode} />
+          <SettingsScreen
+            company={company}
+            onLogout={onLogout}
+            onEnableCashier={enableCashierMode}
+            lockedTabs={lockedTabs}
+            onLocksChange={(tabs) => {
+              setLockedTabs(tabs);
+              AsyncStorage.setItem('axentis_locked_tabs', JSON.stringify(tabs)).catch(() => {});
+            }}
+          />
         )}
       </Animated.View>
 
@@ -380,6 +444,28 @@ function CompanyPanel({ company, onLogout }: { company: CompanySession; onLogout
 
       {/* 🧾 Дафтар (долги клиентов) */}
       <DebtsScreen companyId={company.id} visible={debtsOpen} onClose={() => setDebtsOpen(false)} />
+
+      {/* 🔐 PIN-замок раздела */}
+      <Sheet
+        visible={tabPinOpen}
+        onClose={() => {
+          setTabPinOpen(false);
+          setPendingTab(null);
+        }}
+        title={t.pinLockedTab}
+      >
+        <Text style={{ color: theme.text3, fontSize: 13, marginBottom: 14 }}>{t.enterPinToOpen}</Text>
+        <Input
+          value={tabPinInput}
+          onChangeText={(v) => setTabPinInput(v.replace(/\D/g, '').slice(0, 4))}
+          keyboardType="number-pad"
+          secureTextEntry
+          maxLength={4}
+          placeholder="••••"
+          autoFocus
+        />
+        <Button title={t.unlock} onPress={tryUnlockTab} icon="lock-open-outline" />
+      </Sheet>
     </View>
   );
 }

@@ -4,7 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import * as Clipboard from 'expo-clipboard';
-import api, { CompanySession } from '../api';
+import api, { CompanySession, Supplier } from '../api';
 import { registerCompanyPush } from '../push';
 import { useI18n } from '../i18n';
 import { SP, useTheme } from '../theme';
@@ -14,13 +14,21 @@ interface Props {
   company: CompanySession;
   onLogout: () => void;
   onEnableCashier?: () => void;
+  lockedTabs?: string[];
+  onLocksChange?: (tabs: string[]) => void;
 }
 
 // ⚙️ Настройки — 1:1 с CompanySettingsPanel веб-панели: режим магазина
 // (публичный ↔ закрытый + код доступа), доставка и возвраты, регионы
 // обслуживания, Telegram-уведомления; плюс язык, тема и выход
 // (нижний блок сайдбара CompanyPanel).
-export default function SettingsScreen({ company, onLogout, onEnableCashier }: Props) {
+export default function SettingsScreen({
+  company,
+  onLogout,
+  onEnableCashier,
+  lockedTabs = [],
+  onLocksChange,
+}: Props) {
   const { theme, themeName, setThemeName } = useTheme();
   const { t, lang, setLang } = useI18n();
 
@@ -219,6 +227,85 @@ export default function SettingsScreen({ company, onLogout, onEnableCashier }: P
     setSavedPinExists(true);
     setCashierPin('');
     haptic.success();
+  };
+
+  // 🚚 Поставщики (для автозаказа из плана закупки)
+  const [suppliersList, setSuppliersList] = useState<Supplier[]>([]);
+  const [supplierForm, setSupplierForm] = useState({ name: '', phone: '', telegram: '' });
+  const [supplierSaving, setSupplierSaving] = useState(false);
+
+  const loadSuppliers = useCallback(() => {
+    api.suppliers
+      .list(company.id)
+      .then((s) => setSuppliersList(Array.isArray(s) ? s : []))
+      .catch(() => {});
+  }, [company.id]);
+
+  useEffect(() => {
+    loadSuppliers();
+  }, [loadSuppliers]);
+
+  const addSupplier = async () => {
+    if (!supplierForm.name.trim()) {
+      Alert.alert(t.error, t.supplierName);
+      return;
+    }
+    setSupplierSaving(true);
+    try {
+      await api.suppliers.create({
+        companyId: company.id,
+        name: supplierForm.name.trim(),
+        phone: supplierForm.phone.replace(/\D/g, ''),
+        telegram: supplierForm.telegram.trim(),
+      });
+      haptic.success();
+      setSupplierForm({ name: '', phone: '', telegram: '' });
+      loadSuppliers();
+    } catch (e) {
+      Alert.alert(t.error, e instanceof Error ? e.message : String(e));
+    } finally {
+      setSupplierSaving(false);
+    }
+  };
+
+  const deleteSupplier = (s: Supplier) => {
+    Alert.alert(t.delete, t.deleteSupplierConfirm, [
+      { text: t.cancel, style: 'cancel' },
+      {
+        text: t.delete,
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await api.suppliers.delete(s.id);
+            loadSuppliers();
+          } catch (e) {
+            Alert.alert(t.error, e instanceof Error ? e.message : String(e));
+          }
+        },
+      },
+    ]);
+  };
+
+  // 🔐 PIN-замки разделов: «Заказы» и касса не блокируются никогда
+  const lockableTabs: { key: string; label: string }[] = [
+    { key: 'dashboard', label: t.dashboard },
+    { key: 'warehouse', label: `${t.warehouse} · ${t.sales}` },
+    { key: 'analytics', label: t.analytics },
+    { key: 'debts', label: t.debts },
+    { key: 'settings', label: t.settings },
+  ];
+
+  const toggleLock = async (key: string) => {
+    const pin = await AsyncStorage.getItem('axentis_cashier_pin');
+    if (!pin) {
+      Alert.alert(t.error, t.cashierPinRequired);
+      return;
+    }
+    haptic.light();
+    const next = lockedTabs.includes(key)
+      ? lockedTabs.filter((x) => x !== key)
+      : [...lockedTabs, key];
+    onLocksChange?.(next);
   };
 
   const startCashierMode = async () => {
@@ -439,6 +526,60 @@ export default function SettingsScreen({ company, onLogout, onEnableCashier }: P
         </Card>
       </View>
 
+      {/* 🚚 Поставщики */}
+      <View style={{ marginTop: 18 }}>
+        <SectionTitle text={t.suppliers} hint={t.suppliersHint} accent={theme.success} />
+        <Card>
+          {suppliersList.length === 0 ? (
+            <Text style={{ color: theme.text3, fontSize: 13, marginBottom: 10 }}>{t.noSuppliers}</Text>
+          ) : (
+            <View style={{ gap: 6, marginBottom: 12 }}>
+              {suppliersList.map((s) => (
+                <View key={s.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <Ionicons name="cube-outline" size={15} color={theme.success} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: theme.text, fontSize: 14, fontWeight: '600' }} numberOfLines={1}>
+                      {s.name}
+                    </Text>
+                    <Text style={{ color: theme.text3, fontSize: 12 }} numberOfLines={1}>
+                      {[s.phone && `+998 ${s.phone}`, s.telegram && `@${s.telegram}`].filter(Boolean).join(' · ')}
+                    </Text>
+                  </View>
+                  <Pressable onPress={() => deleteSupplier(s)} hitSlop={6}>
+                    <Ionicons name="trash-outline" size={17} color={theme.text3} />
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+          )}
+          <Input
+            label={t.supplierName}
+            value={supplierForm.name}
+            onChangeText={(v) => setSupplierForm({ ...supplierForm, name: v })}
+          />
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <View style={{ flex: 1 }}>
+              <Input
+                label={t.phoneNumber}
+                value={supplierForm.phone}
+                onChangeText={(v) => setSupplierForm({ ...supplierForm, phone: v.replace(/\D/g, '').slice(0, 9) })}
+                keyboardType="phone-pad"
+                placeholder="901234567"
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Input
+                label={t.supplierTelegram}
+                value={supplierForm.telegram}
+                onChangeText={(v) => setSupplierForm({ ...supplierForm, telegram: v.replace(/@/g, '') })}
+                autoCapitalize="none"
+              />
+            </View>
+          </View>
+          <Button title={t.addSupplier} onPress={addSupplier} loading={supplierSaving} small icon="add" />
+        </Card>
+      </View>
+
       {/* Telegram */}
       <View style={{ marginTop: 18 }}>
         <SectionTitle text={t.telegramSection} accent="#229ED9" />
@@ -497,6 +638,44 @@ export default function SettingsScreen({ company, onLogout, onEnableCashier }: P
             icon="person-outline"
             small
           />
+        </Card>
+      </View>
+
+      {/* 🔐 PIN-защита разделов */}
+      <View style={{ marginTop: 18 }}>
+        <SectionTitle text={t.pinLocksSection} hint={t.pinLocksHint} accent={theme.primary} />
+        <Card>
+          {lockableTabs.map((item, idx) => {
+            const locked = lockedTabs.includes(item.key);
+            return (
+              <View
+                key={item.key}
+                style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  paddingVertical: 8,
+                  borderTopWidth: idx === 0 ? 0 : 1,
+                  borderTopColor: theme.border,
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                  <Ionicons
+                    name={locked ? 'lock-closed' : 'lock-open-outline'}
+                    size={16}
+                    color={locked ? theme.primary : theme.text3}
+                  />
+                  <Text style={{ color: theme.text, fontSize: 14 }}>{item.label}</Text>
+                </View>
+                <Switch
+                  value={locked}
+                  onValueChange={() => toggleLock(item.key)}
+                  trackColor={{ true: theme.primary, false: theme.border }}
+                  thumbColor="#fff"
+                />
+              </View>
+            );
+          })}
         </Card>
       </View>
 

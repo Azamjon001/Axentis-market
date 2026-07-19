@@ -391,6 +391,16 @@ func Setup(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 			debts.DELETE("/:id", middleware.RequireCompany(cfg), handlers.DeleteDebt(db))
 		}
 
+		// 🚚 Поставщики — справочник для автозаказа (веб-панель + приложение)
+		suppliers := api.Group("/suppliers")
+		{
+			suppliers.GET("", middleware.RequireCompany(cfg), handlers.ListSuppliers(db))
+			suppliers.GET("/assignments", middleware.RequireCompany(cfg), handlers.SupplierAssignments(db))
+			suppliers.POST("", middleware.RequireCompany(cfg), handlers.CreateSupplier(db))
+			suppliers.PUT("/assign", middleware.RequireCompany(cfg), handlers.AssignSupplier(db))
+			suppliers.DELETE("/:id", middleware.RequireCompany(cfg), handlers.DeleteSupplier(db))
+		}
+
 		// Expenses routes
 		expenses := api.Group("/expenses")
 		{
