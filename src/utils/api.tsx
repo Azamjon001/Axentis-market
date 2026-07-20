@@ -804,6 +804,10 @@ export const companies = {
 
   // 🤖 Telegram-оповещения магазина: статус/ссылка привязки и отключение
   telegramStatus: async (id: string | number) => apiCall(`/companies/${id}/telegram`),
+  // ⚙️ Что и когда шлёт Telegram-бот (заказы/остатки/отчёт/долги + часы)
+  telegramSettings: async (id: string | number) => apiCall(`/companies/${id}/telegram-settings`),
+  updateTelegramSettings: async (id: string | number, data: Record<string, any>) =>
+    apiCall(`/companies/${id}/telegram-settings`, { method: 'PUT', body: JSON.stringify(data) }),
   telegramDisconnect: async (id: string | number) =>
     apiCall(`/companies/${id}/telegram`, { method: 'DELETE' }),
 

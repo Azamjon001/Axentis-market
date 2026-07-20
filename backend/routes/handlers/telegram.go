@@ -299,6 +299,7 @@ func runTelegramStockAlerts(db *sql.DB) int {
 			       p.tg_low_stock_notified_at
 			FROM products p
 			JOIN companies c ON c.id = p.company_id AND c.telegram_chat_id IS NOT NULL
+			     AND COALESCE(c.tg_notify_stock, TRUE)
 			WHERE p.name NOT LIKE '__CATEGORY_MARKER__%'
 		),
 		avgp AS (
@@ -382,18 +383,19 @@ func runTelegramStockAlerts(db *sql.DB) int {
 func runTelegramDailyReports(db *sql.DB) int {
 	tz := time.FixedZone("UZT", tzTashkentOffset)
 	now := time.Now().In(tz)
-	if now.Hour() < 21 {
-		return 0
-	}
 	today := now.Format("2006-01-02")
 	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, tz).UTC()
 
+	// ⚙️ Час отчёта настраивается компанией (tg_daily_hour, по умолчанию 21);
+	// шлём тем, у кого отчёт включён и его час уже наступил.
 	rows, err := db.Query(`
 		SELECT id, name, telegram_chat_id FROM companies
 		WHERE telegram_chat_id IS NOT NULL
+		  AND COALESCE(tg_notify_daily, TRUE)
+		  AND COALESCE(tg_daily_hour, 21) <= $2
 		  AND (telegram_last_report_date IS NULL OR telegram_last_report_date < $1)
 		LIMIT 200
-	`, today)
+	`, today, now.Hour())
 	if err != nil {
 		log.Printf("⚠️ TelegramReport query: %v", err)
 		return 0

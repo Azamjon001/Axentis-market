@@ -495,6 +495,20 @@ export const companies = {
   telegramDisconnect: (id: string | number) =>
     apiCall(`/companies/${id}/telegram`, { method: 'DELETE' }),
 
+  // ⚙️ Что и когда шлёт Telegram-бот (заказы/остатки/отчёт/долги + часы)
+  telegramSettings: (id: string | number) => apiCall(`/companies/${id}/telegram-settings`),
+  updateTelegramSettings: (
+    id: string | number,
+    data: Partial<{
+      notifyOrders: boolean;
+      notifyStock: boolean;
+      notifyDaily: boolean;
+      dailyHour: number;
+      notifyDebts: boolean;
+      debtsHour: number;
+    }>
+  ) => apiCall(`/companies/${id}/telegram-settings`, { method: 'PUT', body: JSON.stringify(data) }),
+
   // 📲 Push-токен приложения продавца (PUT /companies/:id/push-token)
   savePushToken: (
     id: string | number,
