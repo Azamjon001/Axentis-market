@@ -31,6 +31,7 @@ func MigrateCompanyPushTables(db *sql.DB) {
 		`ALTER TABLE companies ADD COLUMN IF NOT EXISTS push_new_orders BOOLEAN DEFAULT TRUE`,
 		`ALTER TABLE companies ADD COLUMN IF NOT EXISTS push_daily_summary BOOLEAN DEFAULT TRUE`,
 		`ALTER TABLE companies ADD COLUMN IF NOT EXISTS push_last_summary_date DATE`,
+		`ALTER TABLE companies ADD COLUMN IF NOT EXISTS push_last_weekly_date DATE`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
@@ -146,8 +147,103 @@ func RunCompanyPushWorkers(db *sql.DB) {
 			if n := runCompanyMorningSummaries(db); n > 0 {
 				log.Printf("☀️ CompanyPush: отправлено %d утренних сводок", n)
 			}
+			if n := runCompanyWeeklyReports(db); n > 0 {
+				log.Printf("🏆 CompanyPush: отправлено %d недельных итогов", n)
+			}
 		}
 	}()
+}
+
+// runCompanyWeeklyReports — 🏆 итоги недели: в воскресенье после 20:00 по
+// Ташкенту сравниваем выручку этой недели (заказы + касса) с прошлыми
+// 8 неделями; если это рекорд — празднуем в push.
+func runCompanyWeeklyReports(db *sql.DB) int {
+	tz := time.FixedZone("UZT", tzTashkentOffset)
+	now := time.Now().In(tz)
+	if now.Weekday() != time.Sunday || now.Hour() < 20 {
+		return 0
+	}
+	today := now.Format("2006-01-02")
+	weekStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, tz).AddDate(0, 0, -6).UTC()
+
+	rows, err := db.Query(`
+		SELECT id, expo_push_token FROM companies
+		WHERE expo_push_token IS NOT NULL AND expo_push_token <> ''
+		  AND COALESCE(push_daily_summary, TRUE)
+		  AND (push_last_weekly_date IS NULL OR push_last_weekly_date < $1)
+		LIMIT 500
+	`, today)
+	if err != nil {
+		// Колонки может не быть на старых базах — создаём и выходим до следующего тика
+		db.Exec(`ALTER TABLE companies ADD COLUMN IF NOT EXISTS push_last_weekly_date DATE`)
+		return 0
+	}
+	defer rows.Close()
+
+	type comp struct {
+		id    int64
+		token string
+	}
+	var comps []comp
+	for rows.Next() {
+		var c comp
+		if rows.Scan(&c.id, &c.token) == nil {
+			comps = append(comps, c)
+		}
+	}
+
+	weekRevenue := func(companyID int64, start, end time.Time) (float64, int) {
+		var revenue float64
+		var count int
+		db.QueryRow(`
+			SELECT COALESCE(SUM(total_amount) FILTER (WHERE status NOT IN ('cancelled')), 0),
+			       COUNT(*) FILTER (WHERE status NOT IN ('cancelled'))
+			FROM orders WHERE company_id = $1 AND created_at >= $2 AND created_at < $3
+		`, companyID, start, end).Scan(&revenue, &count)
+		var posSum float64
+		var posCnt int
+		db.QueryRow(`
+			SELECT COALESCE(SUM(total_amount), 0), COUNT(*)
+			FROM sales WHERE company_id = $1 AND created_at >= $2 AND created_at < $3
+		`, companyID, start, end).Scan(&posSum, &posCnt)
+		return revenue + posSum, count + posCnt
+	}
+
+	sent := 0
+	for _, cmp := range comps {
+		thisWeek, orderCnt := weekRevenue(cmp.id, weekStart, time.Now().UTC())
+		if orderCnt == 0 {
+			// Пустая неделя — не беспокоим, но дату отмечаем, чтобы не проверять снова
+			db.Exec(`UPDATE companies SET push_last_weekly_date = $1 WHERE id = $2`, today, cmp.id)
+			continue
+		}
+		// Лучшая из прошлых 8 недель
+		best := 0.0
+		for i := 1; i <= 8; i++ {
+			start := weekStart.AddDate(0, 0, -7*i)
+			end := weekStart.AddDate(0, 0, -7*(i-1))
+			if v, _ := weekRevenue(cmp.id, start, end); v > best {
+				best = v
+			}
+		}
+		title := "📊 Итоги недели"
+		body := fmt.Sprintf("%d продаж на %s", orderCnt, formatSumUZS(thisWeek))
+		if thisWeek > best && best > 0 {
+			title = "🏆 Рекордная неделя!"
+			body += fmt.Sprintf(" — лучший результат за 2 месяца (+%.0f%%)", (thisWeek-best)/best*100)
+		} else if best > 0 {
+			body += fmt.Sprintf(" (%.0f%% от вашего рекорда)", thisWeek/best*100)
+		}
+		if _, err := SendExpoPushNotificationData(
+			[]string{cmp.token}, title, body,
+			map[string]interface{}{"type": "company_weekly_report"},
+		); err != nil {
+			continue
+		}
+		db.Exec(`UPDATE companies SET push_last_weekly_date = $1 WHERE id = $2`, today, cmp.id)
+		sent++
+	}
+	return sent
 }
 
 func runCompanyMorningSummaries(db *sql.DB) int {

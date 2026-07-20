@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Alert, Linking, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Circle } from 'react-native-svg';
 import api from '../api';
@@ -88,6 +88,10 @@ export default function DashboardScreen({ companyId }: { companyId: number }) {
   const [profitOpen, setProfitOpen] = useState(false);
   const [openSegment, setOpenSegment] = useState<SegmentKey | null>(null);
 
+  // 📇 Мини-CRM: карточка клиента (по нажатию в сегментах)
+  const [clientCard, setClientCard] = useState<any | null>(null);
+  const [debtsList, setDebtsList] = useState<any[]>([]);
+
   // 🎯 Дневная цель продаж (companies.daily_sales_goal — общая с веб-панелью)
   const [goal, setGoal] = useState(0);
   const [goalOpen, setGoalOpen] = useState(false);
@@ -107,6 +111,7 @@ export default function DashboardScreen({ companyId }: { companyId: number }) {
         api.analytics.customerSegments(companyId).catch(() => null),
         api.companies.get(companyId).catch(() => null),
       ]);
+      api.debts.list(companyId).then((d) => setDebtsList(Array.isArray(d) ? d : [])).catch(() => {});
       setData(dash);
       setAllOrders(Array.isArray(ordersData) ? ordersData : ordersData?.orders || []);
       setInsights(insightsData);
@@ -565,11 +570,13 @@ export default function DashboardScreen({ companyId }: { companyId: number }) {
           {openSegment && (segments[openSegment] || []).length > 0 && (
             <Card style={{ marginTop: 8 }}>
               {(segments[openSegment] || []).slice(0, 10).map((c: any, idx: number) => (
-                <View
+                <Pressable
                   key={c.phone}
+                  onPress={() => { haptic.light(); setClientCard(c); }}
                   style={{
                     flexDirection: 'row',
                     justifyContent: 'space-between',
+                    alignItems: 'center',
                     paddingVertical: 6,
                     borderTopWidth: idx === 0 ? 0 : 1,
                     borderTopColor: theme.border,
@@ -586,7 +593,8 @@ export default function DashboardScreen({ companyId }: { companyId: number }) {
                   <Text style={{ color: theme.success, fontSize: 13, fontWeight: '600' }}>
                     {fmtShort(c.total, lang)}
                   </Text>
-                </View>
+                  <Ionicons name="chevron-forward" size={14} color={theme.text3} style={{ marginLeft: 6 }} />
+                </Pressable>
               ))}
             </Card>
           )}
@@ -658,6 +666,76 @@ export default function DashboardScreen({ companyId }: { companyId: number }) {
           loading={goalSaving}
           icon="flag-outline"
         />
+      </Sheet>
+
+      {/* 📇 Карточка клиента — мини-CRM: заказы + долги в одном месте */}
+      <Sheet visible={clientCard !== null} onClose={() => setClientCard(null)} title={t.clientCard}>
+        {clientCard && (() => {
+          const phone: string = clientCard.phone || '';
+          const norm = (p: string) => (p || '').replace(/\D/g, '').slice(-9);
+          const clientOrders = allOrders
+            .filter((o) => norm(o.customerPhone || o.customer_phone || o.user_phone) === norm(phone))
+            .sort((a, b) => new Date(b.createdAt || b.created_at || '').getTime() - new Date(a.createdAt || a.created_at || '').getTime());
+          const clientDebt = debtsList
+            .filter((d) => d.status === 'open' && norm(d.customerPhone) === norm(phone))
+            .reduce((s, d) => s + (d.amount - d.paidAmount), 0);
+          return (
+            <>
+              <Card style={{ marginBottom: 12 }}>
+                <Text style={{ color: theme.text, fontSize: 17, fontWeight: '800' }} numberOfLines={1}>
+                  {clientCard.name || phone}
+                </Text>
+                <Text style={{ color: theme.text2, fontSize: 13.5, marginTop: 2 }}>+998 {phone}</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+                  <Badge text={`${t.clientOrders}: ${clientCard.orders}`} color={theme.opsAccent} />
+                  <Badge text={`${t.clientTotal}: ${fmtShort(clientCard.total, lang)}`} color={theme.success} />
+                  <Badge
+                    text={clientDebt > 0 ? `${t.clientDebt}: ${fmt(clientDebt)} ${t.sum}` : t.clientNoDebt}
+                    color={clientDebt > 0 ? theme.danger : theme.success}
+                  />
+                  {clientCard.daysSince != null && (
+                    <Badge text={`${t.clientLastOrder}: ${clientCard.daysSince} ${t.daysAgo}`} color={theme.mktAccent} />
+                  )}
+                </View>
+                <Button
+                  title={t.call}
+                  onPress={() => Linking.openURL(`tel:+998${phone.replace(/\D/g, '').slice(-9)}`).catch(() => {})}
+                  small
+                  variant="success"
+                  icon="call-outline"
+                  style={{ marginTop: 12 }}
+                />
+              </Card>
+              <SectionTitle text={t.recentOrders} />
+              {clientOrders.length === 0 ? (
+                <EmptyState text={t.noOrders} icon="receipt-outline" />
+              ) : (
+                <View style={{ gap: 8 }}>
+                  {clientOrders.slice(0, 6).map((o) => (
+                    <Card key={o.id} style={{ padding: 10 }}>
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <View style={{ flex: 1, marginRight: 8 }}>
+                          <Text style={{ color: theme.text, fontSize: 13.5, fontWeight: '600' }}>
+                            #{o.orderCode || o.order_code || o.id}
+                          </Text>
+                          <Text style={{ color: theme.text3, fontSize: 12, marginTop: 2 }}>
+                            {fmtDate(o.createdAt || o.created_at)}
+                          </Text>
+                        </View>
+                        <View style={{ alignItems: 'flex-end' }}>
+                          <Text style={{ color: theme.text, fontWeight: '700', fontSize: 13.5 }}>
+                            {fmt(o.totalAmount || o.total_amount)} {t.sum}
+                          </Text>
+                          <Badge text={statusLabel(o.status)} color={STATUS_COLOR[o.status] || theme.text3} />
+                        </View>
+                      </View>
+                    </Card>
+                  ))}
+                </View>
+              )}
+            </>
+          );
+        })()}
       </Sheet>
 
       {/* Разбор прибыли: онлайн ↔ офлайн (как мини-панель в вебе) */}

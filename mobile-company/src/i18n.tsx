@@ -408,6 +408,27 @@ const ru = {
   withoutSupplier: 'Без поставщика',
   sendOrder: 'Отправить заказ',
   orderText: 'Заказ поставщику',
+
+  // История инвентаризаций
+  invHistory: 'История ревизий',
+  invActSaved: 'Акт ревизии сохранён в историю',
+  invNoHistory: 'Ревизий ещё не было',
+  invCheck: 'Ревизия',
+
+  // Калькулятор наценки
+  calcTitle: 'Калькулятор наценки',
+  calcHint: 'Сколько заработаете с этой партии',
+  calcSellAt: 'цена продажи',
+  calcProfit: 'прибыль',
+
+  // Карточка клиента (мини-CRM)
+  clientCard: 'Карточка клиента',
+  clientOrders: 'Заказов',
+  clientTotal: 'Куплено на',
+  clientLastOrder: 'Последний заказ',
+  clientDebt: 'Долг',
+  clientNoDebt: 'Долгов нет',
+  daysAgo: 'дн. назад',
 };
 
 const uz: typeof ru = {
@@ -796,6 +817,24 @@ const uz: typeof ru = {
   withoutSupplier: 'Taʼminotchisiz',
   sendOrder: 'Buyurtma yuborish',
   orderText: 'Taʼminotchiga buyurtma',
+
+  invHistory: 'Reviziyalar tarixi',
+  invActSaved: 'Reviziya dalolatnomasi tarixga saqlandi',
+  invNoHistory: 'Reviziyalar hali boʻlmagan',
+  invCheck: 'Reviziya',
+
+  calcTitle: 'Ustama kalkulyatori',
+  calcHint: 'Bu partiyadan qancha ishlaysiz',
+  calcSellAt: 'sotish narxi',
+  calcProfit: 'foyda',
+
+  clientCard: 'Mijoz kartasi',
+  clientOrders: 'Buyurtmalar',
+  clientTotal: 'Xarid summasi',
+  clientLastOrder: 'Oxirgi buyurtma',
+  clientDebt: 'Qarz',
+  clientNoDebt: 'Qarzlar yoʻq',
+  daysAgo: 'kun oldin',
 };
 
 export type Translations = typeof ru;

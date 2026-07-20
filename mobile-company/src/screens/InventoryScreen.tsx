@@ -12,10 +12,10 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import api from '../api';
+import api, { InventoryCheck } from '../api';
 import { useI18n } from '../i18n';
 import { R, SP, useTheme } from '../theme';
-import { Badge, Button, fmt, fmtDate, haptic, Stepper } from '../ui';
+import { Badge, Button, Card, EmptyState, fmt, fmtDate, haptic, Sheet, Stepper } from '../ui';
 
 // 📦 Инвентаризация сканером: проходим по складу и сканируем всё подряд —
 // приложение сверяет фактические остатки с базой, показывает недостачу и
@@ -50,6 +50,9 @@ export default function InventoryScreen({
   const [manualCode, setManualCode] = useState('');
   const [applying, setApplying] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
+  // 📊 История ревизий
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState<InventoryCheck[]>([]);
   const lastScanRef = useRef<{ code: string; at: number }>({ code: '', at: 0 });
 
   const load = useCallback(async () => {
@@ -143,6 +146,37 @@ export default function InventoryScreen({
     Share.share({ message: lines.join('\n') }).catch(() => {});
   };
 
+  // 📊 Сохранение акта в историю (динамика недостач по месяцам)
+  const saveAct = () => {
+    if (scannedRows.length === 0) return Promise.resolve();
+    return api.inventoryChecks
+      .create({
+        companyId,
+        scannedCount: scannedRows.length,
+        matchCount: summary.match,
+        shortageCount: summary.shortage,
+        surplusCount: summary.surplus,
+        shortageValue: Math.round(summary.shortageValue),
+        items: scannedRows.map((r) => ({
+          name: r.product.name,
+          expected: r.expected,
+          actual: r.actual,
+        })),
+      })
+      .catch(() => {});
+  };
+
+  const openHistory = async () => {
+    haptic.light();
+    setHistoryOpen(true);
+    try {
+      const data = await api.inventoryChecks.list(companyId);
+      setHistory(Array.isArray(data) ? data : []);
+    } catch {
+      setHistory([]);
+    }
+  };
+
   // Применяем фактические остатки в базу (products.update quantity)
   const applyCorrections = () => {
     const changed = scannedRows.filter((r) => r.diff !== 0);
@@ -157,8 +191,9 @@ export default function InventoryScreen({
             await Promise.all(
               changed.map((r) => api.products.update(r.product.id, { quantity: r.actual }))
             );
+            await saveAct(); // акт уходит в историю ревизий
             haptic.success();
-            Alert.alert('✅', t.correctionsApplied);
+            Alert.alert('✅', `${t.correctionsApplied}\n${t.invActSaved}`);
             onApplied?.();
             load();
           } catch (e) {
@@ -262,11 +297,16 @@ export default function InventoryScreen({
               icon="search"
             />
           </View>
-          <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+          <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
             <Badge text={`${t.inventoryScanned}: ${scannedRows.length}`} color={theme.opsAccent} />
             <Badge text={`✓ ${summary.match}`} color={theme.success} />
             <Badge text={`${t.inventoryShortage}: ${summary.shortage}`} color={theme.danger} />
             <Badge text={`${t.inventorySurplus}: ${summary.surplus}`} color={theme.warning} />
+            <Pressable onPress={openHistory} hitSlop={6} style={{ marginLeft: 'auto' }}>
+              <Text style={{ color: theme.primary, fontSize: 12.5, fontWeight: '700' }}>
+                📊 {t.invHistory}
+              </Text>
+            </Pressable>
           </View>
         </View>
 
@@ -351,6 +391,35 @@ export default function InventoryScreen({
             style={{ flex: 1 }}
           />
         </View>
+
+        {/* 📊 История ревизий — динамика недостач */}
+        <Sheet visible={historyOpen} onClose={() => setHistoryOpen(false)} title={t.invHistory}>
+          {history.length === 0 ? (
+            <EmptyState text={t.invNoHistory} icon="time-outline" />
+          ) : (
+            <View style={{ gap: 8 }}>
+              {history.map((h) => (
+                <Card key={h.id} style={{ padding: 12 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ color: theme.text, fontWeight: '700', fontSize: 13.5 }}>
+                      {t.invCheck} · {fmtDate(h.createdAt)}
+                    </Text>
+                    {h.shortageValue > 0 && (
+                      <Text style={{ color: theme.danger, fontWeight: '700', fontSize: 13.5 }}>
+                        −{fmt(h.shortageValue)} {t.sum}
+                      </Text>
+                    )}
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                    <Badge text={`✓ ${h.matchCount}`} color={theme.success} />
+                    <Badge text={`${t.inventoryShortage}: ${h.shortageCount}`} color={theme.danger} />
+                    <Badge text={`${t.inventorySurplus}: ${h.surplusCount}`} color={theme.warning} />
+                  </View>
+                </Card>
+              ))}
+            </View>
+          )}
+        </Sheet>
       </View>
     </Modal>
   );

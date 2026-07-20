@@ -1275,12 +1275,40 @@ export default function WarehouseScreen({ companyId }: { companyId: number }) {
           placeholder="50000"
         />
         {!!purchaseQty && !!purchasePrice && (
-          <Text style={{ color: theme.text2, fontSize: 13.5, marginBottom: 12 }}>
-            {t.total}:{' '}
-            <Text style={{ color: theme.success, fontWeight: '700' }}>
-              {fmt((parseFloat(purchaseQty) || 0) * (parseFloat(purchasePrice) || 0))} {t.sum}
+          <>
+            <Text style={{ color: theme.text2, fontSize: 13.5, marginBottom: 12 }}>
+              {t.total}:{' '}
+              <Text style={{ color: theme.success, fontWeight: '700' }}>
+                {fmt((parseFloat(purchaseQty) || 0) * (parseFloat(purchasePrice) || 0))} {t.sum}
+              </Text>
             </Text>
-          </Text>
+            {/* 🧮 Калькулятор наценки: сколько заработаете с партии при разных % */}
+            <Card style={{ marginBottom: 14, padding: 12 }}>
+              <Text style={{ color: theme.text, fontWeight: '700', fontSize: 13, marginBottom: 2 }}>
+                🧮 {t.calcTitle}
+              </Text>
+              <Text style={{ color: theme.text3, fontSize: 11.5, marginBottom: 8 }}>{t.calcHint}</Text>
+              {[10, 20, 30, 50].map((m) => {
+                const qty = parseFloat(purchaseQty) || 0;
+                const price = parseFloat(purchasePrice) || 0;
+                const sell = Math.round(price * (1 + m / 100));
+                const profit = Math.round((sell - price) * qty);
+                return (
+                  <View key={m} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 }}>
+                    <Text style={{ color: theme.primary, fontSize: 12.5, fontWeight: '700', width: 44 }}>
+                      +{m}%
+                    </Text>
+                    <Text style={{ color: theme.text2, fontSize: 12.5, flex: 1 }}>
+                      {t.calcSellAt}: {fmt(sell)}
+                    </Text>
+                    <Text style={{ color: theme.success, fontSize: 12.5, fontWeight: '700' }}>
+                      {t.calcProfit}: {fmt(profit)}
+                    </Text>
+                  </View>
+                );
+              })}
+            </Card>
+          </>
         )}
         <Button title={t.purchase} onPress={submitPurchase} loading={saving} variant="success" icon="download-outline" />
       </Sheet>

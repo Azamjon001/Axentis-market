@@ -117,6 +117,9 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
   const [goal, setGoal] = useState(0);
   const [goalEditOpen, setGoalEditOpen] = useState(false);
   const [goalInput, setGoalInput] = useState('');
+  // 📇 Мини-CRM: карточка клиента (по клику в сегментах) + долги для сверки
+  const [clientCard, setClientCard] = useState<SegmentClient | null>(null);
+  const [debtsList, setDebtsList] = useState<any[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -136,6 +139,7 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
       setProfit(profitData);
       setSegments(segmentsData);
       setGoal(Number(companyData?.dailySalesGoal) || 0);
+      api.debts.list(companyId).then((d: any) => setDebtsList(Array.isArray(d) ? d : [])).catch(() => {});
     }).catch((e) => console.error('Dashboard load failed:', e))
       .finally(() => active && setLoading(false));
     return () => { active = false; };
@@ -761,12 +765,18 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
                     {(segments[openSegment] || []).length === 0 ? (
                       <div style={{ padding: 16, textAlign: 'center', color: '#5A5A78', fontSize: 13 }}>{L.segEmpty}</div>
                     ) : (segments[openSegment] || []).map((cl, i) => (
-                      <div key={cl.phone} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderTop: i === 0 ? 'none' : '1px solid rgba(255,255,255,0.05)' }}>
+                      <div
+                        key={cl.phone}
+                        onClick={() => setClientCard(cl)}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderTop: i === 0 ? 'none' : '1px solid rgba(255,255,255,0.05)', cursor: 'pointer' }}
+                        title={isUz ? 'Mijoz kartasi' : 'Карточка клиента'}
+                      >
                         <div style={{ minWidth: 0, flex: 1 }}>
                           <div style={{ fontSize: 13, color: 'var(--ax-text)', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cl.name || cl.phone}</div>
                           <div style={{ fontSize: 11, color: '#5A5A78' }}>{cl.phone} · {cl.orders} {L.segOrders} · {cl.daysSince} {L.segDays}</div>
                         </div>
                         <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ax-text)', whiteSpace: 'nowrap' }}>{fmt(cl.total)} {L.sum}</span>
+                        <ChevronRight size={14} style={{ color: '#5A5A78', flexShrink: 0 }} />
                       </div>
                     ))}
                   </div>
@@ -776,6 +786,77 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
           </div>
         </motion.div>
       )}
+
+      {/* 📇 Карточка клиента — мини-CRM: заказы + долги в одном месте */}
+      {clientCard && (() => {
+        const norm = (p: string) => (p || '').replace(/\D/g, '').slice(-9);
+        const clientOrders = allOrders
+          .filter((o: any) => norm(o.customerPhone || o.customer_phone || o.user_phone) === norm(clientCard.phone))
+          .sort((a: any, b: any) => new Date(b.createdAt || b.created_at || '').getTime() - new Date(a.createdAt || a.created_at || '').getTime());
+        const clientDebt = debtsList
+          .filter((d: any) => d.status === 'open' && norm(d.customerPhone) === norm(clientCard.phone))
+          .reduce((s: number, d: any) => s + (d.amount - d.paidAmount), 0);
+        return (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setClientCard(null)}>
+            <div style={{ background: 'var(--ax-surface)', border: '1px solid var(--ax-border)', borderRadius: 18, padding: 22, width: '100%', maxWidth: 460, maxHeight: '84vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                <div>
+                  <div style={{ color: 'var(--ax-text)', fontSize: 18, fontWeight: 800 }}>{clientCard.name || clientCard.phone}</div>
+                  <div style={{ color: 'var(--ax-text-2)', fontSize: 13.5, marginTop: 2 }}>+998 {clientCard.phone}</div>
+                </div>
+                <button onClick={() => setClientCard(null)} style={{ background: 'none', border: 'none', color: 'var(--ax-text-2)', cursor: 'pointer' }}>
+                  <X size={20} />
+                </button>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+                <span style={{ padding: '4px 10px', borderRadius: 999, background: 'rgba(56,189,248,0.13)', color: '#38BDF8', fontSize: 12, fontWeight: 700 }}>
+                  {isUz ? 'Buyurtmalar' : 'Заказов'}: {clientCard.orders}
+                </span>
+                <span style={{ padding: '4px 10px', borderRadius: 999, background: 'rgba(34,197,94,0.13)', color: '#22C55E', fontSize: 12, fontWeight: 700 }}>
+                  {isUz ? 'Xarid' : 'Куплено на'}: {fmt(clientCard.total)} {L.sum}
+                </span>
+                <span style={{ padding: '4px 10px', borderRadius: 999, background: clientDebt > 0 ? 'rgba(248,113,113,0.13)' : 'rgba(34,197,94,0.13)', color: clientDebt > 0 ? '#F87171' : '#22C55E', fontSize: 12, fontWeight: 700 }}>
+                  {clientDebt > 0
+                    ? `${isUz ? 'Qarz' : 'Долг'}: ${fmt(clientDebt)} ${L.sum}`
+                    : (isUz ? 'Qarzlar yoʻq' : 'Долгов нет')}
+                </span>
+                <span style={{ padding: '4px 10px', borderRadius: 999, background: 'rgba(139,92,246,0.13)', color: '#A78BFA', fontSize: 12, fontWeight: 700 }}>
+                  {isUz ? 'Oxirgi buyurtma' : 'Последний заказ'}: {clientCard.daysSince} {isUz ? 'kun oldin' : 'дн. назад'}
+                </span>
+              </div>
+              <a
+                href={`tel:+998${norm(clientCard.phone)}`}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 16px', borderRadius: 11, background: 'rgba(34,197,94,0.15)', color: '#22C55E', fontSize: 13, fontWeight: 600, marginBottom: 16, textDecoration: 'none' }}
+              >
+                📞 {isUz ? 'Qoʻngʻiroq' : 'Позвонить'}
+              </a>
+              <div style={{ color: 'var(--ax-text-3)', fontSize: 11.5, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>
+                {L.recent}
+              </div>
+              {clientOrders.length === 0 ? (
+                <div style={{ color: 'var(--ax-text-3)', fontSize: 13, padding: '10px 0' }}>{L.noOrders}</div>
+              ) : (
+                <div style={{ display: 'grid', gap: 6 }}>
+                  {clientOrders.slice(0, 6).map((o: any) => (
+                    <div key={o.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderRadius: 10, background: 'var(--ax-card)', border: '1px solid var(--ax-border)' }}>
+                      <div>
+                        <div style={{ color: 'var(--ax-text)', fontSize: 13, fontWeight: 600 }}>#{o.orderCode || o.order_code || o.id}</div>
+                        <div style={{ color: 'var(--ax-text-3)', fontSize: 11.5 }}>
+                          {new Date(o.createdAt || o.created_at).toLocaleDateString('ru-RU')}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ color: 'var(--ax-text)', fontWeight: 700, fontSize: 13 }}>{fmt(o.totalAmount || o.total_amount)} {L.sum}</div>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: STATUS_COLOR[o.status]?.text || 'var(--ax-text-3)' }}>{o.status}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Recent orders */}
       <motion.div {...springIn} style={cardBase}>

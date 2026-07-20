@@ -63,6 +63,9 @@ func main() {
 	// 🚚 Поставщики (автозаказ из плана закупки)
 	handlers.MigrateSuppliers(db)
 
+	// 📊 История инвентаризаций (акты ревизий)
+	handlers.MigrateInventoryChecks(db)
+
 	// Provide config to user auth handlers so they can issue JWT tokens.
 	handlers.InitUserConfig(cfg)
 

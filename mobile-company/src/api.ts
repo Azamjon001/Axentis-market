@@ -380,6 +380,34 @@ export const debts = {
 };
 
 // ============================================================================
+// INVENTORY CHECKS — 📊 история актов инвентаризации
+// ============================================================================
+
+export interface InventoryCheck {
+  id: number;
+  scannedCount: number;
+  matchCount: number;
+  shortageCount: number;
+  surplusCount: number;
+  shortageValue: number;
+  createdAt: string;
+}
+
+export const inventoryChecks = {
+  list: (companyId: number): Promise<InventoryCheck[]> =>
+    apiCall(`/inventory-checks?companyId=${companyId}`),
+  create: (data: {
+    companyId: number;
+    scannedCount: number;
+    matchCount: number;
+    shortageCount: number;
+    surplusCount: number;
+    shortageValue: number;
+    items: { name: string; expected: number; actual: number }[];
+  }) => apiCall('/inventory-checks', { method: 'POST', body: JSON.stringify(data) }),
+};
+
+// ============================================================================
 // SUPPLIERS — 🚚 поставщики для автозаказа (общий API с веб-панелью)
 // ============================================================================
 
@@ -529,6 +557,7 @@ const api = {
   cashSales,
   debts,
   suppliers,
+  inventoryChecks,
   productPurchases,
   expenses,
   discounts,

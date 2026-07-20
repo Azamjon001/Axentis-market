@@ -35,6 +35,9 @@ export default function InventoryCheckModal({
   const [code, setCode] = useState('');
   const [applying, setApplying] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  // 📊 История прошлых ревизий
+  const [showHistory, setShowHistory] = useState(false);
+  const [history, setHistory] = useState<any[]>([]);
 
   const L = {
     title: isUz ? 'Inventarizatsiya' : 'Инвентаризация',
@@ -142,12 +145,36 @@ export default function InventoryCheckModal({
     setApplying(true);
     try {
       await Promise.all(changed.map((r) => api.products.update(String(r.product.id), { quantity: r.actual })));
+      // 📊 Акт уходит в историю ревизий (динамика недостач по месяцам)
+      api.inventoryChecks
+        .create({
+          companyId,
+          scannedCount: rows.length,
+          matchCount: summary.match,
+          shortageCount: summary.shortage,
+          surplusCount: summary.surplus,
+          shortageValue: Math.round(summary.shortageValue),
+          items: rows.map((r) => ({ name: r.product.name, expected: r.expected, actual: r.actual })),
+        })
+        .catch(() => {});
       toast.success(L.applied);
       onClose();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
       setApplying(false);
+    }
+  };
+
+  const openHistory = async () => {
+    setShowHistory((v) => !v);
+    if (history.length === 0) {
+      try {
+        const data = await api.inventoryChecks.list(companyId);
+        setHistory(Array.isArray(data) ? data : []);
+      } catch {
+        setHistory([]);
+      }
     }
   };
 
@@ -194,7 +221,40 @@ export default function InventoryCheckModal({
                 −{Math.round(summary.shortageValue).toLocaleString('ru-RU')} {L.sum}
               </span>
             )}
+            <button
+              onClick={openHistory}
+              style={{ marginLeft: 'auto', padding: '3px 10px', borderRadius: 999, background: 'var(--ax-primary-pale)', color: 'var(--ax-primary)', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}
+            >
+              📊 {isUz ? 'Reviziyalar tarixi' : 'История ревизий'}
+            </button>
           </div>
+
+          {/* 📊 История прошлых ревизий — динамика недостач */}
+          {showHistory && (
+            <div style={{ display: 'grid', gap: 6, maxHeight: 180, overflowY: 'auto' }}>
+              {history.length === 0 ? (
+                <div style={{ color: 'var(--ax-text-3)', fontSize: 12.5, padding: '6px 0' }}>
+                  {isUz ? 'Reviziyalar hali boʻlmagan' : 'Ревизий ещё не было'}
+                </div>
+              ) : (
+                history.map((h: any) => (
+                  <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderRadius: 10, background: 'var(--ax-card)', border: '1px solid var(--ax-border)', fontSize: 12.5 }}>
+                    <span style={{ color: 'var(--ax-text-2)', flex: 1 }}>
+                      {new Date(h.createdAt).toLocaleDateString('ru-RU')} {new Date(h.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                    <span style={{ color: '#22C55E', fontWeight: 600 }}>✓ {h.matchCount}</span>
+                    <span style={{ color: '#F87171', fontWeight: 600 }}>−{h.shortageCount}</span>
+                    <span style={{ color: '#FBBF24', fontWeight: 600 }}>+{h.surplusCount}</span>
+                    {h.shortageValue > 0 && (
+                      <span style={{ color: '#F87171', fontWeight: 700 }}>
+                        −{Math.round(h.shortageValue).toLocaleString('ru-RU')} {L.sum}
+                      </span>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </div>
 
         {/* Таблица */}

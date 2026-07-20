@@ -391,6 +391,13 @@ func Setup(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 			debts.DELETE("/:id", middleware.RequireCompany(cfg), handlers.DeleteDebt(db))
 		}
 
+		// 📊 История инвентаризаций — сохранение и просмотр актов ревизий
+		inventoryChecks := api.Group("/inventory-checks")
+		{
+			inventoryChecks.GET("", middleware.RequireCompany(cfg), handlers.ListInventoryChecks(db))
+			inventoryChecks.POST("", middleware.RequireCompany(cfg), handlers.CreateInventoryCheck(db))
+		}
+
 		// 🚚 Поставщики — справочник для автозаказа (веб-панель + приложение)
 		suppliers := api.Group("/suppliers")
 		{

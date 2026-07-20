@@ -2096,10 +2096,27 @@ export const suppliers = {
   delete: (id: number) => apiCall(`/suppliers/${id}`, { method: 'DELETE' }),
 };
 
+// ============================================================================
+// INVENTORY CHECKS — 📊 история актов инвентаризации (общая с приложением)
+// ============================================================================
+export const inventoryChecks = {
+  list: (companyId: number) => apiCall(`/inventory-checks?companyId=${companyId}`),
+  create: (data: {
+    companyId: number;
+    scannedCount: number;
+    matchCount: number;
+    shortageCount: number;
+    surplusCount: number;
+    shortageValue: number;
+    items: { name: string; expected: number; actual: number }[];
+  }) => apiCall('/inventory-checks', { method: 'POST', body: JSON.stringify(data) }),
+};
+
 export default {
   baseURL: API_BASE.replace('/api', ''), // 🔗 Base URL для прямых fetch запросов
   debts, // 🧾 «Дафтар» — долги клиентов
   suppliers, // 🚚 Поставщики (автозаказ)
+  inventoryChecks, // 📊 История инвентаризаций
   policies, // 📜 Политика конфиденциальности
   payouts, // 💸 Вывод средств компаний
   promotions, // 📢 Внутренняя реклама
