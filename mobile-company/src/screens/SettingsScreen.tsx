@@ -55,6 +55,35 @@ export default function SettingsScreen({
   const [tgStatus, setTgStatus] = useState<{ enabled?: boolean; connected: boolean; connectLink?: string; botName?: string } | null>(null);
   const [tgBusy, setTgBusy] = useState(false);
 
+  // ⚙️ Настройки Telegram-бота: что и когда отправлять
+  const [tgSettings, setTgSettings] = useState<{
+    notifyOrders: boolean;
+    notifyStock: boolean;
+    notifyDaily: boolean;
+    dailyHour: number;
+    notifyDebts: boolean;
+    debtsHour: number;
+  } | null>(null);
+
+  useEffect(() => {
+    api.companies
+      .telegramSettings(company.id)
+      .then(setTgSettings)
+      .catch(() => {});
+  }, [company.id]);
+
+  const saveTgSettings = async (patch: Partial<NonNullable<typeof tgSettings>>) => {
+    if (!tgSettings) return;
+    const next = { ...tgSettings, ...patch };
+    setTgSettings(next);
+    try {
+      await api.companies.updateTelegramSettings(company.id, patch);
+      haptic.light();
+    } catch (e) {
+      Alert.alert(t.error, e instanceof Error ? e.message : String(e));
+    }
+  };
+
   // 🔔 Push-настройки (хранятся локально, дублируются на бэкенд с токеном)
   const [pushNewOrders, setPushNewOrders] = useState(true);
   const [pushDailySummary, setPushDailySummary] = useState(true);
@@ -610,6 +639,72 @@ export default function SettingsScreen({
             <Button title={t.telegramConnect} onPress={connectTelegram} small />
           ) : null}
         </Card>
+
+        {/* ⚙️ Что и когда шлёт бот — редактируется прямо здесь */}
+        {tgStatus?.connected && tgSettings && (
+          <Card style={{ marginTop: 8 }}>
+            <Text style={{ color: theme.text, fontWeight: '700', fontSize: 13.5, marginBottom: 10 }}>
+              ⚙️ {t.tgWhatToSend}
+            </Text>
+            {(
+              [
+                { key: 'notifyOrders' as const, label: t.tgNewOrder, icon: 'receipt-outline' as const },
+                { key: 'notifyStock' as const, label: t.tgLowStock, icon: 'alert-circle-outline' as const },
+                { key: 'notifyDaily' as const, label: t.tgDailyReport, icon: 'stats-chart-outline' as const, hourKey: 'dailyHour' as const },
+                { key: 'notifyDebts' as const, label: t.tgDebtReminder, icon: 'wallet-outline' as const, hourKey: 'debtsHour' as const },
+              ]
+            ).map((item, idx) => (
+              <View
+                key={item.key}
+                style={{
+                  paddingVertical: 8,
+                  borderTopWidth: idx === 0 ? 0 : 1,
+                  borderTopColor: theme.border,
+                }}
+              >
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                    <Ionicons name={item.icon} size={16} color="#229ED9" />
+                    <Text style={{ color: theme.text, fontSize: 14 }}>{item.label}</Text>
+                  </View>
+                  <Switch
+                    value={tgSettings[item.key]}
+                    onValueChange={(v) => saveTgSettings({ [item.key]: v } as any)}
+                    trackColor={{ true: '#229ED9', false: theme.border }}
+                    thumbColor="#fff"
+                  />
+                </View>
+                {/* Час отправки — для отчёта и напоминания о долгах */}
+                {item.hourKey && tgSettings[item.key] && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8, marginLeft: 24, flexWrap: 'wrap' }}>
+                    <Text style={{ color: theme.text3, fontSize: 12.5 }}>{t.tgAtHour}:</Text>
+                    {[8, 10, 12, 18, 20, 21, 22].map((h) => {
+                      const on = tgSettings[item.hourKey!] === h;
+                      return (
+                        <Pressable
+                          key={h}
+                          onPress={() => saveTgSettings({ [item.hourKey!]: h } as any)}
+                          style={{
+                            paddingHorizontal: 10,
+                            paddingVertical: 4,
+                            borderRadius: 999,
+                            backgroundColor: on ? '#229ED9' : theme.input,
+                            borderWidth: 1,
+                            borderColor: on ? '#229ED9' : theme.border,
+                          }}
+                        >
+                          <Text style={{ color: on ? '#fff' : theme.text2, fontSize: 12, fontWeight: '700' }}>
+                            {h}:00
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
+            ))}
+          </Card>
+        )}
       </View>
 
       {/* 👥 Режим кассира */}

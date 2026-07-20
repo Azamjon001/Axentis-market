@@ -202,6 +202,8 @@ func Setup(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 			companies.PUT("/:id/verify", middleware.RequireAdmin(cfg), handlers.SetCompanyVerified(db)) // ✅ Значок «Проверенный магазин» (админ)
 			companies.PUT("/:id", middleware.RequireAdminOrOwnCompany(), handlers.UpdateCompany(db))
 			companies.PUT("/:id/push-token", middleware.RequireAdminOrOwnCompany(), handlers.SaveCompanyPushToken(db)) // 📲 Push-токен приложения продавца
+			companies.GET("/:id/telegram-settings", middleware.RequireAdminOrOwnCompany(), handlers.GetTelegramSettings(db))    // ⚙️ Что и когда шлёт Telegram-бот
+			companies.PUT("/:id/telegram-settings", middleware.RequireAdminOrOwnCompany(), handlers.UpdateTelegramSettings(db))
 			companies.DELETE("/:id", middleware.RequireAdminOrOwnCompany(), handlers.DeleteCompany(db))
 			companies.POST("/:id/view", handlers.TrackCompanyView(db))
 			companies.GET("/:id/stats", handlers.GetCompanyStats(db))

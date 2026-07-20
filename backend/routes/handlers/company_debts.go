@@ -291,24 +291,27 @@ func RunDebtReminderWorkers(db *sql.DB) {
 func runDebtReminders(db *sql.DB) int {
 	tz := time.FixedZone("UZT", tzTashkentOffset)
 	now := time.Now().In(tz)
-	if now.Hour() < 10 {
-		return 0
-	}
 	today := now.Format("2006-01-02")
 
+	// ⚙️ Час напоминания настраивается компанией (tg_debts_hour, по умолч. 10).
+	// Напоминание уходит push-уведомлением в приложение И сообщением в
+	// Telegram-бот магазина (если бот подключён и уведомление включено).
 	rows, err := db.Query(`
-		SELECT c.id, c.expo_push_token,
+		SELECT c.id, COALESCE(c.expo_push_token, ''), COALESCE(c.telegram_chat_id, 0),
+		       COALESCE(c.tg_notify_debts, TRUE),
 		       COUNT(d.id),
 		       COALESCE(SUM(d.amount - d.paid_amount), 0),
 		       COUNT(d.id) FILTER (WHERE d.due_date < $1::date)
 		FROM companies c
 		JOIN company_debts d ON d.company_id = c.id
-		WHERE c.expo_push_token IS NOT NULL AND c.expo_push_token <> ''
+		WHERE (c.expo_push_token IS NOT NULL AND c.expo_push_token <> ''
+		       OR c.telegram_chat_id IS NOT NULL)
+		  AND COALESCE(c.tg_debts_hour, 10) <= $2
 		  AND d.status = 'open' AND d.due_date IS NOT NULL AND d.due_date <= $1::date
 		  AND (c.debts_last_reminder_date IS NULL OR c.debts_last_reminder_date < $1::date)
-		GROUP BY c.id, c.expo_push_token
+		GROUP BY c.id, c.expo_push_token, c.telegram_chat_id, c.tg_notify_debts
 		LIMIT 500
-	`, today)
+	`, today, now.Hour())
 	if err != nil {
 		log.Printf("⚠️ DebtReminder query: %v", err)
 		return 0
@@ -318,6 +321,8 @@ func runDebtReminders(db *sql.DB) int {
 	type row struct {
 		companyID int64
 		token     string
+		chatID    int64
+		tgEnabled bool
 		count     int
 		total     float64
 		overdue   int
@@ -325,7 +330,7 @@ func runDebtReminders(db *sql.DB) int {
 	var list []row
 	for rows.Next() {
 		var r row
-		if rows.Scan(&r.companyID, &r.token, &r.count, &r.total, &r.overdue) == nil {
+		if rows.Scan(&r.companyID, &r.token, &r.chatID, &r.tgEnabled, &r.count, &r.total, &r.overdue) == nil {
 			list = append(list, r)
 		}
 	}
@@ -336,10 +341,23 @@ func runDebtReminders(db *sql.DB) int {
 		if r.overdue > 0 {
 			body += fmt.Sprintf(", из них просрочено: %d", r.overdue)
 		}
-		if _, err := SendExpoPushNotificationData(
-			[]string{r.token}, "💳 Дафтар: пора напомнить о долгах", body,
-			map[string]interface{}{"type": "company_debt_reminder"},
-		); err != nil {
+		delivered := false
+		// 📲 Push в приложение
+		if r.token != "" {
+			if _, err := SendExpoPushNotificationData(
+				[]string{r.token}, "💳 Дафтар: пора напомнить о долгах", body,
+				map[string]interface{}{"type": "company_debt_reminder"},
+			); err == nil {
+				delivered = true
+			}
+		}
+		// ✈️ Сообщение в Telegram-бот магазина
+		if r.chatID != 0 && r.tgEnabled {
+			if err := sendTelegramMessage(r.chatID, "💳 <b>Дафтар: пора напомнить о долгах</b>\n"+body); err == nil {
+				delivered = true
+			}
+		}
+		if !delivered {
 			continue
 		}
 		db.Exec(`UPDATE companies SET debts_last_reminder_date = $1 WHERE id = $2`, today, r.companyID)

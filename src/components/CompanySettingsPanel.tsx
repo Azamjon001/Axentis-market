@@ -288,6 +288,7 @@ export default function CompanySettingsPanel({ companyId }: CompanySettingsPanel
           </div>
 
           {tgStatus.connected ? (
+            <div>
             <div className="flex flex-wrap items-center gap-3">
               <span className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
                 <Check className="w-4 h-4" />
@@ -301,6 +302,9 @@ export default function CompanySettingsPanel({ companyId }: CompanySettingsPanel
                 <X className="w-4 h-4" />
                 {language === 'uz' ? 'Uzish' : 'Отключить'}
               </button>
+            </div>
+            {/* ⚙️ Что и когда шлёт бот — редактируется прямо здесь */}
+            <TelegramSettingsEditor companyId={companyId} language={language} />
             </div>
           ) : tgStatus.connectLink ? (
             <div className="space-y-3">
@@ -615,6 +619,81 @@ export default function CompanySettingsPanel({ companyId }: CompanySettingsPanel
           </div>
           <PanelLocksEditor language={language} />
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── ⚙️ Редактор Telegram-уведомлений: что отправлять и когда ────────────────
+function TelegramSettingsEditor({ companyId, language }: { companyId: number; language: string }) {
+  const isUz = language === 'uz';
+  const [settings, setSettings] = useState<any>(null);
+
+  useEffect(() => {
+    api.companies.telegramSettings(companyId).then(setSettings).catch(() => {});
+  }, [companyId]);
+
+  if (!settings) return null;
+
+  const save = async (patch: Record<string, any>) => {
+    setSettings((s: any) => ({ ...s, ...patch }));
+    try {
+      await api.companies.updateTelegramSettings(companyId, patch);
+    } catch (e) {
+      console.error('TG settings save failed:', e);
+    }
+  };
+
+  const items: { key: string; label: string; hourKey?: string }[] = [
+    { key: 'notifyOrders', label: isUz ? '🛍 Yangi buyurtma (darhol)' : '🛍 Новый заказ (сразу)' },
+    { key: 'notifyStock', label: isUz ? '⚠️ Kritik qoldiqlar' : '⚠️ Критические остатки' },
+    { key: 'notifyDaily', label: isUz ? '📊 Kunlik hisobot' : '📊 Дневной отчёт', hourKey: 'dailyHour' },
+    { key: 'notifyDebts', label: isUz ? '💳 Qarzlar eslatmasi' : '💳 Напоминание о долгах', hourKey: 'debtsHour' },
+  ];
+
+  return (
+    <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--ax-border)' }}>
+      <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--ax-text)', marginBottom: 10 }}>
+        ⚙️ {isUz ? 'Bot nima va qachon yuboradi' : 'Что и когда отправляет бот'}
+      </div>
+      <div style={{ display: 'grid', gap: 8 }}>
+        {items.map((item) => (
+          <div key={item.key} style={{ padding: '9px 12px', borderRadius: 11, background: 'var(--ax-input)', border: '1px solid var(--ax-border)' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none' }}>
+              <input
+                type="checkbox"
+                checked={!!settings[item.key]}
+                onChange={(e) => save({ [item.key]: e.target.checked })}
+                style={{ accentColor: '#229ED9', width: 16, height: 16 }}
+              />
+              <span style={{ fontSize: 13.5, color: 'var(--ax-text)', fontWeight: 500, flex: 1 }}>{item.label}</span>
+            </label>
+            {item.hourKey && settings[item.key] && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, marginLeft: 26, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, color: 'var(--ax-text-3)' }}>
+                  {isUz ? 'soat nechada:' : 'в котором часу:'}
+                </span>
+                {[8, 10, 12, 18, 20, 21, 22].map((h) => {
+                  const on = settings[item.hourKey!] === h;
+                  return (
+                    <button
+                      key={h}
+                      onClick={() => save({ [item.hourKey!]: h })}
+                      style={{
+                        padding: '3px 10px', borderRadius: 999, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                        background: on ? '#229ED9' : 'var(--ax-card)',
+                        color: on ? '#fff' : 'var(--ax-text-2)',
+                        border: `1px solid ${on ? '#229ED9' : 'var(--ax-border)'}`,
+                      }}
+                    >
+                      {h}:00
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );

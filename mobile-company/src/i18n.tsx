@@ -429,6 +429,15 @@ const ru = {
   clientDebt: 'Долг',
   clientNoDebt: 'Долгов нет',
   daysAgo: 'дн. назад',
+
+  // Настройки Telegram-бота
+  tgWhatToSend: 'Что отправляет бот',
+  tgNewOrder: 'Новый заказ (сразу)',
+  tgLowStock: 'Критические остатки',
+  tgDailyReport: 'Дневной отчёт',
+  tgDebtReminder: 'Напоминание о долгах',
+  tgAtHour: 'в котором часу',
+  tgSettingsSaved: 'Настройки бота сохранены',
 };
 
 const uz: typeof ru = {
@@ -835,6 +844,14 @@ const uz: typeof ru = {
   clientDebt: 'Qarz',
   clientNoDebt: 'Qarzlar yoʻq',
   daysAgo: 'kun oldin',
+
+  tgWhatToSend: 'Bot nima yuboradi',
+  tgNewOrder: 'Yangi buyurtma (darhol)',
+  tgLowStock: 'Kritik qoldiqlar',
+  tgDailyReport: 'Kunlik hisobot',
+  tgDebtReminder: 'Qarzlar eslatmasi',
+  tgAtHour: 'soat nechada',
+  tgSettingsSaved: 'Bot sozlamalari saqlandi',
 };
 
 export type Translations = typeof ru;

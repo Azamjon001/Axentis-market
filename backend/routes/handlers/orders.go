@@ -926,9 +926,11 @@ func CreateOrder(db *sql.DB) gin.HandlerFunc {
 
 		log.Printf("✅ Order created successfully: ID=%d, Code=%s, CompanyID=%d", orderID, orderCode, companyID)
 
-		// 📲 Push продавцу в приложение Axentis Business — в горутине,
-		// чтобы задержка/ошибка пуша не влияла на оформление заказа.
+		// 📲 Push продавцу в приложение Axentis Business + сообщение в
+		// Telegram-бот магазина — в горутинах, чтобы задержка/ошибка
+		// уведомлений не влияла на оформление заказа.
 		go NotifyCompanyNewOrder(db, companyID, orderCode, totalAmount, customerName)
+		go NotifyCompanyOrderTelegram(db, companyID, orderCode, totalAmount, customerName)
 
 		// 💰 Сохранить доход админа от доставки (если доставка была)
 		if deliveryCost > 0 {

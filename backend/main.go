@@ -66,6 +66,9 @@ func main() {
 	// 📊 История инвентаризаций (акты ревизий)
 	handlers.MigrateInventoryChecks(db)
 
+	// ⚙️ Настройки Telegram-уведомлений (что и когда шлёт бот)
+	handlers.MigrateTelegramSettings(db)
+
 	// Provide config to user auth handlers so they can issue JWT tokens.
 	handlers.InitUserConfig(cfg)
 
