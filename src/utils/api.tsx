@@ -2055,8 +2055,68 @@ export const policies = {
     }),
 };
 
+// ============================================================================
+// DEBTS — 🧾 «Дафтар»: журнал долгов клиентов (общий API с приложением)
+// ============================================================================
+export const debts = {
+  list: (companyId: number) => apiCall(`/debts?companyId=${companyId}`),
+  create: (data: {
+    companyId: number;
+    customerName: string;
+    customerPhone?: string;
+    amount: number;
+    note?: string;
+    dueDate?: string; // YYYY-MM-DD
+  }) => apiCall('/debts', { method: 'POST', body: JSON.stringify(data) }),
+  update: (
+    id: number,
+    data: Partial<{
+      customerName: string;
+      customerPhone: string;
+      amount: number;
+      addPayment: number;
+      note: string;
+      dueDate: string;
+      status: 'open' | 'paid';
+    }>,
+  ) => apiCall(`/debts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (id: number) => apiCall(`/debts/${id}`, { method: 'DELETE' }),
+};
+
+// ============================================================================
+// SUPPLIERS — 🚚 поставщики для автозаказа (общий API с приложением)
+// ============================================================================
+export const suppliers = {
+  list: (companyId: number) => apiCall(`/suppliers?companyId=${companyId}`),
+  assignments: (companyId: number) => apiCall(`/suppliers/assignments?companyId=${companyId}`),
+  create: (data: { companyId: number; name: string; phone?: string; telegram?: string; note?: string }) =>
+    apiCall('/suppliers', { method: 'POST', body: JSON.stringify(data) }),
+  assign: (companyId: number, productId: number, supplierId: number | null) =>
+    apiCall('/suppliers/assign', { method: 'PUT', body: JSON.stringify({ companyId, productId, supplierId }) }),
+  delete: (id: number) => apiCall(`/suppliers/${id}`, { method: 'DELETE' }),
+};
+
+// ============================================================================
+// INVENTORY CHECKS — 📊 история актов инвентаризации (общая с приложением)
+// ============================================================================
+export const inventoryChecks = {
+  list: (companyId: number) => apiCall(`/inventory-checks?companyId=${companyId}`),
+  create: (data: {
+    companyId: number;
+    scannedCount: number;
+    matchCount: number;
+    shortageCount: number;
+    surplusCount: number;
+    shortageValue: number;
+    items: { name: string; expected: number; actual: number }[];
+  }) => apiCall('/inventory-checks', { method: 'POST', body: JSON.stringify(data) }),
+};
+
 export default {
   baseURL: API_BASE.replace('/api', ''), // 🔗 Base URL для прямых fetch запросов
+  debts, // 🧾 «Дафтар» — долги клиентов
+  suppliers, // 🚚 Поставщики (автозаказ)
+  inventoryChecks, // 📊 История инвентаризаций
   policies, // 📜 Политика конфиденциальности
   payouts, // 💸 Вывод средств компаний
   promotions, // 📢 Внутренняя реклама

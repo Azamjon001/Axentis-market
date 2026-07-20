@@ -2,7 +2,8 @@ import React, { useState, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { useQueryClient } from '@tanstack/react-query';
 import { invalidateCache } from '../utils/productsCache';
-import { Upload, Edit2, Trash2, Package, Plus, X, Check, Search, Download, Image as ImageIcon, ShoppingCart, HelpCircle } from 'lucide-react';
+import { Upload, Edit2, Trash2, Package, Plus, X, Check, Search, Download, Image as ImageIcon, ShoppingCart, HelpCircle, Tag } from 'lucide-react';
+import PriceTagModal from './PriceTagModal'; // 🏷 Генератор ценников с QR
 import api, { API_BASE, getImageUrl } from '../utils/api';
 import { useCompanyProducts, ramCache } from '../utils/cache';
 import ImageUploader from './ImageUploader';
@@ -77,6 +78,7 @@ export const DigitalWarehouse: React.FC<DigitalWarehouseProps> = ({ companyId })
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [showImageUploader, setShowImageUploader] = useState<string | null>(null); // ID товара для которого показываем загрузчик фото
+  const [priceTagProduct, setPriceTagProduct] = useState<any | null>(null); // 🏷 Товар для генерации ценника
   
   // 🆕 Состояние для модального окна покупки товара
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
@@ -2094,6 +2096,14 @@ export const DigitalWarehouse: React.FC<DigitalWarehouseProps> = ({ companyId })
                       >
                         <ImageIcon className="w-4 h-4" />
                       </button>
+                      {/* 🏷 Ценник с QR-кодом */}
+                      <button
+                        onClick={() => setPriceTagProduct(product)}
+                        title={language === 'uz' ? 'Narx yorligʻi' : 'Ценник'}
+                        style={{ padding: '6px 8px', borderRadius: 8, background: 'rgba(251,191,36,0.10)', border: 'none', color: '#FBBF24', cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                      >
+                        <Tag className="w-4 h-4" />
+                      </button>
                       <button
                         onClick={() => {
                           if (editingId === product.id) {
@@ -2460,6 +2470,35 @@ export const DigitalWarehouse: React.FC<DigitalWarehouseProps> = ({ companyId })
                   </p>
                 </div>
               )}
+
+              {/* 🧮 Калькулятор наценки — сколько заработаете с партии (1:1 с приложением) */}
+              {purchaseForm.quantity && purchaseForm.purchasePrice && (
+                <div style={{ padding: 14, borderRadius: 12, background: 'var(--ax-card)', border: '1px solid var(--ax-border)' }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ax-text)', marginBottom: 2 }}>
+                    🧮 {language === 'uz' ? 'Ustama kalkulyatori' : 'Калькулятор наценки'}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: 'var(--ax-text-3)', marginBottom: 8 }}>
+                    {language === 'uz' ? 'Bu partiyadan qancha ishlaysiz' : 'Сколько заработаете с этой партии'}
+                  </div>
+                  {[10, 20, 30, 50].map((m) => {
+                    const qty = parseFloat(purchaseForm.quantity) || 0;
+                    const price = parseFloat(purchaseForm.purchasePrice) || 0;
+                    const sell = Math.round(price * (1 + m / 100));
+                    const profit = Math.round((sell - price) * qty);
+                    return (
+                      <div key={m} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '3px 0', fontSize: 12.5 }}>
+                        <span style={{ color: 'var(--ax-primary)', fontWeight: 700, width: 44 }}>+{m}%</span>
+                        <span style={{ color: 'var(--ax-text-2)', flex: 1 }}>
+                          {language === 'uz' ? 'sotish narxi' : 'цена продажи'}: {sell.toLocaleString('ru-RU')}
+                        </span>
+                        <span style={{ color: '#22C55E', fontWeight: 700 }}>
+                          {language === 'uz' ? 'foyda' : 'прибыль'}: {profit.toLocaleString('ru-RU')}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <div className="flex gap-3 mt-6">
@@ -2569,6 +2608,11 @@ export const DigitalWarehouse: React.FC<DigitalWarehouseProps> = ({ companyId })
             </div>
           </div>
         </div>
+      )}
+
+      {/* 🏷 Ценник товара (печать/PDF, QR на страницу товара) */}
+      {priceTagProduct && (
+        <PriceTagModal product={priceTagProduct} onClose={() => setPriceTagProduct(null)} />
       )}
     </div>
   );

@@ -113,6 +113,13 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
   const [selected, setSelected] = useState<ProductDetail | null>(null);
   // Открытая мини-панель разбора прибыли (null = закрыта)
   const [profitOpen, setProfitOpen] = useState<null | 'revenue' | 'profit'>(null);
+  // 🎯 Дневная цель продаж (companies.daily_sales_goal — общая с приложением)
+  const [goal, setGoal] = useState(0);
+  const [goalEditOpen, setGoalEditOpen] = useState(false);
+  const [goalInput, setGoalInput] = useState('');
+  // 📇 Мини-CRM: карточка клиента (по клику в сегментах) + долги для сверки
+  const [clientCard, setClientCard] = useState<SegmentClient | null>(null);
+  const [debtsList, setDebtsList] = useState<any[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -122,7 +129,8 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
       api.analytics.inventoryInsights(companyId).catch(() => null),
       api.analytics.profit(companyId).catch(() => null),
       api.analytics.customerSegments(companyId).catch(() => null),
-    ]).then(([dashData, ordersData, insightsData, profitData, segmentsData]) => {
+      api.companies.get(String(companyId)).catch(() => null),
+    ]).then(([dashData, ordersData, insightsData, profitData, segmentsData, companyData]) => {
       if (!active) return;
       setData(dashData);
       const orders = Array.isArray(ordersData) ? ordersData : (ordersData?.orders || []);
@@ -130,6 +138,8 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
       setInsights(insightsData);
       setProfit(profitData);
       setSegments(segmentsData);
+      setGoal(Number(companyData?.dailySalesGoal) || 0);
+      api.debts.list(companyId).then((d: any) => setDebtsList(Array.isArray(d) ? d : [])).catch(() => {});
     }).catch((e) => console.error('Dashboard load failed:', e))
       .finally(() => active && setLoading(false));
     return () => { active = false; };
@@ -403,8 +413,96 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
     </div>
   );
 
+  // 🎯 Цель дня: сегодняшняя выручка против заданной цели
+  const goalTodayRevenue = (profit?.today?.revenue ?? data.todayRevenue) || 0;
+  const goalRatio = goal > 0 ? Math.min(1, goalTodayRevenue / goal) : 0;
+  const goalReached = goal > 0 && goalTodayRevenue >= goal;
+  const goalRingR = 34;
+  const goalRingC = 2 * Math.PI * goalRingR;
+
+  const saveGoal = async () => {
+    const value = parseInt(goalInput, 10) || 0;
+    try {
+      await api.companies.update(String(companyId), { dailySalesGoal: value });
+      setGoal(value);
+      setGoalEditOpen(false);
+    } catch (e) {
+      console.error('Goal save failed:', e);
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+      {/* 🎯 Цель дня */}
+      <motion.div
+        {...springIn}
+        onClick={() => { setGoalInput(goal > 0 ? String(goal) : ''); setGoalEditOpen(true); }}
+        style={{ display: 'flex', alignItems: 'center', gap: 18, padding: '14px 18px', borderRadius: 16, background: 'var(--ax-card)', border: `1px solid ${goalReached ? 'rgba(34,197,94,0.4)' : 'var(--ax-border)'}`, cursor: 'pointer' }}
+      >
+        <div style={{ position: 'relative', width: 78, height: 78, flexShrink: 0 }}>
+          <svg width={78} height={78}>
+            <circle cx={39} cy={39} r={goalRingR} stroke="var(--ax-border)" strokeWidth={8} fill="none" />
+            <circle
+              cx={39} cy={39} r={goalRingR}
+              stroke={goalReached ? '#22C55E' : 'var(--ax-primary)'}
+              strokeWidth={8} fill="none" strokeLinecap="round"
+              strokeDasharray={`${goalRingC * goalRatio} ${goalRingC}`}
+              transform="rotate(-90 39 39)"
+              style={{ transition: 'stroke-dasharray 0.6s ease' }}
+            />
+          </svg>
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, fontSize: 15, color: goalReached ? '#22C55E' : 'var(--ax-text)' }}>
+            {goal > 0 ? `${Math.min(999, Math.round((goalTodayRevenue / goal) * 100))}%` : '—'}
+          </div>
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: 14.5, color: 'var(--ax-text)' }}>
+            🎯 {isUz ? 'Kun maqsadi' : 'Цель дня'}
+          </div>
+          {goal > 0 ? (
+            <>
+              <div style={{ color: 'var(--ax-text-2)', fontSize: 13.5, marginTop: 3 }}>
+                {fmt(goalTodayRevenue)} / {fmt(goal)} {L.sum}
+              </div>
+              <div style={{ color: goalReached ? '#22C55E' : 'var(--ax-text-3)', fontSize: 12.5, marginTop: 2, fontWeight: goalReached ? 700 : 400 }}>
+                {goalReached
+                  ? (isUz ? 'Maqsadga erishildi! 🎉' : 'Цель достигнута! 🎉')
+                  : (isUz ? 'Bosing — maqsadni oʻzgartiring' : 'Нажмите, чтобы изменить цель')}
+              </div>
+            </>
+          ) : (
+            <div style={{ color: 'var(--ax-text-3)', fontSize: 12.5, marginTop: 3 }}>
+              {isUz ? 'Kunlik maqsad qoʻying — taraqqiyotni kuzating' : 'Задайте дневную цель — и следите за прогрессом'}
+            </div>
+          )}
+        </div>
+      </motion.div>
+
+      {/* Модалка: изменить цель */}
+      {goalEditOpen && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setGoalEditOpen(false)}>
+          <div style={{ background: 'var(--ax-surface)', border: '1px solid var(--ax-border)', borderRadius: 18, padding: 22, width: '100%', maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ color: 'var(--ax-text)', fontSize: 16.5, fontWeight: 700, marginBottom: 14 }}>
+              🎯 {isUz ? 'Kunlik maqsad, soʻm' : 'Цель на день, сум'}
+            </h3>
+            <input
+              value={goalInput}
+              onChange={(e) => setGoalInput(e.target.value.replace(/\D/g, ''))}
+              placeholder="1000000"
+              autoFocus
+              onKeyDown={(e) => { if (e.key === 'Enter') saveGoal(); }}
+              style={{ width: '100%', padding: '11px 14px', borderRadius: 12, background: 'var(--ax-input)', border: '1px solid var(--ax-border)', color: 'var(--ax-text)', fontSize: 15, outline: 'none', marginBottom: 12 }}
+            />
+            <button
+              onClick={saveGoal}
+              style={{ width: '100%', padding: '12px 0', borderRadius: 12, background: 'linear-gradient(135deg, #7C5CF0, #5B3DD4)', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 14.5 }}
+            >
+              {isUz ? 'Saqlash' : 'Сохранить'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Top stat cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14 }}>
         {stats.map((s, i) => (
@@ -667,12 +765,18 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
                     {(segments[openSegment] || []).length === 0 ? (
                       <div style={{ padding: 16, textAlign: 'center', color: '#5A5A78', fontSize: 13 }}>{L.segEmpty}</div>
                     ) : (segments[openSegment] || []).map((cl, i) => (
-                      <div key={cl.phone} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderTop: i === 0 ? 'none' : '1px solid rgba(255,255,255,0.05)' }}>
+                      <div
+                        key={cl.phone}
+                        onClick={() => setClientCard(cl)}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderTop: i === 0 ? 'none' : '1px solid rgba(255,255,255,0.05)', cursor: 'pointer' }}
+                        title={isUz ? 'Mijoz kartasi' : 'Карточка клиента'}
+                      >
                         <div style={{ minWidth: 0, flex: 1 }}>
                           <div style={{ fontSize: 13, color: 'var(--ax-text)', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cl.name || cl.phone}</div>
                           <div style={{ fontSize: 11, color: '#5A5A78' }}>{cl.phone} · {cl.orders} {L.segOrders} · {cl.daysSince} {L.segDays}</div>
                         </div>
                         <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ax-text)', whiteSpace: 'nowrap' }}>{fmt(cl.total)} {L.sum}</span>
+                        <ChevronRight size={14} style={{ color: '#5A5A78', flexShrink: 0 }} />
                       </div>
                     ))}
                   </div>
@@ -682,6 +786,77 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
           </div>
         </motion.div>
       )}
+
+      {/* 📇 Карточка клиента — мини-CRM: заказы + долги в одном месте */}
+      {clientCard && (() => {
+        const norm = (p: string) => (p || '').replace(/\D/g, '').slice(-9);
+        const clientOrders = allOrders
+          .filter((o: any) => norm(o.customerPhone || o.customer_phone || o.user_phone) === norm(clientCard.phone))
+          .sort((a: any, b: any) => new Date(b.createdAt || b.created_at || '').getTime() - new Date(a.createdAt || a.created_at || '').getTime());
+        const clientDebt = debtsList
+          .filter((d: any) => d.status === 'open' && norm(d.customerPhone) === norm(clientCard.phone))
+          .reduce((s: number, d: any) => s + (d.amount - d.paidAmount), 0);
+        return (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }} onClick={() => setClientCard(null)}>
+            <div style={{ background: 'var(--ax-surface)', border: '1px solid var(--ax-border)', borderRadius: 18, padding: 22, width: '100%', maxWidth: 460, maxHeight: '84vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                <div>
+                  <div style={{ color: 'var(--ax-text)', fontSize: 18, fontWeight: 800 }}>{clientCard.name || clientCard.phone}</div>
+                  <div style={{ color: 'var(--ax-text-2)', fontSize: 13.5, marginTop: 2 }}>+998 {clientCard.phone}</div>
+                </div>
+                <button onClick={() => setClientCard(null)} style={{ background: 'none', border: 'none', color: 'var(--ax-text-2)', cursor: 'pointer' }}>
+                  <X size={20} />
+                </button>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+                <span style={{ padding: '4px 10px', borderRadius: 999, background: 'rgba(56,189,248,0.13)', color: '#38BDF8', fontSize: 12, fontWeight: 700 }}>
+                  {isUz ? 'Buyurtmalar' : 'Заказов'}: {clientCard.orders}
+                </span>
+                <span style={{ padding: '4px 10px', borderRadius: 999, background: 'rgba(34,197,94,0.13)', color: '#22C55E', fontSize: 12, fontWeight: 700 }}>
+                  {isUz ? 'Xarid' : 'Куплено на'}: {fmt(clientCard.total)} {L.sum}
+                </span>
+                <span style={{ padding: '4px 10px', borderRadius: 999, background: clientDebt > 0 ? 'rgba(248,113,113,0.13)' : 'rgba(34,197,94,0.13)', color: clientDebt > 0 ? '#F87171' : '#22C55E', fontSize: 12, fontWeight: 700 }}>
+                  {clientDebt > 0
+                    ? `${isUz ? 'Qarz' : 'Долг'}: ${fmt(clientDebt)} ${L.sum}`
+                    : (isUz ? 'Qarzlar yoʻq' : 'Долгов нет')}
+                </span>
+                <span style={{ padding: '4px 10px', borderRadius: 999, background: 'rgba(139,92,246,0.13)', color: '#A78BFA', fontSize: 12, fontWeight: 700 }}>
+                  {isUz ? 'Oxirgi buyurtma' : 'Последний заказ'}: {clientCard.daysSince} {isUz ? 'kun oldin' : 'дн. назад'}
+                </span>
+              </div>
+              <a
+                href={`tel:+998${norm(clientCard.phone)}`}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '9px 16px', borderRadius: 11, background: 'rgba(34,197,94,0.15)', color: '#22C55E', fontSize: 13, fontWeight: 600, marginBottom: 16, textDecoration: 'none' }}
+              >
+                📞 {isUz ? 'Qoʻngʻiroq' : 'Позвонить'}
+              </a>
+              <div style={{ color: 'var(--ax-text-3)', fontSize: 11.5, fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 }}>
+                {L.recent}
+              </div>
+              {clientOrders.length === 0 ? (
+                <div style={{ color: 'var(--ax-text-3)', fontSize: 13, padding: '10px 0' }}>{L.noOrders}</div>
+              ) : (
+                <div style={{ display: 'grid', gap: 6 }}>
+                  {clientOrders.slice(0, 6).map((o: any) => (
+                    <div key={o.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderRadius: 10, background: 'var(--ax-card)', border: '1px solid var(--ax-border)' }}>
+                      <div>
+                        <div style={{ color: 'var(--ax-text)', fontSize: 13, fontWeight: 600 }}>#{o.orderCode || o.order_code || o.id}</div>
+                        <div style={{ color: 'var(--ax-text-3)', fontSize: 11.5 }}>
+                          {new Date(o.createdAt || o.created_at).toLocaleDateString('ru-RU')}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ color: 'var(--ax-text)', fontWeight: 700, fontSize: 13 }}>{fmt(o.totalAmount || o.total_amount)} {L.sum}</div>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: STATUS_COLOR[o.status]?.text || 'var(--ax-text-3)' }}>{o.status}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Recent orders */}
       <motion.div {...springIn} style={cardBase}>

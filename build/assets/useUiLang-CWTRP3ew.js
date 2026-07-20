@@ -1,1 +1,0 @@
-import{a as n}from"./vendor-icons-BkyPBzD7.js";import{g}from"./index-Cl_SSaxa.js";function u(){const[t,a]=n.useState(g());return n.useEffect(()=>{const e=r=>a(r.detail);return window.addEventListener("languageChange",e),()=>window.removeEventListener("languageChange",e)},[]),t}export{u};

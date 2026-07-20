@@ -201,6 +201,7 @@ func Setup(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 			companies.POST("/:id/verify-access", handlers.VerifyAccessKey(db))
 			companies.PUT("/:id/verify", middleware.RequireAdmin(cfg), handlers.SetCompanyVerified(db)) // ✅ Значок «Проверенный магазин» (админ)
 			companies.PUT("/:id", middleware.RequireAdminOrOwnCompany(), handlers.UpdateCompany(db))
+			companies.PUT("/:id/push-token", middleware.RequireAdminOrOwnCompany(), handlers.SaveCompanyPushToken(db)) // 📲 Push-токен приложения продавца
 			companies.DELETE("/:id", middleware.RequireAdminOrOwnCompany(), handlers.DeleteCompany(db))
 			companies.POST("/:id/view", handlers.TrackCompanyView(db))
 			companies.GET("/:id/stats", handlers.GetCompanyStats(db))
@@ -378,6 +379,33 @@ func Setup(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 			companyMessages.GET("/company/:companyId/count", middleware.RequireAdminOrOwnCompanyParam("companyId"), handlers.GetCompanyMessagesCount(db))   // Кол-во непрочитанных
 			companyMessages.PUT("/:id/read", middleware.RequireCompany(cfg), middleware.RequireResourceOwner(db, "company_messages"), handlers.MarkCompanyMessageAsRead(db)) // Отметить как прочитано
 			companyMessages.PUT("/company/:companyId/read-all", middleware.RequireAdminOrOwnCompanyParam("companyId"), handlers.MarkAllCompanyMessagesAsRead(db)) // Все прочитано
+		}
+
+		// 🧾 «Дафтар» — журнал долгов клиентов (веб-панель + приложение).
+		// Внутри хендлеров — requireCompanyMatch: компания видит только свои долги.
+		debts := api.Group("/debts")
+		{
+			debts.GET("", middleware.RequireCompany(cfg), handlers.ListDebts(db))
+			debts.POST("", middleware.RequireCompany(cfg), handlers.CreateDebt(db))
+			debts.PUT("/:id", middleware.RequireCompany(cfg), handlers.UpdateDebt(db))
+			debts.DELETE("/:id", middleware.RequireCompany(cfg), handlers.DeleteDebt(db))
+		}
+
+		// 📊 История инвентаризаций — сохранение и просмотр актов ревизий
+		inventoryChecks := api.Group("/inventory-checks")
+		{
+			inventoryChecks.GET("", middleware.RequireCompany(cfg), handlers.ListInventoryChecks(db))
+			inventoryChecks.POST("", middleware.RequireCompany(cfg), handlers.CreateInventoryCheck(db))
+		}
+
+		// 🚚 Поставщики — справочник для автозаказа (веб-панель + приложение)
+		suppliers := api.Group("/suppliers")
+		{
+			suppliers.GET("", middleware.RequireCompany(cfg), handlers.ListSuppliers(db))
+			suppliers.GET("/assignments", middleware.RequireCompany(cfg), handlers.SupplierAssignments(db))
+			suppliers.POST("", middleware.RequireCompany(cfg), handlers.CreateSupplier(db))
+			suppliers.PUT("/assign", middleware.RequireCompany(cfg), handlers.AssignSupplier(db))
+			suppliers.DELETE("/:id", middleware.RequireCompany(cfg), handlers.DeleteSupplier(db))
 		}
 
 		// Expenses routes

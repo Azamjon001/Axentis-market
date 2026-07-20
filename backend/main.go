@@ -50,6 +50,22 @@ func main() {
 	// (включается переменной окружения TELEGRAM_BOT_TOKEN)
 	handlers.RunTelegramWorkers(db)
 
+	// 📲 Push-уведомления продавцам (приложение Axentis Business):
+	// колонки токенов + утренняя сводка 08:00 по Ташкенту
+	handlers.MigrateCompanyPushTables(db)
+	handlers.RunCompanyPushWorkers(db)
+
+	// 🧾 «Дафтар» (долги клиентов) + 🎯 дневная цель продаж:
+	// таблица долгов + напоминания о сроках 10:00 по Ташкенту
+	handlers.MigrateCompanyDebts(db)
+	handlers.RunDebtReminderWorkers(db)
+
+	// 🚚 Поставщики (автозаказ из плана закупки)
+	handlers.MigrateSuppliers(db)
+
+	// 📊 История инвентаризаций (акты ревизий)
+	handlers.MigrateInventoryChecks(db)
+
 	// Provide config to user auth handlers so they can issue JWT tokens.
 	handlers.InitUserConfig(cfg)
 

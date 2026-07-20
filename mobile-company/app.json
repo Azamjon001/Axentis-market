@@ -1,0 +1,53 @@
+{
+  "expo": {
+    "name": "Axentis Business",
+    "slug": "axentis-business",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#0A0A18",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "uz.axentis.business"
+    },
+    "android": {
+      "package": "uz.axentis.business",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "backgroundColor": "#0A0A18",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Камера нужна для сканирования штрих-кодов товаров на кассе."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Доступ к галерее нужен для загрузки фото товаров."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#7C5CF0"
+        }
+      ],
+      "expo-sharing"
+    ],
+    "extra": {
+      "apiUrl": "https://axentis.uz/api"
+    }
+  }
+}
