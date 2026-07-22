@@ -8,7 +8,7 @@ import AdvancedInsightsPanel from './AdvancedInsightsPanel';
 import PurchaseAnalytics from './PurchaseAnalytics';
 import CompactPeriodSelector from './CompactPeriodSelector';
 import MerchantCalculator from './MerchantCalculator';
-import AxAreaChart from './charts/AxAreaChart';
+import AxBarChart from './charts/AxBarChart';
 import { getCurrentLanguage, useTranslation, type Language } from '../utils/translations';
 
 interface Product {
@@ -1174,25 +1174,25 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
                       </h3>
                       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
                         <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--ax-text-2)', fontSize: 12.5 }}>
-                          <span style={{ width: 22, height: 3, background: '#7C5CF0', display: 'inline-block', borderRadius: 2 }} />
+                          <span style={{ width: 12, height: 12, background: '#7C5CF0', display: 'inline-block', borderRadius: 3 }} />
                           {language === 'uz' ? 'Joriy davr' : 'Текущий период'}
                         </span>
                         <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--ax-text-2)', fontSize: 12.5 }}>
-                          <span style={{ width: 22, height: 0, display: 'inline-block', borderTop: '3px dashed #0284C7', borderRadius: 2 }} />
+                          <span style={{ width: 12, height: 12, background: '#0284C7', display: 'inline-block', borderRadius: 3 }} />
                           {language === 'uz' ? 'Oldingi davr' : 'Предыдущий период'}
                         </span>
                       </div>
                     </div>
 
-                    {/* Единый стиль линейных диаграмм: monotone-кривая, тихая
-                        сетка, crosshair и общий тултип — см. AxAreaChart */}
-                    <AxAreaChart
+                    {/* Финансы и аналитика: столбцовая 3D-диаграмма — текущий и
+                        предыдущий период бок о бок — см. AxBarChart */}
+                    <AxBarChart
                       data={getCombinedChartData()}
                       xKey="period"
                       height={290}
                       series={[
-                        { key: 'revCurrent', name: language === 'uz' ? 'Joriy davr' : 'Текущий период', color: '#7C5CF0', fill: true },
-                        { key: 'revPrevious', name: language === 'uz' ? 'Oldingi davr' : 'Предыдущий период', color: '#0284C7', dashed: true },
+                        { key: 'revCurrent', name: language === 'uz' ? 'Joriy davr' : 'Текущий период', color: '#7C5CF0' },
+                        { key: 'revPrevious', name: language === 'uz' ? 'Oldingi davr' : 'Предыдущий период', color: '#0284C7' },
                       ]}
                       valueFormatter={formatPrice}
                       yTickFormatter={formatShortPrice}

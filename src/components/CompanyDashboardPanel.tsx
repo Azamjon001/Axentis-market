@@ -249,30 +249,41 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
 
   // 📈 Динамика продаж за 7 дней: 14 точек — каждые 12 часов (00:00 и 12:00).
   const chartData = useMemo(() => {
-    const buckets: Record<string, { date: string; revenue: number; orders: number }> = {};
     const localKey = (d: Date, half: 0 | 1) =>
       `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}-${half}`;
     const now = new Date();
+    // Текущая неделя (14 полудневных корзин) + предыдущая неделя (тот же индекс).
+    const cur: { date: string; revenue: number; prevRevenue: number; orders: number }[] = [];
+    const curKey: Record<string, number> = {}; // ключ корзины → индекс
+    const prevKey: Record<string, number> = {};
     for (let i = 6; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(d.getDate() - i);
+      const d = new Date(now); d.setDate(d.getDate() - i);
+      const p = new Date(now); p.setDate(p.getDate() - i - 7);
       const dayLabel = `${d.getDate()}.${String(d.getMonth() + 1).padStart(2, '0')}`;
-      buckets[localKey(d, 0)] = { date: `${dayLabel} 00:00`, revenue: 0, orders: 0 };
-      buckets[localKey(d, 1)] = { date: `${dayLabel} 12:00`, revenue: 0, orders: 0 };
+      for (const half of [0, 1] as const) {
+        curKey[localKey(d, half)] = cur.length;
+        prevKey[localKey(p, half)] = cur.length;
+        cur.push({ date: `${dayLabel} ${half === 0 ? '00:00' : '12:00'}`, revenue: 0, prevRevenue: 0, orders: 0 });
+      }
     }
     allOrders.forEach((o: any) => {
       const dateStr = o.created_at || o.order_date || '';
       if (!dateStr || o.status === 'cancelled') return;
       const d = new Date(dateStr);
       if (isNaN(d.getTime())) return;
-      const key = localKey(d, d.getHours() < 12 ? 0 : 1);
-      if (buckets[key]) {
-        buckets[key].revenue += parseFloat(o.total_amount) || 0;
-        buckets[key].orders += 1;
+      const k = localKey(d, d.getHours() < 12 ? 0 : 1);
+      if (curKey[k] !== undefined) {
+        cur[curKey[k]].revenue += parseFloat(o.total_amount) || 0;
+        cur[curKey[k]].orders += 1;
+      } else if (prevKey[k] !== undefined) {
+        cur[prevKey[k]].prevRevenue += parseFloat(o.total_amount) || 0;
       }
     });
-    return Object.values(buckets);
+    return cur;
   }, [allOrders]);
+
+  // Есть ли исторические заказы за прошлую неделю → показывать вторую линию.
+  const hasPrevRevenue = useMemo(() => chartData.some((d) => d.prevRevenue > 0), [chartData]);
 
   const pieData = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -554,7 +565,12 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
               height={200}
               xInterval={1}
               xTickFormatter={(v: string) => v.replace(' 00:00', '')}
-              series={[{ key: 'revenue', name: isUz ? 'Tushum' : 'Выручка', color: '#7C5CF0', fill: true }]}
+              series={[
+                { key: 'revenue', name: isUz ? 'Joriy hafta' : 'Текущая неделя', color: '#7C5CF0', fill: true },
+                ...(hasPrevRevenue
+                  ? [{ key: 'prevRevenue', name: isUz ? 'Oldingi hafta' : 'Прошлая неделя', color: '#0284C7', dashed: true }]
+                  : []),
+              ]}
               valueFormatter={(v) => `${fmt(v)} ${L.sum}`}
             />
           </div>

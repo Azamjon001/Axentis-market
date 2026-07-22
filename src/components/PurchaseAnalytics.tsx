@@ -257,18 +257,30 @@ export default function PurchaseAnalytics({ companyId }: PurchaseAnalyticsProps)
       date: makeLabel(new Date(startMs + i * bucketMs)),
       quantity: 0,
       cost: 0,
+      prevCost: 0, // предыдущий период того же размера (день→вчера, месяц→прошлый месяц)
     }));
+
+    // Предыдущее окно той же длины, выровненное по индексу корзины.
+    const windowMs = end.getTime() - startMs;
+    const prevStartMs = startMs - windowMs;
 
     purchases.forEach(p => {
       const t = new Date(p.purchaseDate).getTime();
-      if (Number.isNaN(t) || t < startMs || t > end.getTime()) return;
-      const idx = Math.min(Math.floor((t - startMs) / bucketMs), pointsCount - 1);
-      buckets[idx].quantity += p.quantity;
-      buckets[idx].cost += p.totalCost;
+      if (Number.isNaN(t)) return;
+      if (t >= startMs && t <= end.getTime()) {
+        const idx = Math.min(Math.floor((t - startMs) / bucketMs), pointsCount - 1);
+        buckets[idx].quantity += p.quantity;
+        buckets[idx].cost += p.totalCost;
+      } else if (t >= prevStartMs && t < startMs) {
+        const idx = Math.min(Math.floor((t - prevStartMs) / bucketMs), pointsCount - 1);
+        buckets[idx].prevCost += p.totalCost;
+      }
     });
 
     return buckets;
   }, [purchases, timePeriod, customStartDate, customEndDate]);
+
+  const hasPrevCost = React.useMemo(() => chartData.some((d: any) => d.prevCost > 0), [chartData]);
 
   // 🏆 Топ-10 товаров по закупкам — просто список с количеством, без диаграмм
   const topProducts = React.useMemo(() => {
@@ -673,12 +685,22 @@ export default function PurchaseAnalytics({ companyId }: PurchaseAnalyticsProps)
               data={chartData}
               xKey="date"
               height={300}
-              series={[{
-                key: 'cost',
-                name: language === 'uz' ? 'Xarid summasi' : 'Сумма закупок',
-                color: '#7C5CF0',
-                fill: true,
-              }]}
+              series={[
+                {
+                  key: 'cost',
+                  name: language === 'uz' ? 'Joriy davr' : 'Текущий период',
+                  color: '#7C5CF0',
+                  fill: true,
+                },
+                ...(hasPrevCost
+                  ? [{
+                      key: 'prevCost',
+                      name: language === 'uz' ? 'Oldingi davr' : 'Предыдущий период',
+                      color: '#0284C7',
+                      dashed: true,
+                    }]
+                  : []),
+              ]}
               valueFormatter={v => `${Math.round(v).toLocaleString('ru-RU')} ${language === 'uz' ? "so'm" : 'сум'}`}
             />
           </motion.div>
