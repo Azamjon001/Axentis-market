@@ -106,6 +106,10 @@ export default function HomeScreen() {
       params.privateCompanyId = user.privateCompanyId;
     }
     if (region) params.region = region;
+    // Телефон авторизованного покупателя включает персональную ленту на бэкенде
+    // (ранжирование по просмотрам и покупкам). Без него состав тот же — только
+    // порядок обычный (новизна), поэтому для гостя параметр не нужен.
+    if (user?.phone) params.phone = user.phone;
     // Координаты передаём только в автоматическом режиме: если покупатель выбрал
     // регион вручную, показываем строго его выбор, без примеси GPS-зон.
     if (!manualRegion && coords) {
@@ -113,7 +117,7 @@ export default function HomeScreen() {
       params.lng = coords.lng;
     }
     return params;
-  }, [user?.mode, user?.privateCompanyId, region, manualRegion, coords]);
+  }, [user?.mode, user?.privateCompanyId, user?.phone, region, manualRegion, coords]);
 
   const loadInitial = useCallback(async () => {
     try {

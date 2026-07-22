@@ -130,24 +130,11 @@ func GetProducts(db *sql.DB) gin.HandlerFunc {
 					}
 				}
 				log.Printf("🌐 GetProducts: Public mode, limit=%d offset=%d region=%q coords=%v matchedZones=%d", limit, offset, region, hasCoords, len(matchedRegions))
-				query := `
-					SELECT p.id, p.company_id, p.name, p.quantity, p.price, p.markup_percent,
-					       COALESCE(
-					           NULLIF((SELECT MIN(pv.selling_price) FROM product_variants pv WHERE pv.product_id = p.id AND pv.selling_price > 0), 0),
-					           NULLIF(p.selling_price, 0),
-					           p.price * (1.0 + COALESCE(p.markup_percent, 0) / 100.0)
-					       ) as selling_price,
-					       p.markup_amount, p.barcode, p.barid, p.category, p.images,
-					       p.description, p.color, p.size, p.brand, p.has_color_options, p.available_for_customers, p.sold_count, p.created_at, p.updated_at,
-					       c.name as company_name,
-					       COALESCE((SELECT AVG(cr.rating) FROM company_ratings cr WHERE cr.company_id = c.id), 0) as company_rating,
-					       ` + productLevelDiscountSubqueries + `,
-					       ` + promotedExpr + ` AS is_promoted
-					FROM products p
-					LEFT JOIN companies c ON p.company_id = c.id
-					WHERE p.available_for_customers = true
+				// Публичный режим: фильтры (скрытие закрытых компаний + регион)
+				// дописываются к ВНЕШНЕМУ query/args персональной ленты — иначе
+				// переобъявление переменных теряло их (лента показывала бы всё).
+				query += `
 					  AND (c.mode = 'public' OR c.mode IS NULL)`
-				args := []interface{}{}
 				// Компания подходит, если обслуживает регион покупателя ЛЮБЫМ из способов:
 				// текстовое название области (reverse-геокодинг / ручной выбор),
 				// зона админа по имени/ID, родительская зона или область,
