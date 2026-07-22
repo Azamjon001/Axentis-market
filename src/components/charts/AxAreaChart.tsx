@@ -3,29 +3,26 @@
  *
  * Построена на @visx (curveMonotoneX + AreaClosed + LinePath), чтобы все графики
  * «динамики» (выручка, продажи, закупки) выглядели одной системой:
- *   - плавная monotone-кривая (никаких перехлёстов ниже нуля, как у natural);
+ *   - плавная monotone-кривая;
  *   - линия 2.5px со скруглениями, мягкая градиентная заливка-«дымка»;
+ *   - точки на узлах данных — график виден даже когда значений мало;
  *   - тихая сплошная сетка-волосок только по горизонтали;
- *   - подсветка последнего сегмента (SegmentBackground + пунктирные границы
- *     «от/до») — визуальный акцент на самом свежем отрезке периода;
- *   - вертикальный crosshair + один тултип со всеми сериями (значение — главное);
- *   - точка при наведении с кольцом цвета поверхности;
+ *   - вертикальный crosshair + один тултип со всеми сериями;
  *   - вторая серия (прошлый период) — пунктир без заливки, приглушённая.
  *
- * Правило проекта: если серий две — вторая всегда «предыдущий период»
- * (для дня — вчера, для месяца — прошлый месяц), пунктиром и без заливки.
+ * Правило проекта: если серий две — вторая всегда «предыдущий период».
+ * Ширина берётся через ResizeObserver (useChartWidth) — надёжно в grid/flex.
  *
- * Palette: #7C5CF0 + #0284C7 — проверена валидатором (CVD/контраст) на обеих
- * поверхностях темы; пунктир второй серии — вторичное кодирование.
+ * Palette: #7C5CF0 + #0284C7 — проверена валидатором (CVD/контраст).
  */
 import { useCallback, useMemo, useState } from 'react';
 import { AreaClosed, LinePath, Line } from '@visx/shape';
 import { curveMonotoneX } from '@visx/curve';
 import { scaleLinear, scalePoint } from '@visx/scale';
 import { GridRows } from '@visx/grid';
-import { ParentSize } from '@visx/responsive';
 import { LinearGradient } from '@visx/gradient';
 import { localPoint } from '@visx/event';
+import { useChartWidth } from './useChartWidth';
 
 export interface AxChartSeries {
   key: string;          // ключ поля в data
@@ -40,15 +37,11 @@ interface AxAreaChartProps {
   xKey: string;
   series: AxChartSeries[];
   height?: number;
-  /** Формат значения в тултипе (например, «12 500 сум») */
   valueFormatter?: (v: number) => string;
-  /** Формат делений оси Y (короткие числа: 12K, 1.2M) */
   yTickFormatter?: (v: number) => string;
-  /** Формат подписей оси X */
   xTickFormatter?: (v: string) => string;
-  /** interval для оси X (0 — все подписи; number — каждая N-ая) */
   xInterval?: number | 'preserveStartEnd';
-  /** Подсветка последнего сегмента (SegmentBackground + границы). По умолч. вкл. */
+  /** Подсветка последнего сегмента (мягкая заливка). По умолчанию выкл. */
   highlightLast?: boolean;
 }
 
@@ -64,7 +57,7 @@ interface HoverState { index: number; left: number; top: number; }
 
 function AreaChartInner({
   data, xKey, series, width, height,
-  valueFormatter, yTickFormatter, xTickFormatter, xInterval, highlightLast = true,
+  valueFormatter, yTickFormatter, xTickFormatter, xInterval, highlightLast = false,
 }: AxAreaChartProps & { width: number; height: number }) {
   const innerW = Math.max(0, width - MARGIN.left - MARGIN.right);
   const innerH = Math.max(0, height - MARGIN.top - MARGIN.bottom);
@@ -72,14 +65,13 @@ function AreaChartInner({
   const gradPrefix = useMemo(() => `axarea-${Math.random().toString(36).slice(2, 8)}`, []);
   const labels = useMemo(() => data.map((d) => String(d[xKey])), [data, xKey]);
 
-  // Уважение к prefers-reduced-motion — без входной анимации кривой (CSS-класс).
   const reduceMotion = useMemo(
     () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches,
     [],
   );
 
   const xScale = useMemo(
-    () => scalePoint<string>({ domain: labels, range: [0, innerW], padding: 0.35 }),
+    () => scalePoint<string>({ domain: labels, range: [0, innerW], padding: 0.5 }),
     [labels, innerW],
   );
 
@@ -97,7 +89,6 @@ function AreaChartInner({
   const px = useCallback((i: number) => xScale(labels[i]) ?? 0, [xScale, labels]);
 
   const [hover, setHover] = useState<HoverState | null>(null);
-
   const handleMove = useCallback((e: React.MouseEvent<SVGRectElement>) => {
     const p = localPoint(e);
     if (!p) return;
@@ -113,7 +104,6 @@ function AreaChartInner({
   const yTicks = yScale.ticks(4);
   const fmtY = yTickFormatter ?? shortNumber;
 
-  // Подписи оси X: показываем подмножество, чтобы не слипались.
   const xTickIdx = useMemo(() => {
     const n = labels.length;
     if (n <= 1) return [0];
@@ -129,6 +119,9 @@ function AreaChartInner({
     return idx;
   }, [labels.length, xInterval, innerW]);
 
+  // Точки на узлах — показываем только когда их немного, иначе линия чище.
+  const showDots = labels.length <= 16;
+
   if (innerW <= 0 || innerH <= 0 || data.length === 0) return null;
 
   const primary = series.find((s) => !s.dashed) ?? series[0];
@@ -137,37 +130,25 @@ function AreaChartInner({
 
   return (
     <div style={{ position: 'relative' }}>
-      <svg
-        width={width}
-        height={height}
-        role="img"
-        style={{ overflow: 'visible', animation: reduceMotion ? undefined : 'axAreaFade .6s ease-out both' }}
-      >
+      <svg width={width} height={height} role="img"
+        style={{ display: 'block', overflow: 'visible', animation: reduceMotion ? undefined : 'axAreaFade .5s ease-out both' }}>
         <defs>
           {series.map((s, i) => (
-            <LinearGradient key={s.key} id={`${gradPrefix}-${i}`} from={s.color} to={s.color} fromOpacity={0.26} toOpacity={0} x1={0} y1={0} x2={0} y2={1} />
+            <LinearGradient key={s.key} id={`${gradPrefix}-${i}`} from={s.color} to={s.color} fromOpacity={0.28} toOpacity={0} x1={0} y1={0} x2={0} y2={1} />
           ))}
         </defs>
 
         <g transform={`translate(${MARGIN.left},${MARGIN.top})`}>
-          {/* Тихая сетка: сплошной волосок, только горизонталь */}
           <GridRows scale={yScale} width={innerW} height={innerH} stroke="rgba(139,139,170,0.14)" strokeWidth={1} />
 
-          {/* SegmentBackground + SegmentLineFrom/To — подсветка последнего отрезка */}
           {highlightLast && primary && data.length >= 2 && (
-            <g pointerEvents="none">
-              <rect x={segFrom} y={0} width={Math.max(0, segTo - segFrom)} height={innerH} fill={primary.color} opacity={0.06} />
-              <Line from={{ x: segFrom, y: 0 }} to={{ x: segFrom, y: innerH }} stroke={primary.color} strokeOpacity={0.35} strokeWidth={1} strokeDasharray="3 4" />
-              <Line from={{ x: segTo, y: 0 }} to={{ x: segTo, y: innerH }} stroke={primary.color} strokeOpacity={0.35} strokeWidth={1} strokeDasharray="3 4" />
-            </g>
+            <rect x={segFrom} y={0} width={Math.max(0, segTo - segFrom)} height={innerH} fill={primary.color} opacity={0.06} pointerEvents="none" />
           )}
 
-          {/* Y-подписи */}
           {yTicks.map((t) => (
             <text key={`y-${t}`} x={-10} y={yScale(t)} dy="0.32em" textAnchor="end" fontSize={11} fill="#8B8BAA">{fmtY(t)}</text>
           ))}
 
-          {/* Заливки + линии серий */}
           {series.map((s, i) => (
             <g key={s.key}>
               {s.fill && !s.dashed && (
@@ -194,48 +175,41 @@ function AreaChartInner({
                 strokeLinejoin="round"
                 fill="none"
               />
+              {showDots && !s.dashed && data.map((d, di) => (
+                <circle key={di} cx={px(di)} cy={yScale(Number(d[s.key]) || 0)} r={2.6} fill={s.color} stroke="var(--ax-card)" strokeWidth={1.5} />
+              ))}
             </g>
           ))}
 
-          {/* X-подписи */}
           {xTickIdx.map((i) => (
             <text key={`x-${i}`} x={px(i)} y={innerH + 18} textAnchor="middle" fontSize={10.5} fill="#8B8BAA">
               {xTickFormatter ? xTickFormatter(labels[i]) : labels[i]}
             </text>
           ))}
 
-          {/* Crosshair + активные точки */}
           {hover && (
             <g pointerEvents="none">
               <Line from={{ x: px(hover.index), y: 0 }} to={{ x: px(hover.index), y: innerH }} stroke="rgba(139,139,170,0.35)" strokeWidth={1} />
               {series.map((s) => {
                 const v = Number(data[hover.index]?.[s.key]) || 0;
-                return (
-                  <circle key={s.key} cx={px(hover.index)} cy={yScale(v)} r={4.5} fill={s.color} stroke="var(--ax-card)" strokeWidth={2} />
-                );
+                return <circle key={s.key} cx={px(hover.index)} cy={yScale(v)} r={4.5} fill={s.color} stroke="var(--ax-card)" strokeWidth={2} />;
               })}
             </g>
           )}
 
-          {/* Прозрачный слой для перехвата мыши */}
           <rect x={0} y={0} width={innerW} height={innerH} fill="transparent"
             onMouseMove={handleMove} onMouseLeave={() => setHover(null)} />
         </g>
       </svg>
 
-      {/* Тултип: значение — главное, имя серии — вторичное */}
       {hover && (
         <div style={{
           position: 'absolute',
           left: Math.min(Math.max(hover.left + 12, 8), width - 160),
           top: Math.max(hover.top - 12, 0),
           pointerEvents: 'none',
-          background: 'var(--ax-card)',
-          border: '1px solid var(--ax-border)',
-          borderRadius: 12,
-          padding: '10px 14px',
-          boxShadow: '0 12px 32px rgba(0,0,0,0.35)',
-          minWidth: 140,
+          background: 'var(--ax-card)', border: '1px solid var(--ax-border)', borderRadius: 12,
+          padding: '10px 14px', boxShadow: '0 12px 32px rgba(0,0,0,0.35)', minWidth: 140,
         }}>
           <div style={{ color: 'var(--ax-text-3, #5A5A78)', fontSize: 11, fontWeight: 600, marginBottom: 6 }}>
             {xTickFormatter ? xTickFormatter(labels[hover.index]) : labels[hover.index]}
@@ -248,9 +222,7 @@ function AreaChartInner({
                 <span style={{ color: 'var(--ax-text)', fontSize: 13.5, fontWeight: 700 }}>
                   {valueFormatter ? valueFormatter(v) : v.toLocaleString('ru-RU')}
                 </span>
-                <span style={{ color: 'var(--ax-text-2, #8B8BAA)', fontSize: 11.5, marginLeft: 'auto', paddingLeft: 6 }}>
-                  {s.name}
-                </span>
+                <span style={{ color: 'var(--ax-text-2, #8B8BAA)', fontSize: 11.5, marginLeft: 'auto', paddingLeft: 6 }}>{s.name}</span>
               </div>
             );
           })}
@@ -261,12 +233,11 @@ function AreaChartInner({
 }
 
 export default function AxAreaChart({ height = 280, ...props }: AxAreaChartProps) {
+  const [ref, width] = useChartWidth();
   return (
-    <>
+    <div ref={ref} style={{ width: '100%' }}>
       <style>{`@keyframes axAreaFade{from{opacity:0}to{opacity:1}}`}</style>
-      <ParentSize>
-        {({ width }) => (width > 0 ? <AreaChartInner {...props} width={width} height={height} /> : null)}
-      </ParentSize>
-    </>
+      {width > 0 && <AreaChartInner {...props} width={width} height={height} />}
+    </div>
   );
 }

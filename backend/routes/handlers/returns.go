@@ -212,8 +212,16 @@ func UpdateReturnStatus(db *sql.DB) gin.HandlerFunc {
 		}
 
 		// Статус возврата меняет только компания, которой он адресован (или админ).
-		var returnCompanyID sql.NullInt64
-		if err := db.QueryRow(`SELECT company_id FROM order_returns WHERE id = $1`, id).Scan(&returnCompanyID); err != nil {
+		var (
+			returnCompanyID sql.NullInt64
+			customerPhone   string
+			orderCode       sql.NullString
+		)
+		if err := db.QueryRow(`
+			SELECT r.company_id, r.customer_phone, o.order_code
+			FROM order_returns r
+			LEFT JOIN orders o ON o.id = r.order_id
+			WHERE r.id = $1`, id).Scan(&returnCompanyID, &customerPhone, &orderCode); err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Return not found"})
 			return
 		}
@@ -238,7 +246,56 @@ func UpdateReturnStatus(db *sql.DB) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Return not found"})
 			return
 		}
+
+		// Покупатель должен узнать о решении по возврату — в том числе об отказе,
+		// вместе с комментарием магазина. Запись в ленту уведомлений + push.
+		notifyReturnStatus(db, customerPhone, orderCode.String, req.Status, req.Comment, returnCompanyID)
+
 		c.JSON(http.StatusOK, gin.H{"success": true, "status": req.Status})
+	}
+}
+
+// notifyReturnStatus кладёт уведомление покупателю о решении по возврату
+// (одобрен/отклонён/возвращены средства) с комментарием магазина и шлёт push.
+func notifyReturnStatus(db *sql.DB, phone, orderCode, status, comment string, companyID sql.NullInt64) {
+	if phone == "" {
+		return
+	}
+	orderRef := ""
+	if orderCode != "" {
+		orderRef = " по заказу #" + orderCode
+	}
+	var title, body string
+	switch status {
+	case "approved":
+		title = "✅ Возврат одобрен"
+		body = "Магазин одобрил вашу заявку на возврат" + orderRef + "."
+	case "rejected":
+		title = "❌ Возврат отклонён"
+		body = "Магазин отклонил вашу заявку на возврат" + orderRef + "."
+	case "refunded":
+		title = "💸 Средства возвращены"
+		body = "Возврат средств" + orderRef + " выполнен."
+	default:
+		return
+	}
+	if comment != "" {
+		body += " Комментарий магазина: " + comment
+	}
+
+	var companyArg interface{}
+	if companyID.Valid {
+		companyArg = companyID.Int64
+	}
+	if _, err := db.Exec(`
+		INSERT INTO notifications (user_phone, type, title, message, company_id)
+		VALUES ($1, 'return_status', $2, $3, $4)`, phone, title, body, companyArg); err != nil {
+		log.Printf("⚠️ notifyReturnStatus insert: %v", err)
+	}
+
+	var token string
+	if err := db.QueryRow(`SELECT COALESCE(expo_push_token, '') FROM users WHERE phone = $1`, phone).Scan(&token); err == nil && token != "" {
+		SendExpoPushNotificationData([]string{token}, title, body, map[string]interface{}{"type": "return_status"})
 	}
 }
 

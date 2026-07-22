@@ -151,6 +151,10 @@ export default function HomePage({ onLogout, userName, userPhone, userCompanyId,
   const [returnSelection, setReturnSelection] = useState<boolean[]>([]);
   const [returnReason, setReturnReason] = useState('');
   const [isSubmittingReturn, setIsSubmittingReturn] = useState(false);
+  // ↩️ Реальные возвраты покупателя с бэкенда: orderCode → запись возврата.
+  // Нужно, чтобы решение магазина (одобрено/отклонено + комментарий) было
+  // видно в «Моих заказах», а не исчезало после отклонения.
+  const [ordersReturns, setOrdersReturns] = useState<Record<string, any>>({});
 
   const [hiddenReceiptCodes, setHiddenReceiptCodes] = useState<string[]>(() => {
     const saved = localStorage.getItem(`hiddenReceipts_${userPhone}`);
@@ -1365,6 +1369,25 @@ export default function HomePage({ onLogout, userName, userPhone, userCompanyId,
     });
   };
 
+  // ↩️ Находим запись возврата для заказа (по коду или id, включая под-заказы).
+  const getOrderReturn = (order: any): any | null => {
+    const codes = [order.code, ...(order.subOrders?.map((s: any) => s.code) || [])].filter(Boolean);
+    for (const c of codes) if (ordersReturns[String(c)]) return ordersReturns[String(c)];
+    const ids = [order.orderId, ...(order.subOrders?.map((s: any) => s.orderId) || [])].filter(Boolean);
+    for (const i of ids) if (ordersReturns[`id:${i}`]) return ordersReturns[`id:${i}`];
+    return null;
+  };
+
+  // Ярлык статуса возврата: цвета + человекочитаемый текст.
+  const returnBadge = (status: string): { text: string; cls: string } => {
+    switch (status) {
+      case 'approved': return { text: 'Возврат одобрен', cls: 'border-green-200 text-green-600' };
+      case 'rejected': return { text: 'Возврат отклонён', cls: 'border-red-200 text-red-600' };
+      case 'refunded': return { text: 'Средства возвращены', cls: 'border-green-200 text-green-600' };
+      default: return { text: 'Заявка на возврат на рассмотрении', cls: 'border-orange-200 text-orange-500' };
+    }
+  };
+
   // Отправка заявок на возврат: выбранные позиции группируются по компаниям,
   // каждая компания получает свою заявку по своему под-заказу.
   const submitReturn = async () => {
@@ -1470,6 +1493,27 @@ export default function HomePage({ onLogout, userName, userPhone, userCompanyId,
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showCart, cartTab, userPhone]);
+
+  // ↩️ Тянем реальные возвраты покупателя, чтобы показать решение магазина
+  // (одобрено/отклонено + комментарий) в карточке заказа. Ключ — orderCode.
+  useEffect(() => {
+    if (!showCart || cartTab !== 'orders' || !userPhone) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await api.returns.listByCustomer(userPhone);
+        if (cancelled || !Array.isArray(list)) return;
+        const map: Record<string, any> = {};
+        for (const r of list) {
+          const key = r.orderCode ? String(r.orderCode) : (r.orderId != null ? `id:${r.orderId}` : '');
+          if (key && !map[key]) map[key] = r; // список DESC — берём самый свежий
+        }
+        setOrdersReturns(map);
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showCart, cartTab, userPhone, myOrders.length]);
 
   if (isUploadingRAM) {
     return <LoadingAnimation text={uploadProgress.step || 'Загрузка данных...'} />;
@@ -2593,20 +2637,54 @@ export default function HomePage({ onLogout, userName, userPhone, userCompanyId,
                                 Отменить заказ
                               </button>
                             )}
-                            {order.returnRequested ? (
-                              <div className="w-full py-2.5 rounded-xl border border-orange-200 text-orange-500 text-sm font-medium flex items-center justify-center gap-2 opacity-80">
-                                <RotateCcw className="w-4 h-4" />
-                                Заявка на возврат отправлена
-                              </div>
-                            ) : isReturnAvailable(order) && (
-                              <button
-                                onClick={() => handleReturnOrder(order)}
-                                className="w-full py-2.5 rounded-xl border border-orange-200 text-orange-600 font-medium hover:bg-orange-50 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
-                              >
-                                <RotateCcw className="w-4 h-4" />
-                                Вернуть товар
-                              </button>
-                            )}
+                            {(() => {
+                              const ret = getOrderReturn(order);
+                              // Есть реальная запись возврата — показываем её статус
+                              // и комментарий магазина (в т.ч. при отклонении).
+                              if (ret) {
+                                const badge = returnBadge(ret.status);
+                                const canRetry = ret.status === 'rejected' && isReturnAvailable({ ...order, returnRequested: false });
+                                return (
+                                  <div className="space-y-2">
+                                    <div className={`w-full py-2.5 px-3 rounded-xl border text-sm font-medium flex items-center justify-center gap-2 ${badge.cls}`}>
+                                      <RotateCcw className="w-4 h-4" />
+                                      {badge.text}
+                                    </div>
+                                    {ret.comment ? (
+                                      <div className={`text-xs px-3 py-2 rounded-lg ${isNight ? 'bg-white/5 text-gray-300' : 'bg-gray-50 text-gray-600'}`}>
+                                        <span className="font-medium">Комментарий магазина:</span> {ret.comment}
+                                      </div>
+                                    ) : null}
+                                    {canRetry && (
+                                      <button
+                                        onClick={() => handleReturnOrder(order)}
+                                        className="w-full py-2.5 rounded-xl border border-orange-200 text-orange-600 font-medium hover:bg-orange-50 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                                      >
+                                        <RotateCcw className="w-4 h-4" />
+                                        Оформить возврат заново
+                                      </button>
+                                    )}
+                                  </div>
+                                );
+                              }
+                              if (order.returnRequested) {
+                                return (
+                                  <div className="w-full py-2.5 rounded-xl border border-orange-200 text-orange-500 text-sm font-medium flex items-center justify-center gap-2 opacity-80">
+                                    <RotateCcw className="w-4 h-4" />
+                                    Заявка на возврат отправлена
+                                  </div>
+                                );
+                              }
+                              return isReturnAvailable(order) ? (
+                                <button
+                                  onClick={() => handleReturnOrder(order)}
+                                  className="w-full py-2.5 rounded-xl border border-orange-200 text-orange-600 font-medium hover:bg-orange-50 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                                >
+                                  <RotateCcw className="w-4 h-4" />
+                                  Вернуть товар
+                                </button>
+                              ) : null;
+                            })()}
                           </div>
                         </div>
                       ))}

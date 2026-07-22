@@ -11,6 +11,7 @@ import {
   ResponsiveContainer, Tooltip, PieChart, Pie, Cell,
 } from 'recharts';
 import AxAreaChart from './charts/AxAreaChart';
+import AxPieChart from './charts/AxPieChart';
 import api from '../utils/api';
 import { useUiLang } from '../hooks/useUiLang';
 
@@ -583,16 +584,16 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
           <div style={{ padding: '0 8px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             {pieData.length > 0 ? (
               <>
-                <ResponsiveContainer width="100%" height={160}>
-                  <PieChart>
-                    <Pie data={pieData} cx="50%" cy="50%" innerRadius={45} outerRadius={70} dataKey="value" paddingAngle={3}>
-                      {pieData.map((_, idx) => (
-                        <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(v: number) => [`${v} ${isUz ? 'ta' : 'шт'}`, '']} contentStyle={{ background: '#13132A', border: '1px solid rgba(124,92,240,0.4)', borderRadius: 8, color: '#fff' }} itemStyle={{ color: '#fff' }} labelStyle={{ color: '#fff' }} />
-                  </PieChart>
-                </ResponsiveContainer>
+                <div style={{ padding: '8px 0 12px' }}>
+                  <AxPieChart
+                    data={pieData}
+                    size={168}
+                    innerRadius={54}
+                    colors={PIE_COLORS}
+                    defaultLabel={isUz ? 'Jami' : 'Всего'}
+                    valueFormatter={(v) => `${v} ${isUz ? 'ta' : 'шт'}`}
+                  />
+                </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%', padding: '0 16px' }}>
                   {pieData.slice(0, 5).map((item, idx) => (
                     <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

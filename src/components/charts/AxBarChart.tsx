@@ -17,8 +17,8 @@
 import { useCallback, useMemo, useState } from 'react';
 import { scaleBand, scaleLinear } from '@visx/scale';
 import { GridRows } from '@visx/grid';
-import { ParentSize } from '@visx/responsive';
 import { localPoint } from '@visx/event';
+import { useChartWidth } from './useChartWidth';
 
 export interface AxBarSeries {
   key: string;    // ключ поля в data
@@ -144,7 +144,7 @@ function BarChartInner({
   return (
     <div style={{ position: 'relative' }}>
       <svg width={width} height={height} role="img"
-        style={{ overflow: 'visible', animation: reduceMotion ? undefined : 'axBarFade .6s ease-out both' }}>
+        style={{ display: 'block', overflow: 'visible', animation: reduceMotion ? undefined : 'axBarFade .6s ease-out both' }}>
         <g transform={`translate(${MARGIN.left},${MARGIN.top})`}>
           <GridRows scale={yScale} width={innerW} height={innerH - d3} stroke="rgba(139,139,170,0.14)" strokeWidth={1} />
 
@@ -237,12 +237,11 @@ function BarChartInner({
 }
 
 export default function AxBarChart({ height = 300, ...props }: AxBarChartProps) {
+  const [ref, width] = useChartWidth();
   return (
-    <>
+    <div ref={ref} style={{ width: '100%' }}>
       <style>{`@keyframes axBarFade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}`}</style>
-      <ParentSize>
-        {({ width }) => (width > 0 ? <BarChartInner {...props} width={width} height={height} /> : null)}
-      </ParentSize>
-    </>
+      {width > 0 && <BarChartInner {...props} width={width} height={height} />}
+    </div>
   );
 }
