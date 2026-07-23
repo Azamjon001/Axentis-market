@@ -193,6 +193,34 @@ func UpdateDebt(db *sql.DB) gin.HandlerFunc {
 			return
 		}
 
+		// 💰 Погашение долга не может превышать остаток. Раньше переплата молча
+		// обрезалась (LEAST), из-за чего можно было «погасить» 100 000 суммой в
+		// 100 000 000. Теперь на переплату отдаём понятную ошибку.
+		if req.AddPayment != nil && *req.AddPayment > 0 {
+			var curAmount, curPaid float64
+			if err := db.QueryRow(`SELECT amount, paid_amount FROM company_debts WHERE id = $1`, debtID).
+				Scan(&curAmount, &curPaid); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load debt"})
+				return
+			}
+			effAmount := curAmount
+			if req.Amount != nil && *req.Amount > 0 {
+				effAmount = *req.Amount
+			}
+			remaining := effAmount - curPaid
+			if remaining < 0 {
+				remaining = 0
+			}
+			// Допуск 0.5 на округления копеек, чтобы точное погашение не падало.
+			if *req.AddPayment > remaining+0.5 {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error":     fmt.Sprintf("Сумма погашения (%.0f) больше остатка долга (%.0f). Введите остаток или меньше.", *req.AddPayment, remaining),
+					"remaining": remaining,
+				})
+				return
+			}
+		}
+
 		query := "UPDATE company_debts SET updated_at = NOW()"
 		args := []interface{}{}
 		n := 1

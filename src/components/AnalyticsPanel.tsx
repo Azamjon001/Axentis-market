@@ -3,7 +3,6 @@ import { motion } from 'motion/react';
 import { TrendingUp, Package, Receipt, Landmark, Plus, ShoppingBag, Users, XCircle, Zap, Crown, CalendarDays, Coins, Gem } from 'lucide-react';
 import api from '../utils/api';
 import ExpensesManager from './ExpensesManager';
-import CompanyPayoutsPanel from './CompanyPayoutsPanel';
 import AdvancedInsightsPanel from './AdvancedInsightsPanel';
 import PurchaseAnalytics from './PurchaseAnalytics';
 import CompactPeriodSelector from './CompactPeriodSelector';
@@ -49,8 +48,8 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
   const [companyEarnings, setCompanyEarnings] = useState(0);
   const [totalRevenue, setTotalRevenue] = useState(0); // 💰 НОВОЕ: Общая выручка (вся сумма с наценкой)
 
-  // 📑 Вкладки: аналитика + закупки + вывод средств
-  const [activeTab, setActiveTab] = useState<'analytics' | 'purchases' | 'payouts'>('analytics');
+  // 📑 Вкладки: аналитика + закупки
+  const [activeTab, setActiveTab] = useState<'analytics' | 'purchases'>('analytics');
   
   const [operatingExpensesList, setOperatingExpensesList] = useState<any[]>([]);
   const [customExpenses, setCustomExpenses] = useState(0);
@@ -941,33 +940,12 @@ export default function AnalyticsPanel({ companyId }: AnalyticsPanelProps) {
           <Package className="w-4 h-4" />
           <span>{t.purchasesExpense}</span>
         </button>
-
-        {/* 💸 Вывод онлайн-заработка на карту */}
-        <button
-          onClick={() => setActiveTab('payouts')}
-          style={{
-            flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-            padding: '10px 20px',
-            borderRadius: 10, border: 'none', cursor: 'pointer', transition: 'all 0.2s',
-            fontSize: 14, fontWeight: 600,
-            ...(activeTab === 'payouts'
-              ? { background: 'var(--ax-primary)', color: '#FFFFFF' }
-              : { background: 'transparent', color: 'var(--ax-text-2)' })
-          }}
-        >
-          <Landmark className="w-4 h-4" />
-          <span>{language === 'uz' ? 'Pul yechish' : 'Вывод средств'}</span>
-        </button>
+        {/* 💸 «Вывод средств» временно убран — появится вместе с онлайн-доставкой. */}
       </div>
 
       {/* 📦 ВКЛАДКА: Аналитика закупок */}
       {activeTab === 'purchases' && (
         <PurchaseAnalytics companyId={companyId} />
-      )}
-
-      {/* 💸 ВКЛАДКА: Вывод средств */}
-      {activeTab === 'payouts' && (
-        <CompanyPayoutsPanel companyId={companyId} />
       )}
 
       {/* 📊 ВКЛАДКА: Аналитика */}
