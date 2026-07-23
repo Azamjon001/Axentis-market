@@ -12,10 +12,15 @@ import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { getPolicy, acceptPolicy } from '../../api';
+import { getPolicy, acceptPolicy, requestOtp, verifyPrivateCode } from '../../api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 // ВАЖНО: Alert берём из утиля, а НЕ из 'react-native' — на вебе (react-native-web)
 // нативный Alert.alert молча ничего не делает, поэтому логин/регистрация «молчали».
 import { Alert } from '../../utils/alert';
+
+// 🔒 Ключ хранения кода закрытой компании. Код вводится один раз и запоминается —
+// повторно спрашиваем только после выхода из аккаунта или переустановки.
+const PRIVATE_CODE_KEY = 'axentis_private_code';
 
 const { width } = Dimensions.get('window');
 
@@ -64,8 +69,8 @@ export default function LoginScreen() {
   // 🔒 Закрытая компания: вход/регистрация по уникальному ID компании.
   // В этом режиме пользователь видит ТОЛЬКО товары своей компании.
   // В сборке «Axentis Private» (APP_VARIANT=private) доступен только этот режим.
-  const isPrivateApp = Constants.expoConfig?.extra?.appVariant === 'private';
-  const [accessMode, setAccessMode] = useState(isPrivateApp ? 'private' : 'public'); // 'public' | 'private'
+  // 🔒 Маркет полностью закрытый: вход только по коду компании, публичного режима нет.
+  const accessMode = 'private';
   const [privateCode, setPrivateCode] = useState('');
   const [privateCompany, setPrivateCompany] = useState(null); // { companyId, name }
   const [checkingCode, setCheckingCode] = useState(false);
@@ -151,6 +156,22 @@ export default function LoginScreen() {
       ? { mode: 'private', privateCode: privateCode.trim() }
       : {};
 
+  // 🔒 Префилл сохранённого кода компании (вводится один раз, помнится до выхода
+  // из аккаунта или переустановки). Сразу проверяем — покажем название компании.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const saved = await AsyncStorage.getItem(PRIVATE_CODE_KEY);
+        if (!saved || !alive) return;
+        setPrivateCode(saved);
+        const res = await verifyPrivateCode(saved);
+        if (alive) setPrivateCompany({ companyId: res.companyId, name: res.name });
+      } catch { /* код устарел/недоступен — пользователь введёт заново */ }
+    })();
+    return () => { alive = false; };
+  }, []);
+
   // Проверка ID закрытой компании (показывает название до входа).
   const handleCheckPrivateCode = async () => {
     if (!privateCode.trim()) return;
@@ -158,6 +179,8 @@ export default function LoginScreen() {
     try {
       const res = await verifyPrivateCode(privateCode.trim());
       setPrivateCompany({ companyId: res.companyId, name: res.name });
+      // Запоминаем код: не придётся вводить заново после выхода из аккаунта.
+      AsyncStorage.setItem(PRIVATE_CODE_KEY, privateCode.trim()).catch(() => {});
     } catch {
       setPrivateCompany(null);
       Alert.alert(t('error'), t('companyNotFound'));
@@ -168,6 +191,7 @@ export default function LoginScreen() {
 
   // 📲 Запросить SMS-код
   const handleRequestOtp = async () => {
+    if (!privateCompany) { Alert.alert(t('error'), t('enterCompanyCodeFirst')); return; }
     if (!isLoginPhoneValid) { Alert.alert(t('error'), t('enterValidPhone')); return; }
     setOtpLoading(true);
     try {
@@ -216,6 +240,7 @@ export default function LoginScreen() {
   const handleLogin = async () => {
     // Понятная причина вместо «молчания»: раньше кнопка была disabled и клик
     // не давал никакой реакции. Теперь всегда объясняем, чего не хватает.
+    if (!privateCompany) { Alert.alert(t('error'), t('enterCompanyCodeFirst')); return; }
     if (!isLoginPhoneValid) { Alert.alert(t('error'), t('enterValidPhone')); return; }
     if (!loginPassword) { Alert.alert(t('error'), t('invalidPhoneOrPass')); return; }
     setLoginLoading(true);
@@ -253,6 +278,7 @@ export default function LoginScreen() {
   const handleRegister = async () => {
     // Понятная причина вместо «молчания»: показываем, какое поле не заполнено,
     // раньше кнопка была disabled и клик не давал никакой реакции.
+    if (!privateCompany) { Alert.alert(t('error'), t('enterCompanyCodeFirst')); return; }
     if (regName.trim().length < 2) { Alert.alert(t('error'), t('enterName')); return; }
     if (!isRegPhoneValid) { Alert.alert(t('error'), t('enterValidPhone')); return; }
     if (regPassword.length < 6) { Alert.alert(t('error'), t('passwordTooShort')); return; }
@@ -330,45 +356,9 @@ export default function LoginScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* 🔒 Режим доступа: общий маркет или закрытая компания по ID.
-                В сборке «Axentis Private» переключатель скрыт — только закрытый режим. */}
-            <View style={[styles.modeRow, isPrivateApp && { display: 'none' }]}>
-              <TouchableOpacity
-                style={[
-                  styles.modeChip,
-                  {
-                    backgroundColor: accessMode === 'public' ? colors.primary + '22' : colors.inputBg,
-                    borderColor: accessMode === 'public' ? colors.primary : colors.border,
-                  },
-                ]}
-                onPress={() => { setAccessMode('public'); setPrivateCompany(null); setPrivateCode(''); }}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="globe-outline" size={15} color={accessMode === 'public' ? colors.primary : colors.textMuted} />
-                <Text style={[styles.modeChipText, { color: accessMode === 'public' ? colors.primary : colors.textSecondary }]}>
-                  {t('publicMarketMode')}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.modeChip,
-                  {
-                    backgroundColor: accessMode === 'private' ? colors.primary + '22' : colors.inputBg,
-                    borderColor: accessMode === 'private' ? colors.primary : colors.border,
-                  },
-                ]}
-                onPress={() => setAccessMode('private')}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="lock-closed-outline" size={15} color={accessMode === 'private' ? colors.primary : colors.textMuted} />
-                <Text style={[styles.modeChipText, { color: accessMode === 'private' ? colors.primary : colors.textSecondary }]}>
-                  {t('privateCompanyMode')}
-                </Text>
-              </TouchableOpacity>
-            </View>
-
+            {/* 🔒 Маркет закрытый: единственное поле — код компании (публичного режима нет). */}
             {accessMode === 'private' && (
-              <View style={{ marginTop: 12 }}>
+              <View style={{ marginTop: 16 }}>
                 <Text style={[styles.label, { color: colors.textSecondary }]}>{t('companyIdLabel')}</Text>
                 <View style={[styles.inputRow, { backgroundColor: colors.inputBg, borderColor: privateCompany ? '#22C55E' : colors.border }]}>
                   <Ionicons name="key-outline" size={18} color={colors.textMuted} style={styles.inputIcon} />
