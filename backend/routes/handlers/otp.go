@@ -144,10 +144,11 @@ func RequestOTP(db *sql.DB, cfg *config.Config, sender *sms.Sender) gin.HandlerF
 		// Ссылка на Telegram-бота. Если код не удалось доставить напрямую (нет
 		// SMS-провайдера и номер ещё не привязан к боту), клиент открывает бота,
 		// где покупатель делится контактом и получает код (см. HandleTelegramUpdate).
-		if tgBotName != "" {
+		if bot := buyerBotUsername(); bot != "" {
 			// ?start=otp — бот покажет кнопку «поделиться номером» (а плоский
-			// /start — приветствие с выбором магазин/приложение).
-			resp["telegramUrl"] = "https://t.me/" + tgBotName + "?start=otp"
+			// /start — приветствие с выбором магазин/приложение). Используем
+			// бота покупателей (или бот компаний в одноботовом режиме).
+			resp["telegramUrl"] = "https://t.me/" + bot + "?start=otp"
 			resp["needsTelegram"] = channel != "sms" && channel != "telegram"
 		}
 		// В dev-режиме код возвращается в ответе, чтобы поток работал без

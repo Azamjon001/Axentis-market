@@ -64,7 +64,13 @@ func Setup(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 	router.GET("/sitemap.xml", handlers.Sitemap(db))
 
 	// Канал доставки SMS/OTP (Eskiz → Telegram-бот → dev-лог).
-	smsSender := sms.NewSender(db, cfg.EskizEmail, cfg.EskizPassword, cfg.EskizFrom, cfg.TelegramBotToken)
+	// OTP-коды доставляются через бота ПОКУПАТЕЛЕЙ (там покупатели делятся
+	// контактом). Если отдельный бот не задан — через бот компаний.
+	otpBotToken := cfg.TelegramBuyerBotToken
+	if otpBotToken == "" {
+		otpBotToken = cfg.TelegramBotToken
+	}
+	smsSender := sms.NewSender(db, cfg.EskizEmail, cfg.EskizPassword, cfg.EskizFrom, otpBotToken)
 	// Когда покупатель делится контактом в боте — сразу выдаём и отправляем код.
 	smsSender.IssueOTP = func(phone string) (string, error) {
 		return handlers.IssueOTPCode(db, cfg, phone)
