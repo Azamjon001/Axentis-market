@@ -9,7 +9,7 @@ export interface UzbekistanRegion {
 export const UZBEKISTAN_REGIONS: UzbekistanRegion[] = [
   {
     name: "Андижанская область",
-    nameUz: "And Andarjon viloyati",
+    nameUz: "Andijon viloyati",
     districts: [
       "Андижан",
       "Асака",
@@ -101,8 +101,7 @@ export const UZBEKISTAN_REGIONS: UzbekistanRegion[] = [
       "Наманган",
       "Мингбулок",
       "Косонсой",
-      "Наманган",
-      "Нор��н",
+      "Норин",
       "Поп",
       "Туракурган",
       "Уйчи",

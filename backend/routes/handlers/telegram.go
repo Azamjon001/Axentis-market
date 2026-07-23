@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -39,12 +40,13 @@ import (
 // вся подсистема тихо выключена.
 
 var (
-	tgToken    string
-	tgBotName  string
-	tgInitOnce sync.Once
-	// 📲 OTP-доставка (вход по SMS-коду): не-«/start <код>» сообщения из
-	// long polling передаются сюда — тот же обработчик, что у webhook.
-	// Так один бот обслуживает и магазины (оповещения), и покупателей (коды).
+	tgToken        string // бот КОМПАНИЙ: оповещения + аналитика + привязка
+	tgBotName      string
+	tgBuyerToken   string // бот ПОКУПАТЕЛЕЙ: приветствие + Web App + OTP
+	tgBuyerBotName string
+	tgInitOnce     sync.Once
+	// 📲 OTP-доставка (вход по SMS-коду): сообщения покупателей (контакты)
+	// передаются сюда — тот же обработчик, что у webhook.
 	tgOTPSender *sms.Sender
 )
 
@@ -54,32 +56,43 @@ func SetTelegramOTPSender(s *sms.Sender) { tgOTPSender = s }
 
 const tzTashkentOffset = 5 * 3600 // UTC+5, DST в Узбекистане нет
 
-func tgAPI(method string) string {
-	return "https://api.telegram.org/bot" + tgToken + "/" + method
+func tgAPI(method string) string { return tgAPIFor(tgToken, method) }
+
+func tgAPIFor(token, method string) string {
+	return "https://api.telegram.org/bot" + token + "/" + method
+}
+
+// tgGetUsername узнаёт @username бота по токену (нужно для ссылок t.me/<бот>).
+func tgGetUsername(token string) string {
+	resp, err := http.Get(tgAPIFor(token, "getMe"))
+	if err != nil {
+		log.Printf("⚠️ Telegram getMe: %v", err)
+		return ""
+	}
+	defer resp.Body.Close()
+	var out struct {
+		OK     bool `json:"ok"`
+		Result struct {
+			Username string `json:"username"`
+		} `json:"result"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&out) == nil && out.OK {
+		return out.Result.Username
+	}
+	return ""
 }
 
 func initTelegram() {
 	tgInitOnce.Do(func() {
 		tgToken = strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN"))
-		if tgToken == "" {
-			return
+		tgBuyerToken = strings.TrimSpace(os.Getenv("TELEGRAM_BUYER_BOT_TOKEN"))
+		if tgToken != "" {
+			tgBotName = tgGetUsername(tgToken)
+			log.Printf("🤖 Telegram-бот КОМПАНИЙ подключён: @%s", tgBotName)
 		}
-		// Узнаём username бота — нужен для ссылки привязки t.me/<бот>?start=…
-		resp, err := http.Get(tgAPI("getMe"))
-		if err != nil {
-			log.Printf("⚠️ Telegram getMe: %v", err)
-			return
-		}
-		defer resp.Body.Close()
-		var out struct {
-			OK     bool `json:"ok"`
-			Result struct {
-				Username string `json:"username"`
-			} `json:"result"`
-		}
-		if json.NewDecoder(resp.Body).Decode(&out) == nil && out.OK {
-			tgBotName = out.Result.Username
-			log.Printf("🤖 Telegram-бот подключён: @%s", tgBotName)
+		if tgBuyerToken != "" {
+			tgBuyerBotName = tgGetUsername(tgBuyerToken)
+			log.Printf("🛍 Telegram-бот ПОКУПАТЕЛЕЙ подключён: @%s", tgBuyerBotName)
 		}
 	})
 }
@@ -102,6 +115,65 @@ func sendTelegramMessage(chatID int64, text string) error {
 		return fmt.Errorf("telegram sendMessage %d: %s", resp.StatusCode, string(body))
 	}
 	return nil
+}
+
+// sendTelegramWelcome — приветствие покупателю на /start с выбором:
+//   • открыть магазин прямо в Telegram (Web App, без установки);
+//   • скачать приложение (APK) — если задан APK_DOWNLOAD_URL.
+// Веб-адрес берём из PUBLIC_WEB_URL (по умолчанию https://axentis.uz). Чтобы
+// кнопка Web App работала, домен нужно указать боту в @BotFather (Mini App).
+func sendTelegramWelcome(chatID int64) {
+	webURL := strings.TrimSpace(os.Getenv("PUBLIC_WEB_URL"))
+	if webURL == "" {
+		webURL = "https://axentis.uz"
+	}
+	apkURL := strings.TrimSpace(os.Getenv("APK_DOWNLOAD_URL"))
+
+	rows := [][]map[string]interface{}{
+		{{"text": "🛍 Открыть магазин в Telegram", "web_app": map[string]string{"url": webURL}}},
+	}
+	if apkURL != "" {
+		rows = append(rows, []map[string]interface{}{
+			{"text": "⬇️ Скачать приложение (Android)", "url": apkURL},
+		})
+	}
+	text := "👋 Добро пожаловать в <b>Axentis Market</b>!\n\n" +
+		"Выберите, как удобнее пользоваться:\n\n" +
+		"🛍 <b>Открыть магазин в Telegram</b> — покупки прямо здесь, без установки.\n"
+	if apkURL != "" {
+		text += "⬇️ <b>Скачать приложение</b> — полноценное приложение для Android."
+	}
+	payload, _ := json.Marshal(map[string]interface{}{
+		"chat_id":                  chatID,
+		"text":                     text,
+		"parse_mode":               "HTML",
+		"disable_web_page_preview": true,
+		"reply_markup":             map[string]interface{}{"inline_keyboard": rows},
+	})
+	resp, err := http.Post(tgAPIFor(buyerToken(), "sendMessage"), "application/json", bytes.NewReader(payload))
+	if err != nil {
+		log.Printf("⚠️ Telegram welcome: %v", err)
+		return
+	}
+	resp.Body.Close()
+}
+
+// buyerToken — токен бота покупателей; если отдельный не задан, используем бот
+// компаний (одноботовый режим — обратная совместимость).
+func buyerToken() string {
+	if tgBuyerToken != "" {
+		return tgBuyerToken
+	}
+	return tgToken
+}
+
+// buyerBotUsername — @username бота покупателей (для ссылок t.me/<бот>);
+// откат на бот компаний в одноботовом режиме.
+func buyerBotUsername() string {
+	if tgBuyerBotName != "" {
+		return tgBuyerBotName
+	}
+	return tgBotName
 }
 
 func randomConnectCode() string {
@@ -171,8 +243,14 @@ func DisconnectCompanyTelegram(db *sql.DB) gin.HandlerFunc {
 // не делает ничего.
 func RunTelegramWorkers(db *sql.DB) {
 	initTelegram()
+
+	// Бот покупателей (если задан отдельный токен): приветствие + Web App + OTP.
+	if tgBuyerToken != "" {
+		go pollBuyerBotUpdates(db)
+	}
+
 	if tgToken == "" {
-		log.Println("ℹ️ TELEGRAM_BOT_TOKEN не задан — Telegram-оповещения выключены")
+		log.Println("ℹ️ TELEGRAM_BOT_TOKEN не задан — оповещения магазинам выключены")
 		return
 	}
 
@@ -207,7 +285,7 @@ func pollTelegramUpdates(db *sql.DB) {
 	var offset int64
 	client := &http.Client{Timeout: 60 * time.Second}
 	for {
-		url := fmt.Sprintf("%s?timeout=50&offset=%d&allowed_updates=[\"message\"]", tgAPI("getUpdates"), offset)
+		url := fmt.Sprintf("%s?timeout=50&offset=%d&allowed_updates=[\"message\",\"callback_query\"]", tgAPI("getUpdates"), offset)
 		resp, err := client.Get(url)
 		if err != nil {
 			time.Sleep(10 * time.Second)
@@ -235,11 +313,34 @@ func pollTelegramUpdates(db *sql.DB) {
 						ID int64 `json:"id"`
 					} `json:"chat"`
 				} `json:"message"`
+				CallbackQuery *struct {
+					ID      string `json:"id"`
+					Data    string `json:"data"`
+					Message struct {
+						Chat struct {
+							ID int64 `json:"id"`
+						} `json:"chat"`
+					} `json:"message"`
+				} `json:"callback_query"`
 			}
 			if json.Unmarshal(raw, &upd) != nil {
 				continue
 			}
 			offset = upd.UpdateID + 1
+			// Нажатие кнопки аналитики — компания сама выбирает раздел.
+			if upd.CallbackQuery != nil {
+				answerCallback(upd.CallbackQuery.ID)
+				cid := upd.CallbackQuery.Message.Chat.ID
+				switch upd.CallbackQuery.Data {
+				case "stats_today":
+					handleCompanyStatsToday(db, cid)
+				case "recent_orders":
+					handleCompanyRecentOrders(db, cid)
+				case "low_stock":
+					handleCompanyLowStock(db, cid)
+				}
+				continue
+			}
 			if upd.Message == nil {
 				continue
 			}
@@ -248,28 +349,92 @@ func pollTelegramUpdates(db *sql.DB) {
 	}
 }
 
+// pollBuyerBotUpdates — long polling бота ПОКУПАТЕЛЕЙ (приветствие + OTP).
+func pollBuyerBotUpdates(db *sql.DB) {
+	var offset int64
+	client := &http.Client{Timeout: 60 * time.Second}
+	for {
+		url := fmt.Sprintf("%s?timeout=50&offset=%d&allowed_updates=[\"message\"]", tgAPIFor(tgBuyerToken, "getUpdates"), offset)
+		resp, err := client.Get(url)
+		if err != nil {
+			time.Sleep(10 * time.Second)
+			continue
+		}
+		var out struct {
+			OK     bool              `json:"ok"`
+			Result []json.RawMessage `json:"result"`
+		}
+		decodeErr := json.NewDecoder(resp.Body).Decode(&out)
+		resp.Body.Close()
+		if decodeErr != nil || !out.OK {
+			time.Sleep(10 * time.Second)
+			continue
+		}
+		for _, raw := range out.Result {
+			var upd struct {
+				UpdateID int64 `json:"update_id"`
+				Message  *struct {
+					Text string `json:"text"`
+					Chat struct {
+						ID int64 `json:"id"`
+					} `json:"chat"`
+				} `json:"message"`
+			}
+			if json.Unmarshal(raw, &upd) != nil {
+				continue
+			}
+			offset = upd.UpdateID + 1
+			if upd.Message == nil {
+				continue
+			}
+			handleBuyerMessage(upd.Message.Chat.ID, strings.TrimSpace(upd.Message.Text), raw)
+		}
+	}
+}
+
+// handleTelegramMessage — обработчик бота КОМПАНИЙ: привязка магазина + меню
+// аналитики. В одноботовом режиме (бот покупателей не задан) он же обслуживает
+// покупателей — приветствие и OTP, ради обратной совместимости.
 func handleTelegramMessage(db *sql.DB, chatID int64, text string, raw []byte) {
+	singleBot := tgBuyerToken == ""
+
 	code := ""
 	if strings.HasPrefix(text, "/start") {
 		code = strings.TrimSpace(strings.TrimPrefix(text, "/start"))
 	}
-	if code == "" {
-		// Не привязка магазина → это покупатель: OTP-доставщик попросит
-		// поделиться номером и запомнит chat_id (вход по SMS-коду бесплатно).
-		if tgOTPSender != nil {
-			tgOTPSender.HandleTelegramUpdate(raw)
+
+	// Плоский /start.
+	if text == "/start" {
+		if singleBot {
+			sendTelegramWelcome(chatID)
 			return
 		}
-		sendTelegramMessage(chatID, "Это бот Axentis Market.\nМагазины подключают его в панели: Настройки → Telegram-оповещения.")
+		var cid int64
+		var cname string
+		if err := db.QueryRow(`SELECT id, name FROM companies WHERE telegram_chat_id = $1`, chatID).Scan(&cid, &cname); err == nil {
+			sendCompanyAnalyticsMenu(chatID, fmt.Sprintf("🏪 <b>%s</b>\n\nНажмите кнопку — покажу показатели за сегодня.", html.EscapeString(cname)))
+		} else {
+			sendTelegramMessage(chatID, "Это бот Axentis Market для магазинов.\nПодключите его в панели: Настройки → Telegram-оповещения.")
+		}
 		return
 	}
+
+	// Контакт покупателя / произвольный текст / /start otp — только в одноботовом
+	// режиме отдаём OTP-доставщику. В двухботовом это делает бот покупателей.
+	if code == "" || code == "otp" {
+		if singleBot && tgOTPSender != nil {
+			tgOTPSender.HandleTelegramUpdate(raw)
+		}
+		return
+	}
+
+	// /start <код> — привязка магазина.
 	var companyID int64
 	var companyName string
 	err := db.QueryRow(`SELECT id, name FROM companies WHERE telegram_connect_code = $1`, code).
 		Scan(&companyID, &companyName)
 	if err != nil {
-		// Код не компании — возможно, это deep-link OTP-потока; отдаём доставщику.
-		if tgOTPSender != nil {
+		if singleBot && tgOTPSender != nil {
 			tgOTPSender.HandleTelegramUpdate(raw)
 			return
 		}
@@ -280,9 +445,206 @@ func handleTelegramMessage(db *sql.DB, chatID int64, text string, raw []byte) {
 		sendTelegramMessage(chatID, "❌ Не удалось сохранить привязку, попробуйте ещё раз.")
 		return
 	}
-	sendTelegramMessage(chatID, fmt.Sprintf(
-		"✅ Магазин «%s» подключён!\n\nТеперь сюда будут приходить:\n• ⚠️ оповещения о критических остатках товаров\n• 📊 дневной отчёт в 21:00\n\nОтключить можно в панели: Настройки → Telegram-оповещения.",
+	sendCompanyAnalyticsMenu(chatID, fmt.Sprintf(
+		"✅ Магазин «%s» подключён!\n\nСюда приходят: ⚠️ критические остатки, 📊 дневной отчёт в 21:00, 💳 напоминания о долгах.\n\nА кнопкой ниже — показатели за сегодня.",
 		html.EscapeString(companyName)))
+}
+
+// handleBuyerMessage — обработчик бота ПОКУПАТЕЛЕЙ: приветствие + доставка OTP.
+func handleBuyerMessage(chatID int64, text string, raw []byte) {
+	if text == "/start" {
+		sendTelegramWelcome(chatID)
+		return
+	}
+	// /start otp, контакты, прочее → OTP-доставщик (поделиться номером, коды).
+	if tgOTPSender != nil {
+		tgOTPSender.HandleTelegramUpdate(raw)
+	}
+}
+
+// ─── Аналитика магазина прямо в Telegram ─────────────────────────────────────
+
+// sendCompanyAnalyticsMenu шлёт сообщение с кнопками выбора: финансы, заказы,
+// критические остатки — компания сама выбирает, что посмотреть.
+func sendCompanyAnalyticsMenu(chatID int64, text string) {
+	payload, _ := json.Marshal(map[string]interface{}{
+		"chat_id":    chatID,
+		"text":       text,
+		"parse_mode": "HTML",
+		"reply_markup": map[string]interface{}{
+			"inline_keyboard": [][]map[string]interface{}{
+				{{"text": "💰 Финансы за сегодня", "callback_data": "stats_today"}},
+				{{"text": "📋 Последние заказы", "callback_data": "recent_orders"}},
+				{{"text": "📦 Критические остатки", "callback_data": "low_stock"}},
+			},
+		},
+	})
+	if resp, err := http.Post(tgAPI("sendMessage"), "application/json", bytes.NewReader(payload)); err == nil {
+		resp.Body.Close()
+	}
+}
+
+// companyByChat находит магазин по chat_id Telegram; false — не привязан.
+func companyByChat(db *sql.DB, chatID int64) (int64, string, bool) {
+	var id int64
+	var name string
+	if err := db.QueryRow(`SELECT id, name FROM companies WHERE telegram_chat_id = $1`, chatID).Scan(&id, &name); err != nil {
+		sendTelegramMessage(chatID, "Магазин не привязан. Подключите бота в панели: Настройки → Telegram-оповещения.")
+		return 0, "", false
+	}
+	return id, name, true
+}
+
+// answerCallback закрывает «часики» на нажатой кнопке.
+func answerCallback(id string) {
+	payload, _ := json.Marshal(map[string]interface{}{"callback_query_id": id})
+	if resp, err := http.Post(tgAPI("answerCallbackQuery"), "application/json", bytes.NewReader(payload)); err == nil {
+		resp.Body.Close()
+	}
+}
+
+// handleCompanyStatsToday достаёт показатели магазина за сегодня и шлёт их.
+func handleCompanyStatsToday(db *sql.DB, chatID int64) {
+	companyID, companyName, ok := companyByChat(db, chatID)
+	if !ok {
+		return
+	}
+	var todayOrders int
+	var todayRevenue, todayProfit float64
+	db.QueryRow(`
+		SELECT
+			COUNT(*) FILTER (WHERE created_at::date = CURRENT_DATE),
+			COALESCE(SUM(total_amount) FILTER (WHERE created_at::date = CURRENT_DATE AND status IN ('delivered','completed')), 0),
+			COALESCE(SUM(COALESCE(markup_profit,0)) FILTER (WHERE created_at::date = CURRENT_DATE AND status IN ('delivered','completed')), 0)
+		FROM orders WHERE company_id = $1
+	`, companyID).Scan(&todayOrders, &todayRevenue, &todayProfit)
+	var soldUnits int64
+	db.QueryRow(`SELECT COALESCE(SUM(sold_count),0) FROM products WHERE company_id = $1`, companyID).Scan(&soldUnits)
+
+	msg := fmt.Sprintf(
+		"📊 <b>%s</b> — сегодня\n\n"+
+			"💰 Выручка: <b>%s сум</b>\n"+
+			"📈 Чистая прибыль: <b>%s сум</b>\n"+
+			"🛍 Заказы: <b>%d</b>\n"+
+			"📦 Продано единиц (всего): <b>%d</b>",
+		html.EscapeString(companyName), fmtMoney(todayRevenue), fmtMoney(todayProfit), todayOrders, soldUnits)
+	sendCompanyAnalyticsMenu(chatID, msg)
+}
+
+// fmtMoney форматирует сумму целым числом с разделением тысяч пробелом.
+func fmtMoney(v float64) string {
+	n := int64(v + 0.5)
+	neg := ""
+	if n < 0 {
+		neg = "-"
+		n = -n
+	}
+	s := strconv.FormatInt(n, 10)
+	var b []byte
+	for i := 0; i < len(s); i++ {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			b = append(b, ' ')
+		}
+		b = append(b, s[i])
+	}
+	return neg + string(b)
+}
+
+func statusLabelRu(s string) string {
+	switch s {
+	case "pending":
+		return "новый"
+	case "confirmed":
+		return "принят"
+	case "processing":
+		return "в обработке"
+	case "shipped":
+		return "в пути"
+	case "delivered":
+		return "доставлен"
+	case "completed":
+		return "завершён"
+	case "cancelled":
+		return "отменён"
+	default:
+		return s
+	}
+}
+
+// handleCompanyRecentOrders — последние заказы магазина (история).
+func handleCompanyRecentOrders(db *sql.DB, chatID int64) {
+	companyID, companyName, ok := companyByChat(db, chatID)
+	if !ok {
+		return
+	}
+	rows, err := db.Query(`
+		SELECT COALESCE(order_code,''), COALESCE(customer_name,''), COALESCE(total_amount,0),
+		       COALESCE(status,''), created_at
+		FROM orders WHERE company_id = $1
+		ORDER BY id DESC LIMIT 7
+	`, companyID)
+	if err != nil {
+		sendTelegramMessage(chatID, "Не удалось получить заказы.")
+		return
+	}
+	defer rows.Close()
+	var b strings.Builder
+	fmt.Fprintf(&b, "📋 <b>%s</b> — последние заказы\n\n", html.EscapeString(companyName))
+	n := 0
+	for rows.Next() {
+		var code, cname, status string
+		var amount float64
+		var created time.Time
+		if rows.Scan(&code, &cname, &amount, &status, &created) != nil {
+			continue
+		}
+		if code == "" {
+			code = "заказ"
+		}
+		n++
+		fmt.Fprintf(&b, "• <b>%s</b> — %s сум · %s\n   %s · %s\n",
+			html.EscapeString(code), fmtMoney(amount), statusLabelRu(status),
+			html.EscapeString(cname), created.Format("02.01 15:04"))
+	}
+	if n == 0 {
+		b.WriteString("Заказов пока нет.")
+	}
+	sendCompanyAnalyticsMenu(chatID, b.String())
+}
+
+// handleCompanyLowStock — товары с критическим остатком (≤5).
+func handleCompanyLowStock(db *sql.DB, chatID int64) {
+	companyID, companyName, ok := companyByChat(db, chatID)
+	if !ok {
+		return
+	}
+	rows, err := db.Query(`
+		SELECT name, COALESCE(quantity,0)
+		FROM products
+		WHERE company_id = $1 AND available_for_customers = TRUE AND COALESCE(quantity,0) <= 5
+		ORDER BY quantity ASC LIMIT 15
+	`, companyID)
+	if err != nil {
+		sendTelegramMessage(chatID, "Не удалось получить остатки.")
+		return
+	}
+	defer rows.Close()
+	var b strings.Builder
+	fmt.Fprintf(&b, "📦 <b>%s</b> — критические остатки (≤5)\n\n", html.EscapeString(companyName))
+	n := 0
+	for rows.Next() {
+		var name string
+		var qty int
+		if rows.Scan(&name, &qty) != nil {
+			continue
+		}
+		n++
+		fmt.Fprintf(&b, "• %s — <b>%d шт</b>\n", html.EscapeString(name), qty)
+	}
+	if n == 0 {
+		b.WriteString("✅ Всё в порядке — критических остатков нет.")
+	}
+	sendCompanyAnalyticsMenu(chatID, b.String())
 }
 
 // runTelegramStockAlerts шлёт оповещение, когда остаток товара падает до

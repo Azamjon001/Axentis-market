@@ -24,6 +24,14 @@ export function tryOpenInApp(path) {
   try {
     if (window.sessionStorage.getItem(SESSION_KEY)) return;
     const ua = navigator.userAgent || '';
+    // 🚫 Внутри Telegram (мини-приложение Web App или встроенный браузер) переход
+    // по intent:// ломает вебвью — после первого же перехода страница «зависает».
+    // Поэтому в Telegram НИКОГДА не переключаемся в приложение: покупатель просто
+    // продолжает пользоваться сайтом прямо внутри Telegram.
+    const inTelegram =
+      (typeof window !== 'undefined' && window.Telegram && window.Telegram.WebApp) ||
+      /Telegram/i.test(ua);
+    if (inTelegram) return;
     const isAndroid = /android/i.test(ua);
     if (!isAndroid) return;
     window.sessionStorage.setItem(SESSION_KEY, '1');

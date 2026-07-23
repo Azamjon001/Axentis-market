@@ -445,7 +445,7 @@ export const DigitalWarehouse: React.FC<DigitalWarehouseProps> = ({ companyId })
     }
   };
 
-  // 🏷️ Массовая скидка на выбранные товары (уходит на модерацию админу)
+  // 🏷️ Массовая скидка на выбранные товары (применяется сразу, без модерации)
   const bulkApplyDiscount = async () => {
     const percent = parseInt(bulkDiscountPercent, 10);
     if (!percent || percent <= 0 || percent > 90) {
@@ -472,8 +472,8 @@ export const DigitalWarehouse: React.FC<DigitalWarehouseProps> = ({ companyId })
       setBulkDiscountPercent('');
       clearSelection();
       alert(language === 'uz'
-        ? `${ok} ta tovarga chegirma so'raldi. Admin tasdiqlagach faollashadi.`
-        : `Скидка запрошена для ${ok} товаров. Активируется после подтверждения админом.`);
+        ? `${ok} ta tovarga chegirma qo'llandi.`
+        : `Скидка применена к ${ok} товарам.`);
     } finally {
       setBulkBusy(false);
     }

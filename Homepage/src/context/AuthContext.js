@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { loginUser, registerUser, getUserProfile, setApiMarketplaceContext } from '../api';
+import { loginUser, registerUser, getUserProfile, verifyOtp, setApiMarketplaceContext } from '../api';
 
 const AuthContext = createContext({});
 
@@ -18,6 +18,19 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     setApiMarketplaceContext(user);
   }, [user]);
+
+  // Применяем пользователя: сохраняем в состоянии и в хранилище. Контекст
+  // закрытой компании (mode/privateCompanyId) подхватывается автоматически —
+  // за это отвечает useEffect выше, реагирующий на смену user.
+  const applyUser = async (userData) => {
+    if (!userData) return;
+    setUser(userData);
+    try {
+      await AsyncStorage.setItem('currentUser', JSON.stringify(userData));
+    } catch {
+      // хранилище недоступно — сессия останется в памяти до перезагрузки
+    }
+  };
 
   const restoreSession = async () => {
     try {
@@ -76,8 +89,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = async () => {
-    setUser(null);
-    setPrivateScope(null);
+    setUser(null); // useEffect по user сбросит контекст маркетплейса в API-слое
     await AsyncStorage.multiRemove(['currentUser', 'userToken']);
   };
 

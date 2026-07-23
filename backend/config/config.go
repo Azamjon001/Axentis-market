@@ -27,6 +27,10 @@ type Config struct {
 	EskizPassword    string
 	EskizFrom        string
 	TelegramBotToken string
+	// Отдельный бот для покупателей: приветствие + Web App магазина + доставка
+	// OTP-кодов. Старый TelegramBotToken остаётся ботом компаний (оповещения,
+	// аналитика). Если не задан — покупательские функции идут через старый бот.
+	TelegramBuyerBotToken string
 }
 
 func Load() *Config {
@@ -51,7 +55,8 @@ func Load() *Config {
 		EskizEmail:       getEnv("ESKIZ_EMAIL", ""),
 		EskizPassword:    getEnv("ESKIZ_PASSWORD", ""),
 		EskizFrom:        getEnv("ESKIZ_FROM", "4546"),
-		TelegramBotToken: getEnv("TELEGRAM_BOT_TOKEN", ""),
+		TelegramBotToken:      getEnv("TELEGRAM_BOT_TOKEN", ""),
+		TelegramBuyerBotToken: getEnv("TELEGRAM_BUYER_BOT_TOKEN", ""),
 	}
 }
 
