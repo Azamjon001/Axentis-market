@@ -11,7 +11,6 @@ import {
   ResponsiveContainer, Tooltip, PieChart, Pie, Cell,
 } from 'recharts';
 import AxAreaChart from './charts/AxAreaChart';
-import AxPieChart from './charts/AxPieChart';
 import api from '../utils/api';
 import { useUiLang } from '../hooks/useUiLang';
 
@@ -52,7 +51,6 @@ const STATUS_COLOR: Record<string, { bg: string; text: string; dot: string }> = 
   cancelled:  { bg: 'rgba(248,113,113,0.15)', text: '#F87171', dot: '#F87171' },
 };
 
-const PIE_COLORS = ['#7C5CF0', '#22C55E', '#38BDF8', '#FBBF24', '#F87171', '#A78BFA', '#34D399'];
 
 interface ForecastRow { productId: number; name: string; stock: number; soldPerDay: number; daysLeft: number; outOfStock: boolean }
 interface AbcRow { productId: number; name: string; revenue: number; revenueShare: number; class: string }
@@ -286,15 +284,6 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
   // Есть ли исторические заказы за прошлую неделю → показывать вторую линию.
   const hasPrevRevenue = useMemo(() => chartData.some((d) => d.prevRevenue > 0), [chartData]);
 
-  const pieData = useMemo(() => {
-    const counts: Record<string, number> = {};
-    allOrders.forEach((o: any) => {
-      counts[o.status] = (counts[o.status] || 0) + 1;
-    });
-    return Object.entries(counts)
-      .filter(([, v]) => v > 0)
-      .map(([k, v]) => ({ name: statusLabel[k] || k, value: v }));
-  }, [allOrders]);
 
   // 🔗 Единая карта товаров: объединяем данные из всех аналитических источников,
   // чтобы по клику показать полную мини-карточку товара.
@@ -552,66 +541,31 @@ export default function CompanyDashboardPanel({ companyId, onNavigate }: Company
       </div>
 
       {/* Charts row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(240px, 300px)', gap: 16 }}>
-        <motion.div {...springIn} style={cardBase}>
-          <div style={{ padding: '16px 20px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--ax-text)' }}>{L.salesChart}</span>
-            <span style={{ fontSize: 12, color: '#5A5A78' }}>7 {isUz ? 'kun · har 12 soat' : 'дней · каждые 12 ч'}</span>
-          </div>
-          <div style={{ padding: '0 8px 16px' }}>
-            {/* Единый стиль линейных диаграмм проекта — см. AxAreaChart */}
-            <AxAreaChart
-              data={chartData}
-              xKey="date"
-              height={200}
-              xInterval={1}
-              xTickFormatter={(v: string) => v.replace(' 00:00', '')}
-              series={[
-                { key: 'revenue', name: isUz ? 'Joriy hafta' : 'Текущая неделя', color: '#7C5CF0', fill: true },
-                ...(hasPrevRevenue
-                  ? [{ key: 'prevRevenue', name: isUz ? 'Oldingi hafta' : 'Прошлая неделя', color: '#0284C7', dashed: true }]
-                  : []),
-              ]}
-              valueFormatter={(v) => `${fmt(v)} ${L.sum}`}
-            />
-          </div>
-        </motion.div>
-
-        <motion.div {...springIn} style={cardBase}>
-          <div style={{ padding: '16px 20px 8px' }}>
-            <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--ax-text)' }}>{L.statusDist}</span>
-          </div>
-          <div style={{ padding: '0 8px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            {pieData.length > 0 ? (
-              <>
-                <div style={{ padding: '8px 0 12px' }}>
-                  <AxPieChart
-                    data={pieData}
-                    size={168}
-                    innerRadius={54}
-                    colors={PIE_COLORS}
-                    defaultLabel={isUz ? 'Jami' : 'Всего'}
-                    valueFormatter={(v) => `${v} ${isUz ? 'ta' : 'шт'}`}
-                  />
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%', padding: '0 16px' }}>
-                  {pieData.slice(0, 5).map((item, idx) => (
-                    <div key={idx} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: PIE_COLORS[idx % PIE_COLORS.length] }} />
-                        <span style={{ fontSize: 11, color: '#8B8BAA' }}>{item.name}</span>
-                      </div>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--ax-text)' }}>{item.value}</span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <div style={{ color: '#5A5A78', fontSize: 13, padding: '40px 0' }}>{L.noOrders}</div>
-            )}
-          </div>
-        </motion.div>
-      </div>
+      {/* 📈 Динамика продаж — на всю ширину (донат «Статусы заказов» убран:
+          продано единиц и так видно в карточках выше). */}
+      <motion.div {...springIn} style={cardBase}>
+        <div style={{ padding: '16px 20px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--ax-text)' }}>{L.salesChart}</span>
+          <span style={{ fontSize: 12, color: '#5A5A78' }}>7 {isUz ? 'kun · har 12 soat' : 'дней · каждые 12 ч'}</span>
+        </div>
+        <div style={{ padding: '0 8px 16px' }}>
+          {/* Единый стиль линейных диаграмм проекта — см. AxAreaChart */}
+          <AxAreaChart
+            data={chartData}
+            xKey="date"
+            height={280}
+            xInterval={1}
+            xTickFormatter={(v: string) => v.replace(' 00:00', '')}
+            series={[
+              { key: 'revenue', name: isUz ? 'Joriy hafta' : 'Текущая неделя', color: '#7C5CF0', fill: true },
+              ...(hasPrevRevenue
+                ? [{ key: 'prevRevenue', name: isUz ? 'Oldingi hafta' : 'Прошлая неделя', color: '#0284C7', dashed: true }]
+                : []),
+            ]}
+            valueFormatter={(v) => `${fmt(v)} ${L.sum}`}
+          />
+        </div>
+      </motion.div>
 
       {/* Attention */}
       {attentionItems.length > 0 ? (
