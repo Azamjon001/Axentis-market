@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator,
-  Alert, Animated, Dimensions, Modal,
+  Animated, Dimensions, Modal, Linking,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import Constants from 'expo-constants';
@@ -13,6 +13,9 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
 import { getPolicy, acceptPolicy } from '../../api';
+// ВАЖНО: Alert берём из утиля, а НЕ из 'react-native' — на вебе (react-native-web)
+// нативный Alert.alert молча ничего не делает, поэтому логин/регистрация «молчали».
+import { Alert } from '../../utils/alert';
 
 const { width } = Dimensions.get('window');
 
@@ -73,6 +76,8 @@ export default function LoginScreen() {
   const [otpCode, setOtpCode] = useState('');
   const [otpLoading, setOtpLoading] = useState(false);
   const [resendTimer, setResendTimer] = useState(0);
+  // Ссылка на Telegram-бота: покупатель делится контактом и получает код.
+  const [otpTelegramUrl, setOtpTelegramUrl] = useState('');
 
   useEffect(() => {
     if (resendTimer <= 0) return undefined;
@@ -163,16 +168,22 @@ export default function LoginScreen() {
 
   // 📲 Запросить SMS-код
   const handleRequestOtp = async () => {
-    if (!isLoginPhoneValid) return;
+    if (!isLoginPhoneValid) { Alert.alert(t('error'), t('enterValidPhone')); return; }
     setOtpLoading(true);
     try {
       const phone = getCleanPhone(loginPhone);
       const res = await requestOtp(phone);
       setOtpSent(true);
       setResendTimer(60);
+      setOtpTelegramUrl(res?.telegramUrl || '');
       if (res?.devCode) {
         // Провайдер не настроен (dev): код приходит в ответе, подставляем сами.
         setOtpCode(String(res.devCode));
+      } else if (res?.needsTelegram && res?.telegramUrl) {
+        // Код не доставлен напрямую (нет SMS / номер не привязан): открываем
+        // Telegram-бота — покупатель делится контактом и тут же получает код.
+        Linking.openURL(res.telegramUrl).catch(() => {});
+        Alert.alert(t('getCodeViaTelegramTitle'), t('getCodeViaTelegramMsg'));
       } else {
         Alert.alert(
           res?.channel === 'telegram' ? t('smsCodeSentTelegram') : t('smsCodeSent'),
@@ -189,7 +200,7 @@ export default function LoginScreen() {
 
   // 📲 Подтвердить SMS-код → вход (аккаунт создаётся автоматически)
   const handleVerifyOtp = async () => {
-    if (otpCode.trim().length !== 6) return;
+    if (otpCode.trim().length !== 6) { Alert.alert(t('error'), t('enterCode6')); return; }
     setOtpLoading(true);
     try {
       const phone = getCleanPhone(loginPhone);
@@ -482,12 +493,9 @@ export default function LoginScreen() {
                     )}
 
                     <TouchableOpacity
-                      style={[styles.btn, {
-                        backgroundColor:
-                          (otpSent ? otpCode.length === 6 : isLoginPhoneValid) ? colors.primary : colors.border,
-                      }]}
+                      style={[styles.btn, { backgroundColor: colors.primary }]}
                       onPress={otpSent ? handleVerifyOtp : handleRequestOtp}
-                      disabled={otpLoading || (otpSent ? otpCode.length !== 6 : !isLoginPhoneValid)}
+                      disabled={otpLoading}
                       activeOpacity={0.85}
                     >
                       {otpLoading
@@ -495,6 +503,18 @@ export default function LoginScreen() {
                         : <Text style={styles.btnText}>{otpSent ? t('confirmCode') : t('sendCode')}</Text>
                       }
                     </TouchableOpacity>
+
+                    {/* 📲 Открыть Telegram-бота: поделиться контактом и получить код */}
+                    {otpSent && !!otpTelegramUrl && (
+                      <TouchableOpacity
+                        onPress={() => Linking.openURL(otpTelegramUrl).catch(() => {})}
+                        style={[styles.btn, { backgroundColor: '#229ED9', marginTop: 8, flexDirection: 'row' }]}
+                        activeOpacity={0.85}
+                      >
+                        <Ionicons name="paper-plane" size={18} color="#fff" style={{ marginRight: 8 }} />
+                        <Text style={styles.btnText}>{t('openTelegramBot')}</Text>
+                      </TouchableOpacity>
+                    )}
 
                     {otpSent && (
                       <TouchableOpacity

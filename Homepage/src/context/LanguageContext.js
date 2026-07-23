@@ -378,6 +378,10 @@ const translations = {
     enterName: 'Введите имя (минимум 2 буквы)',
     enterValidPhone: 'Введите корректный номер телефона',
     acceptPolicyFirst: 'Отметьте согласие с политикой конфиденциальности',
+    enterCode6: 'Введите 6-значный код',
+    getCodeViaTelegramTitle: 'Получите код в Telegram',
+    getCodeViaTelegramMsg: 'Мы открыли Telegram-бот. Нажмите «Поделиться номером», получите код и введите его ниже.',
+    openTelegramBot: 'Открыть Telegram-бот и получить код',
 
     // ─── Payment cards ───────────────────────────────────────
     enterCardNumber16: 'Введите полный 16-значный номер карты',
@@ -833,6 +837,10 @@ const translations = {
     enterName: 'Ismingizni kiriting (kamida 2 harf)',
     enterValidPhone: "To'g'ri telefon raqamini kiriting",
     acceptPolicyFirst: 'Maxfiylik siyosatiga rozilikni belgilang',
+    enterCode6: '6 xonali kodni kiriting',
+    getCodeViaTelegramTitle: 'Kodni Telegramda oling',
+    getCodeViaTelegramMsg: "Telegram-bot ochildi. «Raqamni ulashish»ni bosing, kodni oling va quyiga kiriting.",
+    openTelegramBot: 'Telegram-botni ochish va kod olish',
 
     // ─── Payment cards ───────────────────────────────────────
     enterCardNumber16: "To'liq 16 raqamli karta raqamini kiriting",
