@@ -51,6 +51,7 @@ export default function LoginScreen() {
 
   const [tab, setTab] = useState('login');
   const tabAnim = useRef(new Animated.Value(0)).current;
+  const [tabBarWidth, setTabBarWidth] = useState(0);
 
   const [loginPhone, setLoginPhone] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -202,7 +203,10 @@ export default function LoginScreen() {
   };
 
   const handleLogin = async () => {
-    if (!isLoginValid) return;
+    // Понятная причина вместо «молчания»: раньше кнопка была disabled и клик
+    // не давал никакой реакции. Теперь всегда объясняем, чего не хватает.
+    if (!isLoginPhoneValid) { Alert.alert(t('error'), t('enterValidPhone')); return; }
+    if (!loginPassword) { Alert.alert(t('error'), t('invalidPhoneOrPass')); return; }
     setLoginLoading(true);
     try {
       const phone = getCleanPhone(loginPhone);
@@ -236,13 +240,12 @@ export default function LoginScreen() {
   };
 
   const handleRegister = async () => {
-    if (!isRegValid) {
-      if (regPassword.length < 6) {
-        Alert.alert(t('error'), t('passwordTooShort'));
-        return;
-      }
-      return;
-    }
+    // Понятная причина вместо «молчания»: показываем, какое поле не заполнено,
+    // раньше кнопка была disabled и клик не давал никакой реакции.
+    if (regName.trim().length < 2) { Alert.alert(t('error'), t('enterName')); return; }
+    if (!isRegPhoneValid) { Alert.alert(t('error'), t('enterValidPhone')); return; }
+    if (regPassword.length < 6) { Alert.alert(t('error'), t('passwordTooShort')); return; }
+    if (!policyAccepted) { Alert.alert(t('error'), t('acceptPolicyFirst')); return; }
     setRegLoading(true);
     try {
       const phone = getCleanPhone(regPhone);
@@ -262,9 +265,12 @@ export default function LoginScreen() {
     }
   };
 
+  // Индикатор вкладок считаем от РЕАЛЬНОЙ ширины таб-бара (измеряем onLayout),
+  // а не от ширины экрана — иначе синий блок вылезал за рамку карточки.
+  const tabSlot = tabBarWidth > 0 ? (tabBarWidth - 8) / 2 : 0; // 8 = padding 4×2
   const indicatorLeft = tabAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [4, (width - 48) / 2 + 4],
+    outputRange: [4, 4 + tabSlot],
   });
 
   return (
@@ -294,9 +300,12 @@ export default function LoginScreen() {
           </View>
 
           <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={[styles.tabBar, { backgroundColor: colors.inputBg }]}>
+            <View
+              style={[styles.tabBar, { backgroundColor: colors.inputBg }]}
+              onLayout={(e) => setTabBarWidth(e.nativeEvent.layout.width)}
+            >
               <Animated.View
-                style={[styles.tabIndicator, { backgroundColor: colors.primary, left: indicatorLeft }]}
+                style={[styles.tabIndicator, { backgroundColor: colors.primary, left: indicatorLeft, width: tabSlot || '50%' }]}
               />
               <TouchableOpacity style={styles.tabBtn} onPress={() => switchTab('login')} activeOpacity={0.8}>
                 <Text style={[styles.tabText, { color: tab === 'login' ? '#fff' : colors.textSecondary }]}>
@@ -428,9 +437,9 @@ export default function LoginScreen() {
                     </View>
 
                     <TouchableOpacity
-                      style={[styles.btn, { backgroundColor: isLoginValid ? colors.primary : colors.border }]}
+                      style={[styles.btn, { backgroundColor: colors.primary }]}
                       onPress={handleLogin}
-                      disabled={!isLoginValid || loginLoading}
+                      disabled={loginLoading}
                       activeOpacity={0.85}
                     >
                       {loginLoading
@@ -595,9 +604,9 @@ export default function LoginScreen() {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.btn, { backgroundColor: isRegValid ? colors.primary : colors.border, marginTop: 8 }]}
+                  style={[styles.btn, { backgroundColor: colors.primary, marginTop: 8 }]}
                   onPress={handleRegister}
-                  disabled={!isRegValid || regLoading}
+                  disabled={regLoading}
                   activeOpacity={0.85}
                 >
                   {regLoading

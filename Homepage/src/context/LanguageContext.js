@@ -375,6 +375,9 @@ const translations = {
     invalidData: 'Неверные данные',
     invalidPhoneOrPass: 'Неверный телефон или пароль',
     passwordTooShort: 'Пароль должен быть не менее 6 символов',
+    enterName: 'Введите имя (минимум 2 буквы)',
+    enterValidPhone: 'Введите корректный номер телефона',
+    acceptPolicyFirst: 'Отметьте согласие с политикой конфиденциальности',
 
     // ─── Payment cards ───────────────────────────────────────
     enterCardNumber16: 'Введите полный 16-значный номер карты',
@@ -827,6 +830,9 @@ const translations = {
     invalidData: "Noto'g'ri ma'lumotlar",
     invalidPhoneOrPass: "Telefon yoki parol noto'g'ri",
     passwordTooShort: "Parol kamida 6 ta belgidan iborat bo'lishi kerak",
+    enterName: 'Ismingizni kiriting (kamida 2 harf)',
+    enterValidPhone: "To'g'ri telefon raqamini kiriting",
+    acceptPolicyFirst: 'Maxfiylik siyosatiga rozilikni belgilang',
 
     // ─── Payment cards ───────────────────────────────────────
     enterCardNumber16: "To'liq 16 raqamli karta raqamini kiriting",
