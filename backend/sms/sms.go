@@ -37,6 +37,12 @@ type Sender struct {
 
 	telegramToken string
 
+	// IssueOTP выдаёт новый код входа для номера (генерирует, сохраняет, возвращает
+	// открытый код). Подключается из routes.Setup. Когда покупатель делится
+	// контактом в боте, мы сразу выдаём и отправляем ему код — не нужно заранее
+	// «привязываться». nil — код на контакт не выдаётся (только привязка).
+	IssueOTP func(phone string) (string, error)
+
 	httpClient *http.Client
 
 	mu         sync.Mutex
@@ -246,6 +252,17 @@ func (s *Sender) HandleTelegramUpdate(raw []byte) {
 		if err != nil {
 			log.Printf("❌ telegram_links upsert: %v", err)
 			return
+		}
+		// Сразу выдаём код входа: покупатель нажал «взять код» в приложении,
+		// его перенаправили сюда, он поделился контактом — и тут же получает код.
+		if s.IssueOTP != nil {
+			if code, err := s.IssueOTP(phone); err == nil {
+				s.replyTelegram(chatID, fmt.Sprintf(
+					"✅ Готово! Ваш код входа Axentis Market: %s\n\nВведите его в приложении. Код действует 5 минут.", code))
+				return
+			} else {
+				log.Printf("⚠️ IssueOTP on contact share: %v", err)
+			}
 		}
 		s.replyTelegram(chatID, "✅ Готово! Теперь коды подтверждения Axentis Market будут приходить сюда бесплатно.")
 		return

@@ -715,6 +715,8 @@ function PanelLocksEditor({ language }: { language: string }) {
   const lockable: { key: string; label: string }[] = [
     { key: 'dashboard', label: isUz ? 'Boshqaruv' : 'Дашборд' },
     { key: 'warehouse', label: isUz ? 'Ombor va sotuv' : 'Склад и продажи' },
+    { key: 'orders', label: isUz ? 'Buyurtmalar' : 'Заказы' },
+    { key: 'barcode', label: isUz ? 'Oflayn rejim' : 'Офлайн-режим' },
     { key: 'debts', label: isUz ? 'Daftar (qarzlar)' : 'Дафтар (долги)' },
     { key: 'analytics', label: isUz ? 'Statistika' : 'Аналитика' },
     { key: 'chat', label: isUz ? 'Chat' : 'Чат' },

@@ -65,6 +65,10 @@ func Setup(router *gin.Engine, db *sql.DB, cfg *config.Config) {
 
 	// Канал доставки SMS/OTP (Eskiz → Telegram-бот → dev-лог).
 	smsSender := sms.NewSender(db, cfg.EskizEmail, cfg.EskizPassword, cfg.EskizFrom, cfg.TelegramBotToken)
+	// Когда покупатель делится контактом в боте — сразу выдаём и отправляем код.
+	smsSender.IssueOTP = func(phone string) (string, error) {
+		return handlers.IssueOTPCode(db, cfg, phone)
+	}
 	// Long polling бот (оповещения магазинам) доставляет и OTP-коды: передаём
 	// ему обработчик, чтобы webhook настраивать было не нужно.
 	handlers.SetTelegramOTPSender(smsSender)

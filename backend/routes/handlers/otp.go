@@ -77,6 +77,22 @@ func generateOTPCode() string {
 	return fmt.Sprintf("%06d", n.Int64()+100000)
 }
 
+// IssueOTPCode генерирует новый код входа для номера, сохраняет его хеш и
+// возвращает открытый код для доставки. Используется потоком Telegram
+// «поделиться контактом»: как только покупатель делится номером в боте, код
+// выдаётся и отправляется ему в чат. VerifyOTP всегда берёт самый свежий код,
+// поэтому этот путь совместим с обычным запросом кода из приложения.
+func IssueOTPCode(db *sql.DB, cfg *config.Config, phone string) (string, error) {
+	phone = sms.NormalizePhone(phone)
+	code := generateOTPCode()
+	if _, err := db.Exec(`
+		INSERT INTO otp_codes (phone, code_hash, expires_at) VALUES ($1, $2, $3)
+	`, phone, hashOTP(cfg, phone, code), time.Now().Add(otpTTL)); err != nil {
+		return "", err
+	}
+	return code, nil
+}
+
 // RequestOTP — отправить код входа на телефон.
 func RequestOTP(db *sql.DB, cfg *config.Config, sender *sms.Sender) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -125,6 +141,13 @@ func RequestOTP(db *sql.DB, cfg *config.Config, sender *sms.Sender) gin.HandlerF
 		channel, _ := sender.Send(phone, fmt.Sprintf("Axentis Market: код входа %s. Никому не сообщайте его.", code))
 
 		resp := gin.H{"success": true, "channel": channel, "ttlSeconds": int(otpTTL.Seconds())}
+		// Ссылка на Telegram-бота. Если код не удалось доставить напрямую (нет
+		// SMS-провайдера и номер ещё не привязан к боту), клиент открывает бота,
+		// где покупатель делится контактом и получает код (см. HandleTelegramUpdate).
+		if tgBotName != "" {
+			resp["telegramUrl"] = "https://t.me/" + tgBotName
+			resp["needsTelegram"] = channel != "sms" && channel != "telegram"
+		}
 		// В dev-режиме код возвращается в ответе, чтобы поток работал без
 		// настроенного провайдера. В release это выключено всегда.
 		if channel == "dev" && cfg.GinMode != "release" {

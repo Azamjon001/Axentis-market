@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator,
-  Alert, Animated, Dimensions, Modal,
+  Animated, Dimensions, Modal, Linking,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import Constants from 'expo-constants';
@@ -12,7 +12,15 @@ import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { useLanguage } from '../../context/LanguageContext';
-import { getPolicy, acceptPolicy } from '../../api';
+import { getPolicy, acceptPolicy, requestOtp, verifyPrivateCode } from '../../api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+// ВАЖНО: Alert берём из утиля, а НЕ из 'react-native' — на вебе (react-native-web)
+// нативный Alert.alert молча ничего не делает, поэтому логин/регистрация «молчали».
+import { Alert } from '../../utils/alert';
+
+// 🔒 Ключ хранения кода закрытой компании. Код вводится один раз и запоминается —
+// повторно спрашиваем только после выхода из аккаунта или переустановки.
+const PRIVATE_CODE_KEY = 'axentis_private_code';
 
 const { width } = Dimensions.get('window');
 
@@ -51,6 +59,7 @@ export default function LoginScreen() {
 
   const [tab, setTab] = useState('login');
   const tabAnim = useRef(new Animated.Value(0)).current;
+  const [tabBarWidth, setTabBarWidth] = useState(0);
 
   const [loginPhone, setLoginPhone] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -60,8 +69,8 @@ export default function LoginScreen() {
   // 🔒 Закрытая компания: вход/регистрация по уникальному ID компании.
   // В этом режиме пользователь видит ТОЛЬКО товары своей компании.
   // В сборке «Axentis Private» (APP_VARIANT=private) доступен только этот режим.
-  const isPrivateApp = Constants.expoConfig?.extra?.appVariant === 'private';
-  const [accessMode, setAccessMode] = useState(isPrivateApp ? 'private' : 'public'); // 'public' | 'private'
+  // 🔒 Маркет полностью закрытый: вход только по коду компании, публичного режима нет.
+  const accessMode = 'private';
   const [privateCode, setPrivateCode] = useState('');
   const [privateCompany, setPrivateCompany] = useState(null); // { companyId, name }
   const [checkingCode, setCheckingCode] = useState(false);
@@ -72,6 +81,8 @@ export default function LoginScreen() {
   const [otpCode, setOtpCode] = useState('');
   const [otpLoading, setOtpLoading] = useState(false);
   const [resendTimer, setResendTimer] = useState(0);
+  // Ссылка на Telegram-бота: покупатель делится контактом и получает код.
+  const [otpTelegramUrl, setOtpTelegramUrl] = useState('');
 
   useEffect(() => {
     if (resendTimer <= 0) return undefined;
@@ -145,6 +156,22 @@ export default function LoginScreen() {
       ? { mode: 'private', privateCode: privateCode.trim() }
       : {};
 
+  // 🔒 Префилл сохранённого кода компании (вводится один раз, помнится до выхода
+  // из аккаунта или переустановки). Сразу проверяем — покажем название компании.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const saved = await AsyncStorage.getItem(PRIVATE_CODE_KEY);
+        if (!saved || !alive) return;
+        setPrivateCode(saved);
+        const res = await verifyPrivateCode(saved);
+        if (alive) setPrivateCompany({ companyId: res.companyId, name: res.name });
+      } catch { /* код устарел/недоступен — пользователь введёт заново */ }
+    })();
+    return () => { alive = false; };
+  }, []);
+
   // Проверка ID закрытой компании (показывает название до входа).
   const handleCheckPrivateCode = async () => {
     if (!privateCode.trim()) return;
@@ -152,6 +179,8 @@ export default function LoginScreen() {
     try {
       const res = await verifyPrivateCode(privateCode.trim());
       setPrivateCompany({ companyId: res.companyId, name: res.name });
+      // Запоминаем код: не придётся вводить заново после выхода из аккаунта.
+      AsyncStorage.setItem(PRIVATE_CODE_KEY, privateCode.trim()).catch(() => {});
     } catch {
       setPrivateCompany(null);
       Alert.alert(t('error'), t('companyNotFound'));
@@ -162,16 +191,23 @@ export default function LoginScreen() {
 
   // 📲 Запросить SMS-код
   const handleRequestOtp = async () => {
-    if (!isLoginPhoneValid) return;
+    if (!privateCompany) { Alert.alert(t('error'), t('enterCompanyCodeFirst')); return; }
+    if (!isLoginPhoneValid) { Alert.alert(t('error'), t('enterValidPhone')); return; }
     setOtpLoading(true);
     try {
       const phone = getCleanPhone(loginPhone);
       const res = await requestOtp(phone);
       setOtpSent(true);
       setResendTimer(60);
+      setOtpTelegramUrl(res?.telegramUrl || '');
       if (res?.devCode) {
         // Провайдер не настроен (dev): код приходит в ответе, подставляем сами.
         setOtpCode(String(res.devCode));
+      } else if (res?.needsTelegram && res?.telegramUrl) {
+        // Код не доставлен напрямую (нет SMS / номер не привязан): открываем
+        // Telegram-бота — покупатель делится контактом и тут же получает код.
+        Linking.openURL(res.telegramUrl).catch(() => {});
+        Alert.alert(t('getCodeViaTelegramTitle'), t('getCodeViaTelegramMsg'));
       } else {
         Alert.alert(
           res?.channel === 'telegram' ? t('smsCodeSentTelegram') : t('smsCodeSent'),
@@ -188,7 +224,7 @@ export default function LoginScreen() {
 
   // 📲 Подтвердить SMS-код → вход (аккаунт создаётся автоматически)
   const handleVerifyOtp = async () => {
-    if (otpCode.trim().length !== 6) return;
+    if (otpCode.trim().length !== 6) { Alert.alert(t('error'), t('enterCode6')); return; }
     setOtpLoading(true);
     try {
       const phone = getCleanPhone(loginPhone);
@@ -202,7 +238,11 @@ export default function LoginScreen() {
   };
 
   const handleLogin = async () => {
-    if (!isLoginValid) return;
+    // Понятная причина вместо «молчания»: раньше кнопка была disabled и клик
+    // не давал никакой реакции. Теперь всегда объясняем, чего не хватает.
+    if (!privateCompany) { Alert.alert(t('error'), t('enterCompanyCodeFirst')); return; }
+    if (!isLoginPhoneValid) { Alert.alert(t('error'), t('enterValidPhone')); return; }
+    if (!loginPassword) { Alert.alert(t('error'), t('invalidPhoneOrPass')); return; }
     setLoginLoading(true);
     try {
       const phone = getCleanPhone(loginPhone);
@@ -236,13 +276,13 @@ export default function LoginScreen() {
   };
 
   const handleRegister = async () => {
-    if (!isRegValid) {
-      if (regPassword.length < 6) {
-        Alert.alert(t('error'), t('passwordTooShort'));
-        return;
-      }
-      return;
-    }
+    // Понятная причина вместо «молчания»: показываем, какое поле не заполнено,
+    // раньше кнопка была disabled и клик не давал никакой реакции.
+    if (!privateCompany) { Alert.alert(t('error'), t('enterCompanyCodeFirst')); return; }
+    if (regName.trim().length < 2) { Alert.alert(t('error'), t('enterName')); return; }
+    if (!isRegPhoneValid) { Alert.alert(t('error'), t('enterValidPhone')); return; }
+    if (regPassword.length < 6) { Alert.alert(t('error'), t('passwordTooShort')); return; }
+    if (!policyAccepted) { Alert.alert(t('error'), t('acceptPolicyFirst')); return; }
     setRegLoading(true);
     try {
       const phone = getCleanPhone(regPhone);
@@ -262,9 +302,12 @@ export default function LoginScreen() {
     }
   };
 
+  // Индикатор вкладок считаем от РЕАЛЬНОЙ ширины таб-бара (измеряем onLayout),
+  // а не от ширины экрана — иначе синий блок вылезал за рамку карточки.
+  const tabSlot = tabBarWidth > 0 ? (tabBarWidth - 8) / 2 : 0; // 8 = padding 4×2
   const indicatorLeft = tabAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [4, (width - 48) / 2 + 4],
+    outputRange: [4, 4 + tabSlot],
   });
 
   return (
@@ -294,9 +337,12 @@ export default function LoginScreen() {
           </View>
 
           <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <View style={[styles.tabBar, { backgroundColor: colors.inputBg }]}>
+            <View
+              style={[styles.tabBar, { backgroundColor: colors.inputBg }]}
+              onLayout={(e) => setTabBarWidth(e.nativeEvent.layout.width)}
+            >
               <Animated.View
-                style={[styles.tabIndicator, { backgroundColor: colors.primary, left: indicatorLeft }]}
+                style={[styles.tabIndicator, { backgroundColor: colors.primary, left: indicatorLeft, width: tabSlot || '50%' }]}
               />
               <TouchableOpacity style={styles.tabBtn} onPress={() => switchTab('login')} activeOpacity={0.8}>
                 <Text style={[styles.tabText, { color: tab === 'login' ? '#fff' : colors.textSecondary }]}>
@@ -310,45 +356,9 @@ export default function LoginScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* 🔒 Режим доступа: общий маркет или закрытая компания по ID.
-                В сборке «Axentis Private» переключатель скрыт — только закрытый режим. */}
-            <View style={[styles.modeRow, isPrivateApp && { display: 'none' }]}>
-              <TouchableOpacity
-                style={[
-                  styles.modeChip,
-                  {
-                    backgroundColor: accessMode === 'public' ? colors.primary + '22' : colors.inputBg,
-                    borderColor: accessMode === 'public' ? colors.primary : colors.border,
-                  },
-                ]}
-                onPress={() => { setAccessMode('public'); setPrivateCompany(null); setPrivateCode(''); }}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="globe-outline" size={15} color={accessMode === 'public' ? colors.primary : colors.textMuted} />
-                <Text style={[styles.modeChipText, { color: accessMode === 'public' ? colors.primary : colors.textSecondary }]}>
-                  {t('publicMarketMode')}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.modeChip,
-                  {
-                    backgroundColor: accessMode === 'private' ? colors.primary + '22' : colors.inputBg,
-                    borderColor: accessMode === 'private' ? colors.primary : colors.border,
-                  },
-                ]}
-                onPress={() => setAccessMode('private')}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="lock-closed-outline" size={15} color={accessMode === 'private' ? colors.primary : colors.textMuted} />
-                <Text style={[styles.modeChipText, { color: accessMode === 'private' ? colors.primary : colors.textSecondary }]}>
-                  {t('privateCompanyMode')}
-                </Text>
-              </TouchableOpacity>
-            </View>
-
+            {/* 🔒 Маркет закрытый: единственное поле — код компании (публичного режима нет). */}
             {accessMode === 'private' && (
-              <View style={{ marginTop: 12 }}>
+              <View style={{ marginTop: 16 }}>
                 <Text style={[styles.label, { color: colors.textSecondary }]}>{t('companyIdLabel')}</Text>
                 <View style={[styles.inputRow, { backgroundColor: colors.inputBg, borderColor: privateCompany ? '#22C55E' : colors.border }]}>
                   <Ionicons name="key-outline" size={18} color={colors.textMuted} style={styles.inputIcon} />
@@ -428,9 +438,9 @@ export default function LoginScreen() {
                     </View>
 
                     <TouchableOpacity
-                      style={[styles.btn, { backgroundColor: isLoginValid ? colors.primary : colors.border }]}
+                      style={[styles.btn, { backgroundColor: colors.primary }]}
                       onPress={handleLogin}
-                      disabled={!isLoginValid || loginLoading}
+                      disabled={loginLoading}
                       activeOpacity={0.85}
                     >
                       {loginLoading
@@ -473,12 +483,9 @@ export default function LoginScreen() {
                     )}
 
                     <TouchableOpacity
-                      style={[styles.btn, {
-                        backgroundColor:
-                          (otpSent ? otpCode.length === 6 : isLoginPhoneValid) ? colors.primary : colors.border,
-                      }]}
+                      style={[styles.btn, { backgroundColor: colors.primary }]}
                       onPress={otpSent ? handleVerifyOtp : handleRequestOtp}
-                      disabled={otpLoading || (otpSent ? otpCode.length !== 6 : !isLoginPhoneValid)}
+                      disabled={otpLoading}
                       activeOpacity={0.85}
                     >
                       {otpLoading
@@ -486,6 +493,18 @@ export default function LoginScreen() {
                         : <Text style={styles.btnText}>{otpSent ? t('confirmCode') : t('sendCode')}</Text>
                       }
                     </TouchableOpacity>
+
+                    {/* 📲 Открыть Telegram-бота: поделиться контактом и получить код */}
+                    {otpSent && !!otpTelegramUrl && (
+                      <TouchableOpacity
+                        onPress={() => Linking.openURL(otpTelegramUrl).catch(() => {})}
+                        style={[styles.btn, { backgroundColor: '#229ED9', marginTop: 8, flexDirection: 'row' }]}
+                        activeOpacity={0.85}
+                      >
+                        <Ionicons name="paper-plane" size={18} color="#fff" style={{ marginRight: 8 }} />
+                        <Text style={styles.btnText}>{t('openTelegramBot')}</Text>
+                      </TouchableOpacity>
+                    )}
 
                     {otpSent && (
                       <TouchableOpacity
@@ -595,9 +614,9 @@ export default function LoginScreen() {
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.btn, { backgroundColor: isRegValid ? colors.primary : colors.border, marginTop: 8 }]}
+                  style={[styles.btn, { backgroundColor: colors.primary, marginTop: 8 }]}
                   onPress={handleRegister}
-                  disabled={!isRegValid || regLoading}
+                  disabled={regLoading}
                   activeOpacity={0.85}
                 >
                   {regLoading

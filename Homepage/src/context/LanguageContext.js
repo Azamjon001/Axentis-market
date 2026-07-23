@@ -375,6 +375,14 @@ const translations = {
     invalidData: 'Неверные данные',
     invalidPhoneOrPass: 'Неверный телефон или пароль',
     passwordTooShort: 'Пароль должен быть не менее 6 символов',
+    enterName: 'Введите имя (минимум 2 буквы)',
+    enterValidPhone: 'Введите корректный номер телефона',
+    acceptPolicyFirst: 'Отметьте согласие с политикой конфиденциальности',
+    enterCompanyCodeFirst: 'Сначала введите и проверьте код компании',
+    enterCode6: 'Введите 6-значный код',
+    getCodeViaTelegramTitle: 'Получите код в Telegram',
+    getCodeViaTelegramMsg: 'Мы открыли Telegram-бот. Нажмите «Поделиться номером», получите код и введите его ниже.',
+    openTelegramBot: 'Открыть Telegram-бот и получить код',
 
     // ─── Payment cards ───────────────────────────────────────
     enterCardNumber16: 'Введите полный 16-значный номер карты',
@@ -827,6 +835,14 @@ const translations = {
     invalidData: "Noto'g'ri ma'lumotlar",
     invalidPhoneOrPass: "Telefon yoki parol noto'g'ri",
     passwordTooShort: "Parol kamida 6 ta belgidan iborat bo'lishi kerak",
+    enterName: 'Ismingizni kiriting (kamida 2 harf)',
+    enterValidPhone: "To'g'ri telefon raqamini kiriting",
+    acceptPolicyFirst: 'Maxfiylik siyosatiga rozilikni belgilang',
+    enterCompanyCodeFirst: 'Avval kompaniya kodini kiriting va tekshiring',
+    enterCode6: '6 xonali kodni kiriting',
+    getCodeViaTelegramTitle: 'Kodni Telegramda oling',
+    getCodeViaTelegramMsg: "Telegram-bot ochildi. «Raqamni ulashish»ni bosing, kodni oling va quyiga kiriting.",
+    openTelegramBot: 'Telegram-botni ochish va kod olish',
 
     // ─── Payment cards ───────────────────────────────────────
     enterCardNumber16: "To'liq 16 raqamli karta raqamini kiriting",

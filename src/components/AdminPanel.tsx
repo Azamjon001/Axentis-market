@@ -82,7 +82,7 @@ const NAV_GROUPS: NavGroup[] = [
     titleUz: 'Moliya',
     items: [
       { tab: 'payment', icon: CreditCard, label: 'Оплата', labelUz: 'Toʻlov' },
-      { tab: 'payouts', icon: Landmark, label: 'Выплаты компаниям', labelUz: 'Pul yechish' },
+      // 💸 «Выплаты компаниям» временно скрыты — вернутся с онлайн-доставкой.
       { tab: 'discounts', icon: Tag, label: 'Модерация скидок', labelUz: 'Chegirmalar' },
       { tab: 'promo', icon: Ticket, label: 'Промокоды', labelUz: 'Promokodlar' },
     ],
@@ -516,20 +516,7 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
                     </span>
                   </div>
                 </button>
-                <button
-                  onClick={() => handleNavigate('payouts')}
-                  className="bg-white rounded-2xl border border-gray-200/80 p-5 text-left hover:border-emerald-400/60 hover:shadow-sm transition-all cursor-pointer group"
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-[13px] font-medium text-gray-500 mb-1">Заявки на вывод средств</p>
-                      <p className="text-[15px] font-semibold text-gray-900 group-hover:text-emerald-700">Выплаты компаниям →</p>
-                    </div>
-                    <span className="w-11 h-11 rounded-xl bg-emerald-50 flex items-center justify-center">
-                      <Landmark className="w-5 h-5 text-emerald-600" />
-                    </span>
-                  </div>
-                </button>
+                {/* 💸 Карточка «Заявки на вывод средств» временно убрана. */}
               </div>
 
               {/* Company Settings */}
