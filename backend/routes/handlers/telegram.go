@@ -104,6 +104,47 @@ func sendTelegramMessage(chatID int64, text string) error {
 	return nil
 }
 
+// sendTelegramWelcome — приветствие покупателю на /start с выбором:
+//   • открыть магазин прямо в Telegram (Web App, без установки);
+//   • скачать приложение (APK) — если задан APK_DOWNLOAD_URL.
+// Веб-адрес берём из PUBLIC_WEB_URL (по умолчанию https://axentis.uz). Чтобы
+// кнопка Web App работала, домен нужно указать боту в @BotFather (Mini App).
+func sendTelegramWelcome(chatID int64) {
+	webURL := strings.TrimSpace(os.Getenv("PUBLIC_WEB_URL"))
+	if webURL == "" {
+		webURL = "https://axentis.uz"
+	}
+	apkURL := strings.TrimSpace(os.Getenv("APK_DOWNLOAD_URL"))
+
+	rows := [][]map[string]interface{}{
+		{{"text": "🛍 Открыть магазин в Telegram", "web_app": map[string]string{"url": webURL}}},
+	}
+	if apkURL != "" {
+		rows = append(rows, []map[string]interface{}{
+			{"text": "⬇️ Скачать приложение (Android)", "url": apkURL},
+		})
+	}
+	text := "👋 Добро пожаловать в <b>Axentis Market</b>!\n\n" +
+		"Выберите, как удобнее пользоваться:\n\n" +
+		"🛍 <b>Открыть магазин в Telegram</b> — покупки прямо здесь, без установки.\n"
+	if apkURL != "" {
+		text += "⬇️ <b>Скачать приложение</b> — полноценное приложение для Android."
+	}
+	payload, _ := json.Marshal(map[string]interface{}{
+		"chat_id":                  chatID,
+		"text":                     text,
+		"parse_mode":               "HTML",
+		"disable_web_page_preview": true,
+		"reply_markup":             map[string]interface{}{"inline_keyboard": rows},
+	})
+	resp, err := http.Post(tgAPI("sendMessage"), "application/json", bytes.NewReader(payload))
+	if err != nil {
+		log.Printf("⚠️ Telegram welcome: %v", err)
+		return
+	}
+	resp.Body.Close()
+}
+
 func randomConnectCode() string {
 	const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 	b := make([]byte, 10)
@@ -249,6 +290,13 @@ func pollTelegramUpdates(db *sql.DB) {
 }
 
 func handleTelegramMessage(db *sql.DB, chatID int64, text string, raw []byte) {
+	// Плоский /start (покупатель нажал «Start») → приветствие с выбором
+	// «магазин в Telegram / скачать приложение». Поток OTP использует
+	// /start otp, а привязка магазина — /start <код>, поэтому их не задеваем.
+	if text == "/start" {
+		sendTelegramWelcome(chatID)
+		return
+	}
 	code := ""
 	if strings.HasPrefix(text, "/start") {
 		code = strings.TrimSpace(strings.TrimPrefix(text, "/start"))
