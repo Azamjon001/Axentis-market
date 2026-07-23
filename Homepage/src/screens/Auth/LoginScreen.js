@@ -80,12 +80,8 @@ export default function LoginScreen() {
   }, [resendTimer]);
 
   const [regName, setRegName] = useState('');
-  const [regSurname, setRegSurname] = useState('');
   const [regPhone, setRegPhone] = useState('');
   const [regPassword, setRegPassword] = useState('');
-  const [regConfirm, setRegConfirm] = useState('');
-  const [regPassVisible, setRegPassVisible] = useState(false);
-  const [regConfirmVisible, setRegConfirmVisible] = useState(false);
   const [regLoading, setRegLoading] = useState(false);
   // 📜 Политика конфиденциальности: согласие обязательно для регистрации
   const [policyAccepted, setPolicyAccepted] = useState(false);
@@ -139,10 +135,8 @@ export default function LoginScreen() {
   const isRegPhoneValid = regPhoneDigits.length >= 9;
   const isRegValid =
     regName.trim().length >= 2 &&
-    regSurname.trim().length >= 2 &&
     isRegPhoneValid &&
     regPassword.length >= 6 &&
-    regPassword === regConfirm &&
     policyAccepted; // 📜 без согласия с политикой регистрация недоступна
 
   // Доп. параметры входа/регистрации для закрытой компании.
@@ -243,10 +237,6 @@ export default function LoginScreen() {
 
   const handleRegister = async () => {
     if (!isRegValid) {
-      if (regPassword !== regConfirm) {
-        Alert.alert(t('error'), t('passwordMismatch'));
-        return;
-      }
       if (regPassword.length < 6) {
         Alert.alert(t('error'), t('passwordTooShort'));
         return;
@@ -256,7 +246,7 @@ export default function LoginScreen() {
     setRegLoading(true);
     try {
       const phone = getCleanPhone(regPhone);
-      await register(phone, regName.trim(), regSurname.trim(), regPassword);
+      await register(phone, regName.trim(), '', regPassword);
       // 📜 Фиксируем принятие политики (документальное подтверждение согласия)
       acceptPolicy('customer', phone).catch(() => { /* не критично */ });
     } catch (err) {
@@ -544,19 +534,6 @@ export default function LoginScreen() {
                   />
                 </View>
 
-                <Text style={[styles.label, { color: colors.textSecondary }]}>{t('lastName')}</Text>
-                <View style={[styles.inputRow, { backgroundColor: colors.inputBg, borderColor: colors.border }]}>
-                  <Ionicons name="person-outline" size={18} color={colors.textMuted} style={styles.inputIcon} />
-                  <TextInput
-                    style={[styles.input, { color: colors.text }]}
-                    value={regSurname}
-                    onChangeText={setRegSurname}
-                    placeholder={t('yourLastName')}
-                    placeholderTextColor={colors.textMuted}
-                    autoCapitalize="words"
-                  />
-                </View>
-
                 <Text style={[styles.label, { color: colors.textSecondary }]}>{t('phoneNumber')}</Text>
                 <View style={[styles.inputRow, { backgroundColor: colors.inputBg, borderColor: colors.border }]}>
                   <Ionicons name="call-outline" size={18} color={colors.textMuted} style={styles.inputIcon} />
@@ -585,54 +562,10 @@ export default function LoginScreen() {
                     onChangeText={setRegPassword}
                     placeholder={t('minChars')}
                     placeholderTextColor={colors.textMuted}
-                    secureTextEntry={!regPassVisible}
+                    secureTextEntry
                     autoCapitalize="none"
                   />
-                  <TouchableOpacity onPress={() => setRegPassVisible(v => !v)}>
-                    <Ionicons
-                      name={regPassVisible ? 'eye-off-outline' : 'eye-outline'}
-                      size={18}
-                      color={colors.textMuted}
-                    />
-                  </TouchableOpacity>
                 </View>
-
-                <Text style={[styles.label, { color: colors.textSecondary }]}>{t('confirmPassword')}</Text>
-                <View style={[
-                  styles.inputRow,
-                  {
-                    backgroundColor: colors.inputBg,
-                    borderColor: regConfirm.length > 0 && regConfirm !== regPassword
-                      ? colors.error
-                      : colors.border,
-                  },
-                ]}>
-                  <Ionicons name="lock-closed-outline" size={18} color={colors.textMuted} style={styles.inputIcon} />
-                  <TextInput
-                    style={[styles.input, { color: colors.text }]}
-                    value={regConfirm}
-                    onChangeText={setRegConfirm}
-                    placeholder={t('repeatPassword')}
-                    placeholderTextColor={colors.textMuted}
-                    secureTextEntry={!regConfirmVisible}
-                    autoCapitalize="none"
-                  />
-                  <TouchableOpacity onPress={() => setRegConfirmVisible(v => !v)}>
-                    <Ionicons
-                      name={regConfirmVisible ? 'eye-off-outline' : 'eye-outline'}
-                      size={18}
-                      color={
-                        regConfirm.length > 0 && regConfirm !== regPassword
-                          ? colors.error
-                          : colors.textMuted
-                      }
-                    />
-                  </TouchableOpacity>
-                </View>
-
-                {regConfirm.length > 0 && regConfirm !== regPassword && (
-                  <Text style={[styles.errorHint, { color: colors.error }]}>{t('passwordMismatch')}</Text>
-                )}
 
                 {/* 📜 Согласие с политикой конфиденциальности */}
                 <TouchableOpacity
