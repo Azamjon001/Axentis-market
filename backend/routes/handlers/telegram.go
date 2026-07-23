@@ -327,11 +327,17 @@ func pollTelegramUpdates(db *sql.DB) {
 				continue
 			}
 			offset = upd.UpdateID + 1
-			// Нажатие кнопки аналитики.
+			// Нажатие кнопки аналитики — компания сама выбирает раздел.
 			if upd.CallbackQuery != nil {
 				answerCallback(upd.CallbackQuery.ID)
-				if upd.CallbackQuery.Data == "stats_today" {
-					handleCompanyStatsToday(db, upd.CallbackQuery.Message.Chat.ID)
+				cid := upd.CallbackQuery.Message.Chat.ID
+				switch upd.CallbackQuery.Data {
+				case "stats_today":
+					handleCompanyStatsToday(db, cid)
+				case "recent_orders":
+					handleCompanyRecentOrders(db, cid)
+				case "low_stock":
+					handleCompanyLowStock(db, cid)
 				}
 				continue
 			}
@@ -458,7 +464,8 @@ func handleBuyerMessage(chatID int64, text string, raw []byte) {
 
 // ─── Аналитика магазина прямо в Telegram ─────────────────────────────────────
 
-// sendCompanyAnalyticsMenu шлёт сообщение с кнопкой «Аналитика за сегодня».
+// sendCompanyAnalyticsMenu шлёт сообщение с кнопками выбора: финансы, заказы,
+// критические остатки — компания сама выбирает, что посмотреть.
 func sendCompanyAnalyticsMenu(chatID int64, text string) {
 	payload, _ := json.Marshal(map[string]interface{}{
 		"chat_id":    chatID,
@@ -466,13 +473,26 @@ func sendCompanyAnalyticsMenu(chatID int64, text string) {
 		"parse_mode": "HTML",
 		"reply_markup": map[string]interface{}{
 			"inline_keyboard": [][]map[string]interface{}{
-				{{"text": "📊 Аналитика за сегодня", "callback_data": "stats_today"}},
+				{{"text": "💰 Финансы за сегодня", "callback_data": "stats_today"}},
+				{{"text": "📋 Последние заказы", "callback_data": "recent_orders"}},
+				{{"text": "📦 Критические остатки", "callback_data": "low_stock"}},
 			},
 		},
 	})
 	if resp, err := http.Post(tgAPI("sendMessage"), "application/json", bytes.NewReader(payload)); err == nil {
 		resp.Body.Close()
 	}
+}
+
+// companyByChat находит магазин по chat_id Telegram; false — не привязан.
+func companyByChat(db *sql.DB, chatID int64) (int64, string, bool) {
+	var id int64
+	var name string
+	if err := db.QueryRow(`SELECT id, name FROM companies WHERE telegram_chat_id = $1`, chatID).Scan(&id, &name); err != nil {
+		sendTelegramMessage(chatID, "Магазин не привязан. Подключите бота в панели: Настройки → Telegram-оповещения.")
+		return 0, "", false
+	}
+	return id, name, true
 }
 
 // answerCallback закрывает «часики» на нажатой кнопке.
@@ -485,11 +505,8 @@ func answerCallback(id string) {
 
 // handleCompanyStatsToday достаёт показатели магазина за сегодня и шлёт их.
 func handleCompanyStatsToday(db *sql.DB, chatID int64) {
-	var companyID int64
-	var companyName string
-	if err := db.QueryRow(`SELECT id, name FROM companies WHERE telegram_chat_id = $1`, chatID).
-		Scan(&companyID, &companyName); err != nil {
-		sendTelegramMessage(chatID, "Магазин не привязан. Подключите бота в панели: Настройки → Telegram-оповещения.")
+	companyID, companyName, ok := companyByChat(db, chatID)
+	if !ok {
 		return
 	}
 	var todayOrders int
@@ -531,6 +548,103 @@ func fmtMoney(v float64) string {
 		b = append(b, s[i])
 	}
 	return neg + string(b)
+}
+
+func statusLabelRu(s string) string {
+	switch s {
+	case "pending":
+		return "новый"
+	case "confirmed":
+		return "принят"
+	case "processing":
+		return "в обработке"
+	case "shipped":
+		return "в пути"
+	case "delivered":
+		return "доставлен"
+	case "completed":
+		return "завершён"
+	case "cancelled":
+		return "отменён"
+	default:
+		return s
+	}
+}
+
+// handleCompanyRecentOrders — последние заказы магазина (история).
+func handleCompanyRecentOrders(db *sql.DB, chatID int64) {
+	companyID, companyName, ok := companyByChat(db, chatID)
+	if !ok {
+		return
+	}
+	rows, err := db.Query(`
+		SELECT COALESCE(order_code,''), COALESCE(customer_name,''), COALESCE(total_amount,0),
+		       COALESCE(status,''), created_at
+		FROM orders WHERE company_id = $1
+		ORDER BY id DESC LIMIT 7
+	`, companyID)
+	if err != nil {
+		sendTelegramMessage(chatID, "Не удалось получить заказы.")
+		return
+	}
+	defer rows.Close()
+	var b strings.Builder
+	fmt.Fprintf(&b, "📋 <b>%s</b> — последние заказы\n\n", html.EscapeString(companyName))
+	n := 0
+	for rows.Next() {
+		var code, cname, status string
+		var amount float64
+		var created time.Time
+		if rows.Scan(&code, &cname, &amount, &status, &created) != nil {
+			continue
+		}
+		if code == "" {
+			code = "заказ"
+		}
+		n++
+		fmt.Fprintf(&b, "• <b>%s</b> — %s сум · %s\n   %s · %s\n",
+			html.EscapeString(code), fmtMoney(amount), statusLabelRu(status),
+			html.EscapeString(cname), created.Format("02.01 15:04"))
+	}
+	if n == 0 {
+		b.WriteString("Заказов пока нет.")
+	}
+	sendCompanyAnalyticsMenu(chatID, b.String())
+}
+
+// handleCompanyLowStock — товары с критическим остатком (≤5).
+func handleCompanyLowStock(db *sql.DB, chatID int64) {
+	companyID, companyName, ok := companyByChat(db, chatID)
+	if !ok {
+		return
+	}
+	rows, err := db.Query(`
+		SELECT name, COALESCE(quantity,0)
+		FROM products
+		WHERE company_id = $1 AND available_for_customers = TRUE AND COALESCE(quantity,0) <= 5
+		ORDER BY quantity ASC LIMIT 15
+	`, companyID)
+	if err != nil {
+		sendTelegramMessage(chatID, "Не удалось получить остатки.")
+		return
+	}
+	defer rows.Close()
+	var b strings.Builder
+	fmt.Fprintf(&b, "📦 <b>%s</b> — критические остатки (≤5)\n\n", html.EscapeString(companyName))
+	n := 0
+	for rows.Next() {
+		var name string
+		var qty int
+		if rows.Scan(&name, &qty) != nil {
+			continue
+		}
+		n++
+		fmt.Fprintf(&b, "• %s — <b>%d шт</b>\n", html.EscapeString(name), qty)
+	}
+	if n == 0 {
+		b.WriteString("✅ Всё в порядке — критических остатков нет.")
+	}
+	sendCompanyAnalyticsMenu(chatID, b.String())
 }
 
 // runTelegramStockAlerts шлёт оповещение, когда остаток товара падает до
