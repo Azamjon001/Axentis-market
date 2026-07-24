@@ -645,3 +645,46 @@ body {
   border-color: var(--ax-border) !important;
 }
 
+
+/* ═══════════════════════════════════════════════════════
+   Мобильные фиксы: убираем оранжевую рамку фокуса WebView
+   (MIUI/Android) и подсветку тапа, жёлтый фон автозаполнения.
+   Раньше при тапе по любому полю/кнопке вылезал жёлтый/оранжевый
+   прямоугольник — теперь его нет ни в тёмной, ни в светлой теме.
+═══════════════════════════════════════════════════════ */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+input,
+textarea,
+select,
+button,
+a,
+[role="button"],
+[contenteditable="true"] {
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
+}
+input:focus,
+input:focus-visible,
+textarea:focus,
+textarea:focus-visible,
+select:focus,
+select:focus-visible,
+button:focus,
+button:focus-visible {
+  outline: none !important;
+}
+/* Убираем жёлтый фон автозаполнения Chrome/WebView */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active,
+textarea:-webkit-autofill,
+select:-webkit-autofill {
+  -webkit-text-fill-color: var(--ax-text) !important;
+  -webkit-box-shadow: 0 0 0 1000px var(--ax-input, var(--ax-card)) inset !important;
+  box-shadow: 0 0 0 1000px var(--ax-input, var(--ax-card)) inset !important;
+  transition: background-color 9999s ease-in-out 0s !important;
+  caret-color: var(--ax-text) !important;
+}
