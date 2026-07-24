@@ -40,6 +40,10 @@ const DEBOUNCE_MS = 300;
 export default function HomeScreen() {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  // На вебе (axentis.uz / Telegram Mini App) верхний отступ уже даёт сам
+  // Telegram/браузер. Раньше мы добавляли ещё insets.top — из-за чего сверху
+  // появлялась лишняя «чёрная» полоса ~30px. На вебе обнуляем этот отступ.
+  const topInset = Platform.OS === 'web' ? 0 : insets.top;
   const { colors, isDark } = useTheme();
   const { user } = useAuth();
   const { isFavorite, toggle: toggleFav } = useFavorites();
@@ -372,7 +376,7 @@ export default function HomeScreen() {
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
 
       {/* ── Top bar ── */}
-      <View style={[styles.topBarWrap, { backgroundColor: colors.background, paddingTop: insets.top + 12 }]}>
+      <View style={[styles.topBarWrap, { backgroundColor: colors.background, paddingTop: topInset + 12 }]}>
         {/* Greeting + actions */}
         <View style={styles.greetingRow}>
           <View style={{ flex: 1 }}>
@@ -579,7 +583,7 @@ export default function HomeScreen() {
             backgroundColor: colors.surface,
             width: DRAWER_WIDTH,
             transform: [{ translateX: drawerX }],
-            paddingTop: insets.top,
+            paddingTop: topInset,
           },
         ]}
       >
