@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  ActivityIndicator, RefreshControl, StatusBar, useWindowDimensions,
+  ActivityIndicator, RefreshControl, StatusBar, useWindowDimensions, Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -17,6 +17,8 @@ export default function CatalogScreen() {
   const { t } = useLanguage();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
+  // На вебе верхний отступ уже даёт Telegram/браузер — не добавляем insets.top.
+  const topInset = Platform.OS === 'web' ? 0 : insets.top;
   const { width } = useWindowDimensions();
 
   const [categories, setCategories] = useState([]);
@@ -64,7 +66,7 @@ export default function CatalogScreen() {
       <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} />
 
       {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+      <View style={[styles.header, { paddingTop: topInset + 12 }]}>
         <Text style={[styles.title, { color: colors.text }]}>{t('catalogTitle')}</Text>
         <TouchableOpacity
           activeOpacity={0.8}

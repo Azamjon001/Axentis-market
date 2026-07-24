@@ -577,6 +577,7 @@ func mainMenuKeyboard(lang, period string) [][]map[string]interface{} {
 			{"text": weekLabel, "callback_data": "M:" + lang + ":w"},
 		},
 		{{"text": tr(lang, "💰 Moliya", "💰 Финансы"), "callback_data": "S:" + lang + ":" + period + ":fin"}},
+		{{"text": tr(lang, "🧾 Sotilgan tovarlar", "🧾 Проданные товары"), "callback_data": "S:" + lang + ":" + period + ":sold"}},
 		{{"text": tr(lang, "📋 Buyurtmalar", "📋 Заказы"), "callback_data": "S:" + lang + ":" + period + ":ord"}},
 		{{"text": tr(lang, "📦 Kritik qoldiq", "📦 Критические остатки"), "callback_data": "S:" + lang + ":" + period + ":low"}},
 		{{"text": tr(lang, "🌐 Tilni almashtirish", "🌐 Сменить язык"), "callback_data": "LANG"}},
@@ -632,6 +633,8 @@ func editToSection(db *sql.DB, chatID, messageID int64, lang, period, section st
 	switch section {
 	case "fin":
 		text = companyFinanceText(db, chatID, name, lang, period)
+	case "sold":
+		text = companySoldText(db, chatID, name, lang, period)
 	case "ord":
 		text = companyOrdersText(db, chatID, name, lang, period)
 	case "low":
@@ -692,6 +695,87 @@ func companyFinanceText(db *sql.DB, chatID int64, name, lang, period string) str
 	fmt.Fprintf(&b, "%s: <b>%s %s</b>\n", tr(lang, "📈 Daromad", "📈 Выручка"), fmtMoney(revenue), suffix)
 	fmt.Fprintf(&b, "%s: <b>%s %s</b>\n", tr(lang, "💵 Sof foyda", "💵 Чистая прибыль"), fmtMoney(profit), suffix)
 	fmt.Fprintf(&b, "%s: <b>%d</b> · <b>%s %s</b>", tr(lang, "🏪 Kassa (oflayn)", "🏪 Касса (офлайн)"), posCnt, fmtMoney(posSum), suffix)
+	return b.String()
+}
+
+// companySoldText — какие товары и сколько продано за период, с выручкой и
+// чистой прибылью по каждому. Данные берём из позиций (items JSONB) заказов и
+// офлайн-продаж: имя, количество, цена с наценкой, наценка (markupAmount).
+func companySoldText(db *sql.DB, chatID int64, name, lang, period string) string {
+	companyID, _, _ := companyByChatQuiet(db, chatID)
+	from := periodFrom(period)
+	rows, err := db.Query(`
+		WITH items AS (
+			SELECT
+				COALESCE(NULLIF(item->>'name',''), NULLIF(item->>'productName',''), NULLIF(item->>'product_name','')) AS pname,
+				CASE WHEN item->>'quantity' ~ '^\d+$' THEN (item->>'quantity')::int ELSE 1 END AS qty,
+				COALESCE(
+					CASE WHEN item->>'priceWithMarkup'  ~ '^\d+(\.\d+)?$' THEN (item->>'priceWithMarkup')::numeric
+					     WHEN item->>'price_with_markup' ~ '^\d+(\.\d+)?$' THEN (item->>'price_with_markup')::numeric
+					     WHEN item->>'price'             ~ '^\d+(\.\d+)?$' THEN (item->>'price')::numeric
+					     ELSE 0 END, 0) AS unit_price,
+				COALESCE(CASE WHEN item->>'markupAmount' ~ '^-?\d+(\.\d+)?$' THEN (item->>'markupAmount')::numeric ELSE 0 END, 0) AS unit_profit
+			FROM orders o, jsonb_array_elements(o.items) item
+			WHERE o.company_id = $1 AND o.created_at >= $2
+			  AND o.status NOT IN ('cancelled') AND jsonb_typeof(o.items) = 'array'
+			UNION ALL
+			SELECT
+				COALESCE(NULLIF(item->>'name',''), NULLIF(item->>'productName',''), NULLIF(item->>'product_name','')) AS pname,
+				CASE WHEN item->>'quantity' ~ '^\d+$' THEN (item->>'quantity')::int ELSE 1 END AS qty,
+				COALESCE(
+					CASE WHEN item->>'priceWithMarkup'  ~ '^\d+(\.\d+)?$' THEN (item->>'priceWithMarkup')::numeric
+					     WHEN item->>'price_with_markup' ~ '^\d+(\.\d+)?$' THEN (item->>'price_with_markup')::numeric
+					     WHEN item->>'price'             ~ '^\d+(\.\d+)?$' THEN (item->>'price')::numeric
+					     ELSE 0 END, 0) AS unit_price,
+				COALESCE(CASE WHEN item->>'markupAmount' ~ '^-?\d+(\.\d+)?$' THEN (item->>'markupAmount')::numeric ELSE 0 END, 0) AS unit_profit
+			FROM sales s, jsonb_array_elements(s.items) item
+			WHERE s.company_id = $1 AND s.created_at >= $2 AND jsonb_typeof(s.items) = 'array'
+		)
+		SELECT COALESCE(MIN(pname), $3) AS pname,
+		       SUM(qty) AS qty,
+		       SUM(unit_price * qty) AS revenue,
+		       SUM(unit_profit * qty) AS profit
+		FROM items
+		WHERE pname IS NOT NULL
+		GROUP BY lower(pname)
+		ORDER BY qty DESC
+		LIMIT 15
+	`, companyID, from, tr(lang, "Tovar", "Товар"))
+	if err != nil {
+		return tr(lang, "Sotuvlarni olishning imkoni boʻlmadi.", "Не удалось получить продажи.")
+	}
+	defer rows.Close()
+
+	suffix := tr(lang, "soʻm", "сум")
+	var b strings.Builder
+	fmt.Fprintf(&b, "🧾 <b>%s</b> — %s\n\n", html.EscapeString(name), periodLabel(lang, period))
+	var totalQty int
+	var totalRevenue, totalProfit float64
+	n := 0
+	for rows.Next() {
+		var pname string
+		var qty int
+		var revenue, profit float64
+		if rows.Scan(&pname, &qty, &revenue, &profit) != nil {
+			continue
+		}
+		n++
+		totalQty += qty
+		totalRevenue += revenue
+		totalProfit += profit
+		fmt.Fprintf(&b, "• %s — <b>%d %s</b>\n   💵 %s %s · %s <b>%s %s</b>\n",
+			html.EscapeString(pname), qty, tr(lang, "dona", "шт"),
+			fmtMoney(revenue), suffix,
+			tr(lang, "sof foyda", "чистая прибыль"), fmtMoney(profit), suffix)
+	}
+	if n == 0 {
+		b.WriteString(tr(lang, "Bu davrda sotuvlar yoʻq.", "За этот период продаж нет."))
+		return b.String()
+	}
+	fmt.Fprintf(&b, "\n<b>%s:</b> %d %s · %s %s · %s <b>%s %s</b>",
+		tr(lang, "Jami", "Итого"), totalQty, tr(lang, "dona", "шт"),
+		fmtMoney(totalRevenue), suffix,
+		tr(lang, "sof foyda", "чистая прибыль"), fmtMoney(totalProfit), suffix)
 	return b.String()
 }
 
