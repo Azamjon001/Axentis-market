@@ -548,18 +548,39 @@ func handleCompanyCallback(db *sql.DB, chatID, messageID int64, data string) {
 		editTelegramMenu(chatID, messageID, languagePrompt, languageKeyboard())
 	case strings.HasPrefix(data, "L:"):
 		lang := normLang(strings.TrimPrefix(data, "L:"))
+		saveCompanyLang(db, chatID, lang)
 		editToMainMenu(db, chatID, messageID, lang, "d")
 	case strings.HasPrefix(data, "M:"):
 		p := strings.Split(data, ":")
 		if len(p) == 3 {
-			editToMainMenu(db, chatID, messageID, normLang(p[1]), normPeriod(p[2]))
+			lang := normLang(p[1])
+			saveCompanyLang(db, chatID, lang)
+			editToMainMenu(db, chatID, messageID, lang, normPeriod(p[2]))
 		}
 	case strings.HasPrefix(data, "S:"):
 		p := strings.Split(data, ":")
 		if len(p) == 4 {
-			editToSection(db, chatID, messageID, normLang(p[1]), normPeriod(p[2]), p[3])
+			lang := normLang(p[1])
+			saveCompanyLang(db, chatID, lang)
+			editToSection(db, chatID, messageID, lang, normPeriod(p[2]), p[3])
 		}
 	}
+}
+
+// saveCompanyLang запоминает выбранный в боте язык — чтобы уведомления
+// (дневной отчёт, критостатки, напоминания о долгах) приходили на нём.
+func saveCompanyLang(db *sql.DB, chatID int64, lang string) {
+	db.Exec(`UPDATE companies SET tg_lang = $1 WHERE telegram_chat_id = $2`, lang, chatID)
+}
+
+// companyLang возвращает выбранный компанией язык бота ('uz'/'ru'), по умолчанию 'ru'.
+func companyLang(db *sql.DB, companyID int64) string {
+	var lang sql.NullString
+	db.QueryRow(`SELECT tg_lang FROM companies WHERE id = $1`, companyID).Scan(&lang)
+	if lang.Valid && lang.String == "uz" {
+		return "uz"
+	}
+	return "ru"
 }
 
 func normLang(s string) string {
@@ -727,39 +748,64 @@ func companySoldText(db *sql.DB, chatID int64, name, lang, period string) string
 	companyID, _, _ := companyByChatQuiet(db, chatID)
 	from := periodFrom(period)
 	rows, err := db.Query(`
-		WITH items AS (
+		WITH raw AS (
 			SELECT
 				COALESCE(NULLIF(item->>'name',''), NULLIF(item->>'productName',''), NULLIF(item->>'product_name','')) AS pname,
+				CASE
+					WHEN item->>'productId'  ~ '^\d+$' THEN (item->>'productId')::bigint
+					WHEN item->>'product_id' ~ '^\d+$' THEN (item->>'product_id')::bigint
+					WHEN item->>'id'         ~ '^\d+$' THEN (item->>'id')::bigint
+					ELSE NULL END AS product_id,
 				CASE WHEN item->>'quantity' ~ '^\d+$' THEN (item->>'quantity')::int ELSE 1 END AS qty,
 				COALESCE(
 					CASE WHEN item->>'priceWithMarkup'  ~ '^\d+(\.\d+)?$' THEN (item->>'priceWithMarkup')::numeric
 					     WHEN item->>'price_with_markup' ~ '^\d+(\.\d+)?$' THEN (item->>'price_with_markup')::numeric
 					     WHEN item->>'price'             ~ '^\d+(\.\d+)?$' THEN (item->>'price')::numeric
 					     ELSE 0 END, 0) AS unit_price,
-				COALESCE(CASE WHEN item->>'markupAmount' ~ '^-?\d+(\.\d+)?$' THEN (item->>'markupAmount')::numeric ELSE 0 END, 0) AS unit_profit
+				CASE WHEN item->>'markupAmount' ~ '^-?\d+(\.\d+)?$' THEN (item->>'markupAmount')::numeric ELSE NULL END AS markup
 			FROM orders o, jsonb_array_elements(o.items) item
 			WHERE o.company_id = $1 AND o.created_at >= $2
 			  AND o.status NOT IN ('cancelled') AND jsonb_typeof(o.items) = 'array'
 			UNION ALL
 			SELECT
 				COALESCE(NULLIF(item->>'name',''), NULLIF(item->>'productName',''), NULLIF(item->>'product_name','')) AS pname,
+				CASE
+					WHEN item->>'productId'  ~ '^\d+$' THEN (item->>'productId')::bigint
+					WHEN item->>'product_id' ~ '^\d+$' THEN (item->>'product_id')::bigint
+					WHEN item->>'id'         ~ '^\d+$' THEN (item->>'id')::bigint
+					ELSE NULL END AS product_id,
 				CASE WHEN item->>'quantity' ~ '^\d+$' THEN (item->>'quantity')::int ELSE 1 END AS qty,
 				COALESCE(
 					CASE WHEN item->>'priceWithMarkup'  ~ '^\d+(\.\d+)?$' THEN (item->>'priceWithMarkup')::numeric
 					     WHEN item->>'price_with_markup' ~ '^\d+(\.\d+)?$' THEN (item->>'price_with_markup')::numeric
 					     WHEN item->>'price'             ~ '^\d+(\.\d+)?$' THEN (item->>'price')::numeric
 					     ELSE 0 END, 0) AS unit_price,
-				COALESCE(CASE WHEN item->>'markupAmount' ~ '^-?\d+(\.\d+)?$' THEN (item->>'markupAmount')::numeric ELSE 0 END, 0) AS unit_profit
+				CASE WHEN item->>'markupAmount' ~ '^-?\d+(\.\d+)?$' THEN (item->>'markupAmount')::numeric ELSE NULL END AS markup
 			FROM sales s, jsonb_array_elements(s.items) item
 			WHERE s.company_id = $1 AND s.created_at >= $2 AND jsonb_typeof(s.items) = 'array'
+		),
+		joined AS (
+			SELECT
+				COALESCE(r.pname, p.name) AS disp_name,
+				r.qty,
+				r.unit_price,
+				-- Чистая прибыль на единицу: если товар есть в складе — продажная
+				-- минус себестоимость (p.price = Tan narx); иначе берём markupAmount
+				-- из позиции; иначе 0.
+				COALESCE(
+					CASE WHEN p.price IS NOT NULL AND p.price > 0 AND r.unit_price > 0
+					     THEN r.unit_price - p.price ELSE NULL END,
+					r.markup, 0) AS unit_profit
+			FROM raw r
+			LEFT JOIN products p ON p.id = r.product_id
 		)
-		SELECT COALESCE(MIN(pname), $3) AS pname,
+		SELECT COALESCE(MIN(disp_name), $3) AS pname,
 		       SUM(qty) AS qty,
 		       SUM(unit_price * qty) AS revenue,
 		       SUM(unit_profit * qty) AS profit
-		FROM items
-		WHERE pname IS NOT NULL
-		GROUP BY lower(pname)
+		FROM joined
+		WHERE disp_name IS NOT NULL AND disp_name <> ''
+		GROUP BY lower(disp_name)
 		ORDER BY qty DESC
 		LIMIT 15
 	`, companyID, from, tr(lang, "Tovar", "Товар"))
@@ -962,7 +1008,8 @@ func runTelegramStockAlerts(db *sql.DB) int {
 		)
 		SELECT s.id, s.company_id, c.telegram_chat_id, s.name, s.stock,
 		       CASE WHEN s.price < a.avg_price THEN 10 ELSE 5 END AS alert_at,
-		       (s.tg_low_stock_notified_at IS NOT NULL) AS notified
+		       (s.tg_low_stock_notified_at IS NOT NULL) AS notified,
+		       COALESCE(c.tg_lang, 'ru') AS lang
 		FROM stock s
 		JOIN avgp a ON a.company_id = s.company_id
 		JOIN companies c ON c.id = s.company_id
@@ -979,6 +1026,7 @@ func runTelegramStockAlerts(db *sql.DB) int {
 		stock     int
 	}
 	alertsByChat := map[int64][]alertRow{}
+	langByChat := map[int64]string{}
 	var resetIDs []int64
 
 	for rows.Next() {
@@ -987,11 +1035,13 @@ func runTelegramStockAlerts(db *sql.DB) int {
 			name                  string
 			stock, alertAt        int
 			notified              bool
+			lang                  string
 		)
-		if rows.Scan(&id, &companyID, &chatID, &name, &stock, &alertAt, &notified) != nil {
+		if rows.Scan(&id, &companyID, &chatID, &name, &stock, &alertAt, &notified, &lang) != nil {
 			continue
 		}
 		_ = companyID
+		langByChat[chatID] = normLang(lang)
 		switch {
 		case stock > 0 && stock <= alertAt && !notified:
 			alertsByChat[chatID] = append(alertsByChat[chatID], alertRow{id, name, stock})
@@ -1007,19 +1057,21 @@ func runTelegramStockAlerts(db *sql.DB) int {
 
 	sent := 0
 	for chatID, alerts := range alertsByChat {
+		lang := langByChat[chatID]
 		var sb strings.Builder
-		sb.WriteString("⚠️ <b>Критический остаток товаров</b>\n\n")
+		sb.WriteString(tr(lang, "⚠️ <b>Tovarlar kritik qoldiqda</b>\n\n", "⚠️ <b>Критический остаток товаров</b>\n\n"))
 		limit := len(alerts)
 		if limit > 15 {
 			limit = 15
 		}
 		for i := 0; i < limit; i++ {
-			sb.WriteString(fmt.Sprintf("• %s — <b>осталось %d шт.</b>\n", html.EscapeString(alerts[i].name), alerts[i].stock))
+			sb.WriteString(fmt.Sprintf("• %s — <b>%s %d %s</b>\n", html.EscapeString(alerts[i].name),
+				tr(lang, "qoldi", "осталось"), alerts[i].stock, tr(lang, "dona", "шт.")))
 		}
 		if len(alerts) > limit {
-			sb.WriteString(fmt.Sprintf("…и ещё %d товаров\n", len(alerts)-limit))
+			sb.WriteString(fmt.Sprintf("%s %d %s\n", tr(lang, "…yana", "…и ещё"), len(alerts)-limit, tr(lang, "ta tovar", "товаров")))
 		}
-		sb.WriteString("\nПополните склад, чтобы не потерять продажи.")
+		sb.WriteString("\n" + tr(lang, "Sotuvni yoʻqotmaslik uchun omborni toʻldiring.", "Пополните склад, чтобы не потерять продажи."))
 		if err := sendTelegramMessage(chatID, sb.String()); err != nil {
 			log.Printf("⚠️ TelegramStock send: %v", err)
 			continue
@@ -1044,7 +1096,7 @@ func runTelegramDailyReports(db *sql.DB) int {
 	// ⚙️ Час отчёта настраивается компанией (tg_daily_hour, по умолчанию 21);
 	// шлём тем, у кого отчёт включён и его час уже наступил.
 	rows, err := db.Query(`
-		SELECT id, name, telegram_chat_id FROM companies
+		SELECT id, name, telegram_chat_id, COALESCE(tg_lang, 'ru') FROM companies
 		WHERE telegram_chat_id IS NOT NULL
 		  AND COALESCE(tg_notify_daily, TRUE)
 		  AND COALESCE(tg_daily_hour, 21) <= $2
@@ -1061,25 +1113,14 @@ func runTelegramDailyReports(db *sql.DB) int {
 		id     int64
 		name   string
 		chatID int64
+		lang   string
 	}
 	var comps []comp
 	for rows.Next() {
 		var c comp
-		if rows.Scan(&c.id, &c.name, &c.chatID) == nil {
+		if rows.Scan(&c.id, &c.name, &c.chatID, &c.lang) == nil {
 			comps = append(comps, c)
 		}
-	}
-
-	fmtSum := func(v float64) string {
-		s := fmt.Sprintf("%.0f", v)
-		var out strings.Builder
-		for i, ch := range s {
-			if i > 0 && (len(s)-i)%3 == 0 {
-				out.WriteByte(' ')
-			}
-			out.WriteRune(ch)
-		}
-		return out.String() + " сум"
 	}
 
 	sent := 0
@@ -1116,18 +1157,26 @@ func runTelegramDailyReports(db *sql.DB) int {
 			  AND stock.stock <= CASE WHEN stock.price < avgp.avg_price THEN 20 ELSE 10 END
 		`, cmp.id).Scan(&criticalCnt)
 
+		lang := normLang(cmp.lang)
+		cur := tr(lang, "soʻm", "сум")
 		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("📊 <b>Отчёт за %s</b> — %s\n\n", now.Format("02.01.2006"), html.EscapeString(cmp.name)))
-		sb.WriteString(fmt.Sprintf("🛍 Заказы онлайн: <b>%d</b> на %s\n", ordersCnt, fmtSum(revenue)))
-		sb.WriteString(fmt.Sprintf("🏪 Касса (офлайн): <b>%d</b> на %s\n", posCnt, fmtSum(posSum)))
-		sb.WriteString(fmt.Sprintf("💰 Наценка (навар): <b>%s</b>\n", fmtSum(markup)))
+		sb.WriteString(fmt.Sprintf("📊 <b>%s %s</b> — %s\n\n",
+			tr(lang, "Hisobot", "Отчёт за"), now.Format("02.01.2006"), html.EscapeString(cmp.name)))
+		sb.WriteString(fmt.Sprintf("%s: <b>%d</b> · %s %s\n",
+			tr(lang, "🛍 Onlayn buyurtmalar", "🛍 Заказы онлайн"), ordersCnt, fmtMoney(revenue), cur))
+		sb.WriteString(fmt.Sprintf("%s: <b>%d</b> · %s %s\n",
+			tr(lang, "🏪 Kassa (oflayn)", "🏪 Касса (офлайн)"), posCnt, fmtMoney(posSum), cur))
+		sb.WriteString(fmt.Sprintf("%s: <b>%s %s</b>\n",
+			tr(lang, "💰 Ustama (foyda)", "💰 Наценка (навар)"), fmtMoney(markup), cur))
 		if cancelledCnt > 0 {
-			sb.WriteString(fmt.Sprintf("❌ Отменено заказов: %d\n", cancelledCnt))
+			sb.WriteString(fmt.Sprintf("%s: %d\n", tr(lang, "❌ Bekor qilingan buyurtmalar", "❌ Отменено заказов"), cancelledCnt))
 		}
 		if criticalCnt > 0 {
-			sb.WriteString(fmt.Sprintf("\n⚠️ Товаров с критическим остатком: <b>%d</b> — загляните в панель.", criticalCnt))
+			sb.WriteString(fmt.Sprintf("\n%s: <b>%d</b> — %s",
+				tr(lang, "⚠️ Kritik qoldiqdagi tovarlar", "⚠️ Товаров с критическим остатком"), criticalCnt,
+				tr(lang, "panelga qarang.", "загляните в панель.")))
 		} else {
-			sb.WriteString("\n✅ Все запасы в норме.")
+			sb.WriteString("\n" + tr(lang, "✅ Zaxiralar yetarli.", "✅ Все запасы в норме."))
 		}
 
 		if err := sendTelegramMessage(cmp.chatID, sb.String()); err != nil {

@@ -326,7 +326,7 @@ func runDebtReminders(db *sql.DB) int {
 	// Telegram-бот магазина (если бот подключён и уведомление включено).
 	rows, err := db.Query(`
 		SELECT c.id, COALESCE(c.expo_push_token, ''), COALESCE(c.telegram_chat_id, 0),
-		       COALESCE(c.tg_notify_debts, TRUE),
+		       COALESCE(c.tg_notify_debts, TRUE), COALESCE(c.tg_lang, 'ru'),
 		       COUNT(d.id),
 		       COALESCE(SUM(d.amount - d.paid_amount), 0),
 		       COUNT(d.id) FILTER (WHERE d.due_date < $1::date)
@@ -337,7 +337,7 @@ func runDebtReminders(db *sql.DB) int {
 		  AND COALESCE(c.tg_debts_hour, 10) <= $2
 		  AND d.status = 'open' AND d.due_date IS NOT NULL AND d.due_date <= $1::date
 		  AND (c.debts_last_reminder_date IS NULL OR c.debts_last_reminder_date < $1::date)
-		GROUP BY c.id, c.expo_push_token, c.telegram_chat_id, c.tg_notify_debts
+		GROUP BY c.id, c.expo_push_token, c.telegram_chat_id, c.tg_notify_debts, c.tg_lang
 		LIMIT 500
 	`, today, now.Hour())
 	if err != nil {
@@ -351,6 +351,7 @@ func runDebtReminders(db *sql.DB) int {
 		token     string
 		chatID    int64
 		tgEnabled bool
+		lang      string
 		count     int
 		total     float64
 		overdue   int
@@ -358,22 +359,25 @@ func runDebtReminders(db *sql.DB) int {
 	var list []row
 	for rows.Next() {
 		var r row
-		if rows.Scan(&r.companyID, &r.token, &r.chatID, &r.tgEnabled, &r.count, &r.total, &r.overdue) == nil {
+		if rows.Scan(&r.companyID, &r.token, &r.chatID, &r.tgEnabled, &r.lang, &r.count, &r.total, &r.overdue) == nil {
 			list = append(list, r)
 		}
 	}
 
 	sent := 0
 	for _, r := range list {
-		body := fmt.Sprintf("Срок у %d долгов на %s", r.count, formatSumUZS(r.total))
+		lang := normLang(r.lang)
+		title := tr(lang, "💳 Daftar: qarzlarni eslatish vaqti", "💳 Дафтар: пора напомнить о долгах")
+		body := fmt.Sprintf(tr(lang, "%d ta qarz muddati keldi, jami %s",
+			"Срок у %d долгов на %s"), r.count, formatSumUZS(r.total))
 		if r.overdue > 0 {
-			body += fmt.Sprintf(", из них просрочено: %d", r.overdue)
+			body += fmt.Sprintf(tr(lang, ", shundan muddati oʻtgan: %d", ", из них просрочено: %d"), r.overdue)
 		}
 		delivered := false
 		// 📲 Push в приложение
 		if r.token != "" {
 			if _, err := SendExpoPushNotificationData(
-				[]string{r.token}, "💳 Дафтар: пора напомнить о долгах", body,
+				[]string{r.token}, title, body,
 				map[string]interface{}{"type": "company_debt_reminder"},
 			); err == nil {
 				delivered = true
@@ -381,7 +385,7 @@ func runDebtReminders(db *sql.DB) int {
 		}
 		// ✈️ Сообщение в Telegram-бот магазина
 		if r.chatID != 0 && r.tgEnabled {
-			if err := sendTelegramMessage(r.chatID, "💳 <b>Дафтар: пора напомнить о долгах</b>\n"+body); err == nil {
+			if err := sendTelegramMessage(r.chatID, "<b>"+title+"</b>\n"+body); err == nil {
 				delivered = true
 			}
 		}

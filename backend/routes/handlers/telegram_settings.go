@@ -31,6 +31,9 @@ func MigrateTelegramSettings(db *sql.DB) {
 		`ALTER TABLE companies ADD COLUMN IF NOT EXISTS tg_daily_hour INT DEFAULT 21`,
 		`ALTER TABLE companies ADD COLUMN IF NOT EXISTS tg_notify_debts BOOLEAN DEFAULT TRUE`,
 		`ALTER TABLE companies ADD COLUMN IF NOT EXISTS tg_debts_hour INT DEFAULT 10`,
+		// Язык интерфейса бота и ВСЕХ уведомлений (uz/ru). Выбирается в боте
+		// кнопкой «язык» и запоминается, чтобы отчёты/напоминания приходили на нём.
+		`ALTER TABLE companies ADD COLUMN IF NOT EXISTS tg_lang VARCHAR(4) DEFAULT 'ru'`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
@@ -151,14 +154,20 @@ func NotifyCompanyOrderTelegram(db *sql.DB, companyID int64, orderCode string, t
 	}()
 	var chatID sql.NullInt64
 	var enabled sql.NullBool
+	var lang sql.NullString
 	err := db.QueryRow(`
-		SELECT telegram_chat_id, COALESCE(tg_notify_orders, TRUE)
+		SELECT telegram_chat_id, COALESCE(tg_notify_orders, TRUE), COALESCE(tg_lang, 'ru')
 		FROM companies WHERE id = $1
-	`, companyID).Scan(&chatID, &enabled)
+	`, companyID).Scan(&chatID, &enabled, &lang)
 	if err != nil || !chatID.Valid || chatID.Int64 == 0 || !enabled.Bool {
 		return
 	}
-	text := fmt.Sprintf("🛍 <b>Новый заказ #%s</b>\n💰 %s", orderCode, formatSumUZS(totalAmount))
+	l := "ru"
+	if lang.Valid && lang.String == "uz" {
+		l = "uz"
+	}
+	text := fmt.Sprintf(tr(l, "🛍 <b>Yangi buyurtma #%s</b>\n💰 %s", "🛍 <b>Новый заказ #%s</b>\n💰 %s"),
+		orderCode, formatSumUZS(totalAmount))
 	if customerName != "" {
 		text += "\n👤 " + customerName
 	}
