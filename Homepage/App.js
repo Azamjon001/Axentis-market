@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, Platform } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import * as Location from 'expo-location';
@@ -27,6 +27,35 @@ Notifications.setNotificationHandler({
 async function requestStartupPermissions() {
   await Notifications.requestPermissionsAsync();
   await Location.requestForegroundPermissionsAsync();
+}
+
+// 🌐 На вебе (axentis.uz / Telegram Mini App) браузерный WebView — особенно
+// MIUI/Android — рисует оранжевую рамку фокуса и подсветку тапа на полях и
+// кнопках. Глобально убираем их, чтобы «жёлтый прямоугольник» не выскакивал.
+if (Platform.OS === 'web' && typeof document !== 'undefined') {
+  const style = document.createElement('style');
+  style.setAttribute('data-axentis', 'focus-reset');
+  style.innerHTML = `
+    * { -webkit-tap-highlight-color: transparent; }
+    input, textarea, select, button, a, [role="button"], [contenteditable="true"] {
+      outline: none !important;
+      -webkit-tap-highlight-color: transparent;
+    }
+    input:focus, input:focus-visible,
+    textarea:focus, textarea:focus-visible,
+    select:focus, select:focus-visible,
+    button:focus, button:focus-visible,
+    [tabindex]:focus, [tabindex]:focus-visible {
+      outline: none !important;
+      box-shadow: none;
+    }
+    input:-webkit-autofill,
+    input:-webkit-autofill:hover,
+    input:-webkit-autofill:focus {
+      transition: background-color 9999s ease-in-out 0s !important;
+    }
+  `;
+  document.head.appendChild(style);
 }
 
 export default function App() {
