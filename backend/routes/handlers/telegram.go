@@ -44,6 +44,7 @@ var (
 	tgBotName      string
 	tgBuyerToken   string // бот ПОКУПАТЕЛЕЙ: приветствие + Web App + OTP
 	tgBuyerBotName string
+	tgOpenAIKey    string // ключ OpenAI для голосовых отчётов (STT + разбор)
 	tgInitOnce     sync.Once
 	// 📲 OTP-доставка (вход по SMS-коду): сообщения покупателей (контакты)
 	// передаются сюда — тот же обработчик, что у webhook.
@@ -86,6 +87,10 @@ func initTelegram() {
 	tgInitOnce.Do(func() {
 		tgToken = strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN"))
 		tgBuyerToken = strings.TrimSpace(os.Getenv("TELEGRAM_BUYER_BOT_TOKEN"))
+		tgOpenAIKey = strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+		if tgOpenAIKey != "" {
+			log.Printf("🎙 Голосовые отчёты в боте компаний включены (OpenAI)")
+		}
 		if tgToken != "" {
 			tgBotName = tgGetUsername(tgToken)
 			log.Printf("🤖 Telegram-бот КОМПАНИЙ подключён: @%s", tgBotName)
@@ -118,8 +123,9 @@ func sendTelegramMessage(chatID int64, text string) error {
 }
 
 // sendTelegramWelcome — приветствие покупателю на /start с выбором:
-//   • открыть магазин прямо в Telegram (Web App, без установки);
-//   • скачать приложение (APK) — если задан APK_DOWNLOAD_URL.
+//   - открыть магазин прямо в Telegram (Web App, без установки);
+//   - скачать приложение (APK) — если задан APK_DOWNLOAD_URL.
+//
 // Веб-адрес берём из PUBLIC_WEB_URL (по умолчанию https://axentis.uz). Чтобы
 // кнопка Web App работала, домен нужно указать боту в @BotFather (Mini App).
 func sendTelegramWelcome(chatID int64) {
@@ -312,6 +318,9 @@ func pollTelegramUpdates(db *sql.DB) {
 					Chat struct {
 						ID int64 `json:"id"`
 					} `json:"chat"`
+					Voice *struct {
+						FileID string `json:"file_id"`
+					} `json:"voice"`
 				} `json:"message"`
 				CallbackQuery *struct {
 					ID      string `json:"id"`
@@ -340,6 +349,13 @@ func pollTelegramUpdates(db *sql.DB) {
 				continue
 			}
 			if upd.Message == nil {
+				continue
+			}
+			// 🎙 Голосовое сообщение компании — дневной отчёт голосом (STT + LLM).
+			// В отдельной горутине: распознавание идёт несколько секунд, нельзя
+			// блокировать общий цикл опроса.
+			if upd.Message.Voice != nil {
+				go handleCompanyVoice(db, upd.Message.Chat.ID, upd.Message.Voice.FileID)
 				continue
 			}
 			handleTelegramMessage(db, upd.Message.Chat.ID, strings.TrimSpace(upd.Message.Text), raw)
@@ -620,6 +636,12 @@ func editToMainMenu(db *sql.DB, chatID, messageID int64, lang, period string) {
 	text := fmt.Sprintf("🏪 <b>%s</b>\n📅 %s\n\n%s",
 		html.EscapeString(name), periodLabel(lang, period),
 		tr(lang, "Boʻlimni tanlang:", "Выберите раздел:"))
+	// Подсказка о голосовом отчёте — только если функция включена (есть ключ).
+	if tgOpenAIKey != "" {
+		text += "\n\n" + tr(lang,
+			"🎙 Kunlik hisobotni ovozli xabar bilan yuboring — sotuv, foyda va qarzni oʻzim hisoblayman.",
+			"🎙 Отправьте голосовое сообщение с дневным отчётом — сам посчитаю продажи, прибыль и долги.")
+	}
 	editTelegramMenu(chatID, messageID, text, mainMenuKeyboard(lang, period))
 }
 
@@ -918,8 +940,10 @@ func companyLowStockText(db *sql.DB, chatID int64, name, lang string) string {
 
 // runTelegramStockAlerts шлёт оповещение, когда остаток товара падает до
 // ПОЛОВИНЫ порога «критических товаров» из панели:
-//   цена ниже средней по магазину  → порог 20 → сигнал при остатке ≤ 10;
-//   цена выше средней              → порог 10 → сигнал при остатке ≤ 5.
+//
+//	цена ниже средней по магазину  → порог 20 → сигнал при остатке ≤ 10;
+//	цена выше средней              → порог 10 → сигнал при остатке ≤ 5.
+//
 // Один сигнал на товар; после пополнения выше ПОЛНОГО порога флаг снимается,
 // и при следующем падении придёт новое оповещение.
 func runTelegramStockAlerts(db *sql.DB) int {
