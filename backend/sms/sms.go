@@ -219,7 +219,8 @@ func (s *Sender) sendTelegram(phone, message string) error {
 func (s *Sender) HandleTelegramUpdate(raw []byte) {
 	var upd struct {
 		Message struct {
-			Chat struct {
+			MessageID int64 `json:"message_id"`
+			Chat      struct {
 				ID int64 `json:"id"`
 			} `json:"chat"`
 			Text    string `json:"text"`
@@ -242,6 +243,11 @@ func (s *Sender) HandleTelegramUpdate(raw []byte) {
 		if upd.Message.Contact.UserID != 0 && upd.Message.Contact.UserID != upd.Message.From.ID {
 			s.replyTelegram(chatID, "Пожалуйста, поделитесь своим собственным контактом.")
 			return
+		}
+		// Номер телефона — личные данные: сообщение с контактом убираем из чата
+		// через минуту, чтобы в переписке оставался только «чистый» диалог.
+		if upd.Message.MessageID != 0 {
+			s.deleteMessageAfter(chatID, upd.Message.MessageID, time.Minute)
 		}
 		phone := NormalizePhone(upd.Message.Contact.PhoneNumber)
 		_, err := s.db.Exec(`
@@ -295,6 +301,27 @@ func (s *Sender) replyTelegramWithContactButton(chatID int64, text string) {
 		},
 	})
 	s.postTelegram(payload)
+}
+
+// deleteMessageAfter удаляет сообщение из чата спустя указанную задержку.
+// Используется для контактов покупателей (личный номер телефона): через минуту
+// сообщение с номером исчезает, а сам диалог остаётся аккуратным.
+func (s *Sender) deleteMessageAfter(chatID, messageID int64, delay time.Duration) {
+	go func() {
+		time.Sleep(delay)
+		payload, _ := json.Marshal(map[string]interface{}{
+			"chat_id":    chatID,
+			"message_id": messageID,
+		})
+		resp, err := s.httpClient.Post(
+			"https://api.telegram.org/bot"+s.telegramToken+"/deleteMessage",
+			"application/json", bytes.NewReader(payload))
+		if err != nil {
+			log.Printf("⚠️ telegram deleteMessage failed: %v", err)
+			return
+		}
+		resp.Body.Close()
+	}()
 }
 
 func (s *Sender) postTelegram(payload []byte) {

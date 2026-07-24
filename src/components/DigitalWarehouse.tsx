@@ -2043,8 +2043,10 @@ export const DigitalWarehouse: React.FC<DigitalWarehouseProps> = ({ companyId })
               const sellingPr = product.sellingPrice || product.price || 0;
               return (
                 <div key={product.id} style={{ background: 'var(--ax-card)', border: `1px solid ${isHidden ? 'rgba(248,113,113,0.35)' : 'rgba(255,255,255,0.07)'}`, borderRadius: 14, overflow: 'hidden', opacity: isHidden ? 0.6 : 1 }}>
-                  {/* Main product row */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 16px' }}>
+                  {/* Main product row — на узких экранах кнопки переносятся под инфо,
+                      поэтому картинка+данные и кнопки завёрнуты в отдельные flex-блоки. */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: '1 1 220px', minWidth: 0 }}>
                     {/* ☑️ Чекбокс массового выделения */}
                     <input
                       type="checkbox"
@@ -2082,8 +2084,9 @@ export const DigitalWarehouse: React.FC<DigitalWarehouseProps> = ({ companyId })
                         {sellingPr > 0 && <span style={{ fontSize: 12, fontWeight: 600, color: '#7C5CF0' }}>{language === 'uz' ? 'Sotuv:' : 'Продажа:'} {sellingPr.toLocaleString()} сум</span>}
                       </div>
                     </div>
+                    </div>
                     {/* Actions */}
-                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                    <div style={{ display: 'flex', gap: 6, flexShrink: 0, marginLeft: 'auto', flexWrap: 'wrap' }}>
                       <button
                         onClick={() => toggleVariants(String(product.id))}
                         style={{ padding: '6px 10px', borderRadius: 8, background: expandedVariants.has(String(product.id)) ? 'rgba(124,92,240,0.2)' : 'rgba(255,255,255,0.05)', border: 'none', color: expandedVariants.has(String(product.id)) ? '#A78BFA' : '#8B8BAA', cursor: 'pointer', fontSize: 11 }}
