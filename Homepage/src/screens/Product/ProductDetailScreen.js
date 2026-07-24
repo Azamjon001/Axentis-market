@@ -303,6 +303,16 @@ export default function ProductDetailScreen() {
     const next = selectedColor === color ? null : color;
     setSelectedColor(next);
     setSelectedSize(null);
+    // Если у товара только цвета (без размеров), выбор цвета сразу задаёт вариант.
+    if (next) {
+      const sizesOfColor = variants.filter(v => v.color === next).map(v => v.size).filter(Boolean);
+      if (sizesOfColor.length === 0) {
+        const match = variants.find(v => v.color === next && (v.stockQuantity || 0) > 0)
+          ?? variants.find(v => v.color === next);
+        setSelectedVariant(match ?? null);
+        return;
+      }
+    }
     setSelectedVariant(null);
   };
 
@@ -765,7 +775,15 @@ export default function ProductDetailScreen() {
                 </View>
               )}
 
-              {sizesForColor(selectedColor).length > 0 && (
+              {/* Размеры показываем только ПОСЛЕ выбора цвета (если цвета есть).
+                  Пока цвет не выбран — подсказка «сначала выберите вариант». */}
+              {uniqueColors.length > 0 && !selectedColor && (
+                <Text style={[styles.variantHint, { color: colors.textMuted, marginTop: 0 }]}>
+                  {t('selectColorFirst')}
+                </Text>
+              )}
+
+              {(uniqueColors.length === 0 || selectedColor) && sizesForColor(selectedColor).length > 0 && (
                 <View>
                   <Text style={[styles.variantLabel, { color: colors.text }]}>
                     {sizesForColor(selectedColor).some(s => /gb|гб|tb|тб|\d\/\d/i.test(String(s))) ? t('memoryLabel') : t('sizeLabel')}
@@ -823,7 +841,7 @@ export default function ProductDetailScreen() {
                 </View>
               )}
 
-              {!selectedVariant && (
+              {!selectedVariant && (uniqueColors.length === 0 || selectedColor) && (
                 <Text style={[styles.variantHint, { color: colors.textMuted }]}>
                   {t('selectSize')}
                 </Text>

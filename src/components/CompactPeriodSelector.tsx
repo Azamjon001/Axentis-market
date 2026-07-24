@@ -76,8 +76,11 @@ export default function CompactPeriodSelector<T extends PeriodType = PeriodType>
             onClick={() => setIsOpen(false)}
           />
 
+          {/* Меню открывается от левого края кнопки (left-0): на узких экранах
+              кнопка обычно стоит слева, и прежний right-0 уводил список за левую
+              границу экрана. maxWidth не даёт списку вылезти и за правый край. */}
           <div
-            className="absolute right-0 mt-2 w-44 rounded-xl z-50 overflow-hidden"
+            className="absolute left-0 mt-2 w-44 max-w-[calc(100vw-24px)] rounded-xl z-50 overflow-hidden"
             style={{
               background: 'var(--ax-card)',
               border: '1px solid var(--ax-border)',

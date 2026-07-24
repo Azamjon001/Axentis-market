@@ -317,7 +317,8 @@ func pollTelegramUpdates(db *sql.DB) {
 					ID      string `json:"id"`
 					Data    string `json:"data"`
 					Message struct {
-						Chat struct {
+						MessageID int64 `json:"message_id"`
+						Chat      struct {
 							ID int64 `json:"id"`
 						} `json:"chat"`
 					} `json:"message"`
@@ -327,18 +328,15 @@ func pollTelegramUpdates(db *sql.DB) {
 				continue
 			}
 			offset = upd.UpdateID + 1
-			// Нажатие кнопки аналитики — компания сама выбирает раздел.
+			// Нажатие inline-кнопки: язык / период / раздел. Всё в одном
+			// сообщении — как у @BotFather: правим текущее сообщение и клавиатуру,
+			// новых сообщений не шлём.
 			if upd.CallbackQuery != nil {
 				answerCallback(upd.CallbackQuery.ID)
-				cid := upd.CallbackQuery.Message.Chat.ID
-				switch upd.CallbackQuery.Data {
-				case "stats_today":
-					handleCompanyStatsToday(db, cid)
-				case "recent_orders":
-					handleCompanyRecentOrders(db, cid)
-				case "low_stock":
-					handleCompanyLowStock(db, cid)
-				}
+				handleCompanyCallback(db,
+					upd.CallbackQuery.Message.Chat.ID,
+					upd.CallbackQuery.Message.MessageID,
+					upd.CallbackQuery.Data)
 				continue
 			}
 			if upd.Message == nil {
@@ -412,7 +410,7 @@ func handleTelegramMessage(db *sql.DB, chatID int64, text string, raw []byte) {
 		var cid int64
 		var cname string
 		if err := db.QueryRow(`SELECT id, name FROM companies WHERE telegram_chat_id = $1`, chatID).Scan(&cid, &cname); err == nil {
-			sendCompanyAnalyticsMenu(chatID, fmt.Sprintf("🏪 <b>%s</b>\n\nНажмите кнопку — покажу показатели за сегодня.", html.EscapeString(cname)))
+			sendLanguageMenu(chatID)
 		} else {
 			sendTelegramMessage(chatID, "Это бот Axentis Market для магазинов.\nПодключите его в панели: Настройки → Telegram-оповещения.")
 		}
@@ -445,9 +443,10 @@ func handleTelegramMessage(db *sql.DB, chatID int64, text string, raw []byte) {
 		sendTelegramMessage(chatID, "❌ Не удалось сохранить привязку, попробуйте ещё раз.")
 		return
 	}
-	sendCompanyAnalyticsMenu(chatID, fmt.Sprintf(
-		"✅ Магазин «%s» подключён!\n\nСюда приходят: ⚠️ критические остатки, 📊 дневной отчёт в 21:00, 💳 напоминания о долгах.\n\nА кнопкой ниже — показатели за сегодня.",
+	sendTelegramMessage(chatID, fmt.Sprintf(
+		"✅ Магазин «%s» подключён!\n\nСюда приходят: ⚠️ критические остатки, 📊 дневной отчёт в 21:00, 💳 напоминания о долгах.",
 		html.EscapeString(companyName)))
+	sendLanguageMenu(chatID)
 }
 
 // handleBuyerMessage — обработчик бота ПОКУПАТЕЛЕЙ: приветствие + доставка OTP.
@@ -462,26 +461,186 @@ func handleBuyerMessage(chatID int64, text string, raw []byte) {
 	}
 }
 
-// ─── Аналитика магазина прямо в Telegram ─────────────────────────────────────
+// ─── Аналитика магазина прямо в Telegram (стиль @BotFather) ──────────────────
+//
+// Одно живое сообщение. Пользователь выбирает язык (🇺🇿/🇷🇺) → появляется
+// главное меню с переключателем периода (сегодня / неделя) и разделами
+// (финансы, заказы, критические остатки). Любое нажатие ПРАВИТ то же
+// сообщение (editMessageText) и его inline-клавиатуру — новых сообщений не шлём.
+//
+// Состояние целиком живёт в callback_data (язык, период, раздел), поэтому
+// хранить его в БД не нужно:
+//   L:<lang>                 — выбран язык, показать меню (период = день);
+//   M:<lang>:<period>        — меню с переключателем периода (d|w);
+//   S:<lang>:<period>:<sec>  — раздел (fin|ord|low), у него кнопка «Назад» → M;
+//   LANG                     — вернуться к выбору языка.
 
-// sendCompanyAnalyticsMenu шлёт сообщение с кнопками выбора: финансы, заказы,
-// критические остатки — компания сама выбирает, что посмотреть.
-func sendCompanyAnalyticsMenu(chatID int64, text string) {
-	payload, _ := json.Marshal(map[string]interface{}{
-		"chat_id":    chatID,
-		"text":       text,
-		"parse_mode": "HTML",
-		"reply_markup": map[string]interface{}{
-			"inline_keyboard": [][]map[string]interface{}{
-				{{"text": "💰 Финансы за сегодня", "callback_data": "stats_today"}},
-				{{"text": "📋 Последние заказы", "callback_data": "recent_orders"}},
-				{{"text": "📦 Критические остатки", "callback_data": "low_stock"}},
-			},
+// tr выбирает строку по языку интерфейса бота (uz — узбекский, иначе русский).
+func tr(lang, uz, ru string) string {
+	if lang == "uz" {
+		return uz
+	}
+	return ru
+}
+
+// languageKeyboard — клавиатура выбора языка.
+func languageKeyboard() [][]map[string]interface{} {
+	return [][]map[string]interface{}{
+		{
+			{"text": "🇺🇿 Oʻzbekcha", "callback_data": "L:uz"},
+			{"text": "🇷🇺 Русский", "callback_data": "L:ru"},
 		},
+	}
+}
+
+const languagePrompt = "🌐 <b>Tilni tanlang / Выберите язык</b>"
+
+// sendLanguageMenu — единственное «новое» сообщение бота: приветствие с выбором
+// языка. Дальше всё живёт правкой этого сообщения.
+func sendLanguageMenu(chatID int64) {
+	payload, _ := json.Marshal(map[string]interface{}{
+		"chat_id":                  chatID,
+		"text":                     languagePrompt,
+		"parse_mode":               "HTML",
+		"disable_web_page_preview": true,
+		"reply_markup":             map[string]interface{}{"inline_keyboard": languageKeyboard()},
 	})
 	if resp, err := http.Post(tgAPI("sendMessage"), "application/json", bytes.NewReader(payload)); err == nil {
 		resp.Body.Close()
 	}
+}
+
+// editTelegramMenu правит текст и inline-клавиатуру существующего сообщения.
+func editTelegramMenu(chatID, messageID int64, text string, keyboard [][]map[string]interface{}) {
+	payload, _ := json.Marshal(map[string]interface{}{
+		"chat_id":                  chatID,
+		"message_id":               messageID,
+		"text":                     text,
+		"parse_mode":               "HTML",
+		"disable_web_page_preview": true,
+		"reply_markup":             map[string]interface{}{"inline_keyboard": keyboard},
+	})
+	if resp, err := http.Post(tgAPI("editMessageText"), "application/json", bytes.NewReader(payload)); err == nil {
+		resp.Body.Close()
+	}
+}
+
+// handleCompanyCallback — маршрутизатор нажатий inline-кнопок бота компаний.
+func handleCompanyCallback(db *sql.DB, chatID, messageID int64, data string) {
+	switch {
+	case data == "LANG":
+		editTelegramMenu(chatID, messageID, languagePrompt, languageKeyboard())
+	case strings.HasPrefix(data, "L:"):
+		lang := normLang(strings.TrimPrefix(data, "L:"))
+		editToMainMenu(db, chatID, messageID, lang, "d")
+	case strings.HasPrefix(data, "M:"):
+		p := strings.Split(data, ":")
+		if len(p) == 3 {
+			editToMainMenu(db, chatID, messageID, normLang(p[1]), normPeriod(p[2]))
+		}
+	case strings.HasPrefix(data, "S:"):
+		p := strings.Split(data, ":")
+		if len(p) == 4 {
+			editToSection(db, chatID, messageID, normLang(p[1]), normPeriod(p[2]), p[3])
+		}
+	}
+}
+
+func normLang(s string) string {
+	if s == "uz" {
+		return "uz"
+	}
+	return "ru"
+}
+
+func normPeriod(s string) string {
+	if s == "w" {
+		return "w"
+	}
+	return "d"
+}
+
+// mainMenuKeyboard — главное меню: переключатель периода + разделы.
+func mainMenuKeyboard(lang, period string) [][]map[string]interface{} {
+	dayLabel := tr(lang, "Bugun", "Сегодня")
+	weekLabel := tr(lang, "Hafta", "Неделя")
+	if period == "w" {
+		weekLabel = "✅ " + weekLabel
+		dayLabel = "📅 " + dayLabel
+	} else {
+		dayLabel = "✅ " + dayLabel
+		weekLabel = "📅 " + weekLabel
+	}
+	return [][]map[string]interface{}{
+		{
+			{"text": dayLabel, "callback_data": "M:" + lang + ":d"},
+			{"text": weekLabel, "callback_data": "M:" + lang + ":w"},
+		},
+		{{"text": tr(lang, "💰 Moliya", "💰 Финансы"), "callback_data": "S:" + lang + ":" + period + ":fin"}},
+		{{"text": tr(lang, "📋 Buyurtmalar", "📋 Заказы"), "callback_data": "S:" + lang + ":" + period + ":ord"}},
+		{{"text": tr(lang, "📦 Kritik qoldiq", "📦 Критические остатки"), "callback_data": "S:" + lang + ":" + period + ":low"}},
+		{{"text": tr(lang, "🌐 Tilni almashtirish", "🌐 Сменить язык"), "callback_data": "LANG"}},
+	}
+}
+
+// backKeyboard — единственная кнопка «Назад» в раздел меню (с тем же периодом).
+func backKeyboard(lang, period string) [][]map[string]interface{} {
+	return [][]map[string]interface{}{
+		{{"text": tr(lang, "⬅️ Orqaga", "⬅️ Назад"), "callback_data": "M:" + lang + ":" + period}},
+	}
+}
+
+// periodLabel — человекочитаемая подпись периода.
+func periodLabel(lang, period string) string {
+	if period == "w" {
+		return tr(lang, "Hafta (7 kun)", "Неделя (7 дней)")
+	}
+	return tr(lang, "Bugun", "Сегодня")
+}
+
+// periodFrom возвращает начало периода (в UTC) по часовому поясу Ташкента:
+// «сегодня» — с полуночи, «неделя» — за последние 7 дней.
+func periodFrom(period string) time.Time {
+	tz := time.FixedZone("UZT", tzTashkentOffset)
+	now := time.Now().In(tz)
+	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, tz).UTC()
+	if period == "w" {
+		return dayStart.AddDate(0, 0, -6)
+	}
+	return dayStart
+}
+
+// editToMainMenu правит сообщение в главное меню магазина.
+func editToMainMenu(db *sql.DB, chatID, messageID int64, lang, period string) {
+	_, name, ok := companyByChat(db, chatID)
+	if !ok {
+		return
+	}
+	text := fmt.Sprintf("🏪 <b>%s</b>\n📅 %s\n\n%s",
+		html.EscapeString(name), periodLabel(lang, period),
+		tr(lang, "Boʻlimni tanlang:", "Выберите раздел:"))
+	editTelegramMenu(chatID, messageID, text, mainMenuKeyboard(lang, period))
+}
+
+// editToSection правит сообщение в выбранный раздел.
+func editToSection(db *sql.DB, chatID, messageID int64, lang, period, section string) {
+	_, name, ok := companyByChat(db, chatID)
+	if !ok {
+		return
+	}
+	var text string
+	switch section {
+	case "fin":
+		text = companyFinanceText(db, chatID, name, lang, period)
+	case "ord":
+		text = companyOrdersText(db, chatID, name, lang, period)
+	case "low":
+		text = companyLowStockText(db, chatID, name, lang)
+	default:
+		editToMainMenu(db, chatID, messageID, lang, period)
+		return
+	}
+	editTelegramMenu(chatID, messageID, text, backKeyboard(lang, period))
 }
 
 // companyByChat находит магазин по chat_id Telegram; false — не привязан.
@@ -503,33 +662,51 @@ func answerCallback(id string) {
 	}
 }
 
-// handleCompanyStatsToday достаёт показатели магазина за сегодня и шлёт их.
-func handleCompanyStatsToday(db *sql.DB, chatID int64) {
-	companyID, companyName, ok := companyByChat(db, chatID)
-	if !ok {
-		return
-	}
-	var todayOrders int
-	var todayRevenue, todayProfit float64
+// companyFinanceText — финансы магазина за выбранный период. Без «продано всего»:
+// показываем то, что относится к периоду (заказы, выручка, наценка, касса).
+func companyFinanceText(db *sql.DB, chatID int64, name, lang, period string) string {
+	companyID, _, _ := companyByChatQuiet(db, chatID)
+	from := periodFrom(period)
+
+	var orders int
+	var revenue, profit float64
 	db.QueryRow(`
 		SELECT
-			COUNT(*) FILTER (WHERE created_at::date = CURRENT_DATE),
-			COALESCE(SUM(total_amount) FILTER (WHERE created_at::date = CURRENT_DATE AND status IN ('delivered','completed')), 0),
-			COALESCE(SUM(COALESCE(markup_profit,0)) FILTER (WHERE created_at::date = CURRENT_DATE AND status IN ('delivered','completed')), 0)
-		FROM orders WHERE company_id = $1
-	`, companyID).Scan(&todayOrders, &todayRevenue, &todayProfit)
-	var soldUnits int64
-	db.QueryRow(`SELECT COALESCE(SUM(sold_count),0) FROM products WHERE company_id = $1`, companyID).Scan(&soldUnits)
+			COUNT(*) FILTER (WHERE status NOT IN ('cancelled')),
+			COALESCE(SUM(total_amount) FILTER (WHERE status IN ('delivered','completed')), 0),
+			COALESCE(SUM(COALESCE(markup_profit,0)) FILTER (WHERE status NOT IN ('cancelled')), 0)
+		FROM orders WHERE company_id = $1 AND created_at >= $2
+	`, companyID, from).Scan(&orders, &revenue, &profit)
 
-	msg := fmt.Sprintf(
-		"📊 <b>%s</b> — сегодня\n\n"+
-			"💰 Выручка: <b>%s сум</b>\n"+
-			"📈 Чистая прибыль: <b>%s сум</b>\n"+
-			"🛍 Заказы: <b>%d</b>\n"+
-			"📦 Продано единиц (всего): <b>%d</b>",
-		html.EscapeString(companyName), fmtMoney(todayRevenue), fmtMoney(todayProfit), todayOrders, soldUnits)
-	sendCompanyAnalyticsMenu(chatID, msg)
+	var posCnt int
+	var posSum float64
+	db.QueryRow(`
+		SELECT COUNT(*), COALESCE(SUM(total_amount),0)
+		FROM sales WHERE company_id = $1 AND created_at >= $2
+	`, companyID, from).Scan(&posCnt, &posSum)
+
+	suffix := tr(lang, "soʻm", "сум")
+	var b strings.Builder
+	fmt.Fprintf(&b, "💰 <b>%s</b> — %s\n\n", html.EscapeString(name), periodLabel(lang, period))
+	fmt.Fprintf(&b, "%s: <b>%s %s</b>\n", tr(lang, "🛍 Buyurtmalar", "🛍 Заказы"), fmtInt(orders), tr(lang, "ta", "шт"))
+	fmt.Fprintf(&b, "%s: <b>%s %s</b>\n", tr(lang, "📈 Daromad", "📈 Выручка"), fmtMoney(revenue), suffix)
+	fmt.Fprintf(&b, "%s: <b>%s %s</b>\n", tr(lang, "💵 Sof foyda", "💵 Чистая прибыль"), fmtMoney(profit), suffix)
+	fmt.Fprintf(&b, "%s: <b>%d</b> · <b>%s %s</b>", tr(lang, "🏪 Kassa (oflayn)", "🏪 Касса (офлайн)"), posCnt, fmtMoney(posSum), suffix)
+	return b.String()
 }
+
+// companyByChatQuiet — как companyByChat, но без ответа в чат при ошибке.
+func companyByChatQuiet(db *sql.DB, chatID int64) (int64, string, bool) {
+	var id int64
+	var name string
+	if err := db.QueryRow(`SELECT id, name FROM companies WHERE telegram_chat_id = $1`, chatID).Scan(&id, &name); err != nil {
+		return 0, "", false
+	}
+	return id, name, true
+}
+
+// fmtInt форматирует целое с разделением тысяч пробелом.
+func fmtInt(v int) string { return fmtMoney(float64(v)) }
 
 // fmtMoney форматирует сумму целым числом с разделением тысяч пробелом.
 func fmtMoney(v float64) string {
@@ -550,46 +727,45 @@ func fmtMoney(v float64) string {
 	return neg + string(b)
 }
 
-func statusLabelRu(s string) string {
-	switch s {
-	case "pending":
-		return "новый"
-	case "confirmed":
-		return "принят"
-	case "processing":
-		return "в обработке"
-	case "shipped":
-		return "в пути"
-	case "delivered":
-		return "доставлен"
-	case "completed":
-		return "завершён"
-	case "cancelled":
-		return "отменён"
-	default:
+func statusLabel(lang, s string) string {
+	ru := map[string]string{
+		"pending": "новый", "confirmed": "принят", "processing": "в обработке",
+		"shipped": "в пути", "delivered": "доставлен", "completed": "завершён",
+		"cancelled": "отменён",
+	}
+	uz := map[string]string{
+		"pending": "yangi", "confirmed": "qabul qilindi", "processing": "jarayonda",
+		"shipped": "yoʻlda", "delivered": "yetkazildi", "completed": "yakunlandi",
+		"cancelled": "bekor qilindi",
+	}
+	if lang == "uz" {
+		if v, ok := uz[s]; ok {
+			return v
+		}
 		return s
 	}
+	if v, ok := ru[s]; ok {
+		return v
+	}
+	return s
 }
 
-// handleCompanyRecentOrders — последние заказы магазина (история).
-func handleCompanyRecentOrders(db *sql.DB, chatID int64) {
-	companyID, companyName, ok := companyByChat(db, chatID)
-	if !ok {
-		return
-	}
+// companyOrdersText — заказы магазина за выбранный период (день/неделя).
+func companyOrdersText(db *sql.DB, chatID int64, name, lang, period string) string {
+	companyID, _, _ := companyByChatQuiet(db, chatID)
+	from := periodFrom(period)
 	rows, err := db.Query(`
 		SELECT COALESCE(order_code,''), COALESCE(customer_name,''), COALESCE(total_amount,0),
 		       COALESCE(status,''), created_at
-		FROM orders WHERE company_id = $1
-		ORDER BY id DESC LIMIT 7
-	`, companyID)
+		FROM orders WHERE company_id = $1 AND created_at >= $2
+		ORDER BY id DESC LIMIT 10
+	`, companyID, from)
 	if err != nil {
-		sendTelegramMessage(chatID, "Не удалось получить заказы.")
-		return
+		return tr(lang, "Buyurtmalarni olishning imkoni boʻlmadi.", "Не удалось получить заказы.")
 	}
 	defer rows.Close()
 	var b strings.Builder
-	fmt.Fprintf(&b, "📋 <b>%s</b> — последние заказы\n\n", html.EscapeString(companyName))
+	fmt.Fprintf(&b, "📋 <b>%s</b> — %s\n\n", html.EscapeString(name), periodLabel(lang, period))
 	n := 0
 	for rows.Next() {
 		var code, cname, status string
@@ -599,52 +775,61 @@ func handleCompanyRecentOrders(db *sql.DB, chatID int64) {
 			continue
 		}
 		if code == "" {
-			code = "заказ"
+			code = tr(lang, "buyurtma", "заказ")
 		}
 		n++
-		fmt.Fprintf(&b, "• <b>%s</b> — %s сум · %s\n   %s · %s\n",
-			html.EscapeString(code), fmtMoney(amount), statusLabelRu(status),
+		fmt.Fprintf(&b, "• <b>%s</b> — %s %s · %s\n   %s · %s\n",
+			html.EscapeString(code), fmtMoney(amount), tr(lang, "soʻm", "сум"), statusLabel(lang, status),
 			html.EscapeString(cname), created.Format("02.01 15:04"))
 	}
 	if n == 0 {
-		b.WriteString("Заказов пока нет.")
+		b.WriteString(tr(lang, "Bu davrda buyurtmalar yoʻq.", "За этот период заказов нет."))
 	}
-	sendCompanyAnalyticsMenu(chatID, b.String())
+	return b.String()
 }
 
-// handleCompanyLowStock — товары с критическим остатком (≤5).
-func handleCompanyLowStock(db *sql.DB, chatID int64) {
-	companyID, companyName, ok := companyByChat(db, chatID)
-	if !ok {
-		return
-	}
+// companyLowStockText — товары с критическим остатком. Алгоритм ТОТ ЖЕ, что в
+// дашборде/«Расширенной аналитике»: остаток = сумма по вариантам (иначе
+// quantity); порог зависит от цены — дешёвые (цена ниже средней по магазину)
+// ≤ 20 шт, дорогие ≤ 10 шт. Нулевые остатки сюда не попадают.
+func companyLowStockText(db *sql.DB, chatID int64, name, lang string) string {
+	companyID, _, _ := companyByChatQuiet(db, chatID)
 	rows, err := db.Query(`
-		SELECT name, COALESCE(quantity,0)
-		FROM products
-		WHERE company_id = $1 AND available_for_customers = TRUE AND COALESCE(quantity,0) <= 5
-		ORDER BY quantity ASC LIMIT 15
+		WITH stock AS (
+			SELECT p.name,
+			       COALESCE(p.price, 0) AS price,
+			       COALESCE(NULLIF((SELECT SUM(pv.stock_quantity) FROM product_variants pv WHERE pv.product_id = p.id), 0), p.quantity, 0) AS stock
+			FROM products p
+			WHERE p.company_id = $1 AND p.name NOT LIKE '__CATEGORY_MARKER__%'
+		),
+		avgp AS (SELECT AVG(price) AS avg_price FROM stock)
+		SELECT stock.name, stock.stock
+		FROM stock, avgp
+		WHERE stock.stock > 0
+		  AND stock.stock <= CASE WHEN stock.price < avgp.avg_price THEN 20 ELSE 10 END
+		ORDER BY stock.stock ASC
+		LIMIT 20
 	`, companyID)
 	if err != nil {
-		sendTelegramMessage(chatID, "Не удалось получить остатки.")
-		return
+		return tr(lang, "Qoldiqlarni olishning imkoni boʻlmadi.", "Не удалось получить остатки.")
 	}
 	defer rows.Close()
 	var b strings.Builder
-	fmt.Fprintf(&b, "📦 <b>%s</b> — критические остатки (≤5)\n\n", html.EscapeString(companyName))
+	fmt.Fprintf(&b, "📦 <b>%s</b> — %s\n\n", html.EscapeString(name), tr(lang, "kritik qoldiq", "критические остатки"))
 	n := 0
 	for rows.Next() {
-		var name string
+		var pname string
 		var qty int
-		if rows.Scan(&name, &qty) != nil {
+		if rows.Scan(&pname, &qty) != nil {
 			continue
 		}
 		n++
-		fmt.Fprintf(&b, "• %s — <b>%d шт</b>\n", html.EscapeString(name), qty)
+		fmt.Fprintf(&b, "• %s — <b>%d %s</b>\n", html.EscapeString(pname), qty, tr(lang, "dona", "шт"))
 	}
 	if n == 0 {
-		b.WriteString("✅ Всё в порядке — критических остатков нет.")
+		b.WriteString(tr(lang, "✅ Hammasi joyida — kritik qoldiq yoʻq.", "✅ Всё в порядке — критических остатков нет."))
 	}
-	sendCompanyAnalyticsMenu(chatID, b.String())
+	return b.String()
 }
 
 // runTelegramStockAlerts шлёт оповещение, когда остаток товара падает до
